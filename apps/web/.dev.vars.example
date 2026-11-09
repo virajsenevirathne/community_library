@@ -1,0 +1,5 @@
+# Copy to .dev.vars for local development. Never commit real keys.
+# Production values are set with `npx wrangler secret put <NAME>`.
+RESEND_API_KEY=
+MAILJET_API_KEY=
+MAILJET_API_SECRET=

@@ -1,0 +1,33 @@
+{
+  "name": "community-library",
+  "private": true,
+  "description": "Free, open-source lending library for daycares, schools and other small libraries.",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "npm run dev -w @community-library/web",
+    "build": "npm run build -w @community-library/web",
+    "deploy": "npm run deploy -w @community-library/web",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  },
+  "allowScripts": {
+    "workerd@1.20261101.1": true,
+    "workerd@1.20261104.1": true,
+    "esbuild@0.28.2": true
+  }
+}
