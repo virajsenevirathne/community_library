@@ -5,6 +5,10 @@
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  // The free *.workers.dev address stays on (handy before a domain is attached).
+  // Per-version preview URLs stay off: they would all share the live database.
+  "workers_dev": true,
+  "preview_urls": false,
 
   // The React app is served as static assets. Only /api/* runs the Worker first;
   // every other path falls back to index.html so client-side routes work.
