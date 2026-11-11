@@ -68,12 +68,14 @@ export class QuotaMailer implements EmailSender {
 
   async send(message: EmailMessage, priority: Priority = "urgent"): Promise<SendResult> {
     if (priority === "routine" && (await this.remainingCached()) <= RESERVED_FOR_URGENT) {
-      return DEFERRED;
+      return { ...DEFERRED, attempts: 0 };
     }
     let last: SendResult = DEFERRED;
+    let attempts = 0;
     for (const sender of this.senders) {
       const day = await this.claim(sender.name);
       if (day === null) continue;
+      attempts += 1;
       try {
         last = await sender.send(message);
       } catch (error) {
@@ -86,12 +88,12 @@ export class QuotaMailer implements EmailSender {
       }
       if (last.ok) {
         if (this.cachedRemaining) this.cachedRemaining.value -= 1;
-        return last;
+        return { ...last, attempts };
       }
       // Not accepted: give the slot back, on the day it was counted.
       await this.release(sender.name, day);
     }
-    return last;
+    return { ...last, attempts };
   }
 
   private async used(provider: string) {

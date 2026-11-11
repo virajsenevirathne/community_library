@@ -23,8 +23,9 @@ import { sendInvite, unsentInvites } from "../routes/families.ts";
  * The key is claimed as "pending" before sending and marked "sent" after, so
  * overlapping runs cannot both send it. A failed send releases the claim, and
  * a claim left "pending" by a run that died is taken over after 15 minutes,
- * so nothing is lost. Each run sends at most MAX_EMAILS_PER_RUN emails (a
- * Worker may only make 50 outgoing requests per run); the rest go next hour.
+ * so nothing is lost. Each run makes at most MAX_EMAILS_PER_RUN email requests
+ * (a Worker may only make 50 outgoing requests per run, and a send that falls
+ * back to the second provider makes two); the rest go next hour.
  */
 
 export const JOB_NAME = "hourly";
@@ -70,11 +71,17 @@ interface Library {
   settings: LibrarySettings;
 }
 
-/** Counts emails sent in this run, to stay under the per-run limit. */
+/** Counts emails sent, and outgoing email requests made, to stay under the per-run limit. */
 class Budget {
   sent = 0;
+  requests = 0;
   get left() {
-    return MAX_EMAILS_PER_RUN - this.sent;
+    return MAX_EMAILS_PER_RUN - this.requests;
+  }
+  /** Records one send, successful or not. */
+  spend(result: SendResult) {
+    this.requests += result.attempts ?? 1;
+    if (result.ok) this.sent += 1;
   }
 }
 
@@ -274,8 +281,9 @@ async function sendFamilyReminders(deps: JobDeps, library: Library, today: strin
         result.ok,
         result.provider,
       );
-      if (result.ok) budget.sent += 1;
-      else console.error(`Reminder email not sent via ${result.provider}: ${result.error}`);
+      budget.spend(result);
+      if (!result.ok)
+        console.error(`Reminder email not sent via ${result.provider}: ${result.error}`);
     }
   }
 }
@@ -337,7 +345,7 @@ async function sendWeeklyDigest(
       result = { ok: false, provider: "error", retryable: true, error: String(error) };
     }
     await settle(DB, [key], result.ok, result.provider);
-    if (result.ok) budget.sent += 1;
+    budget.spend(result);
   }
 }
 
@@ -351,6 +359,8 @@ async function sendQueuedInvites(deps: JobDeps, library: Library, budget: Budget
       library,
       "routine",
     );
+    // Counted as the worst case: the invite helper doesn't say whether it fell back.
+    budget.requests += 2;
     // Out of quota for today: the rest wait for tomorrow.
     if (!ok) return;
     budget.sent += 1;

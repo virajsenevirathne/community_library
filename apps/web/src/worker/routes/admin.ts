@@ -93,6 +93,181 @@ const settingsBody = z
   .object({ libraryName: name("Library name", 80).optional() })
   .catchall(z.unknown());
 
+/**
+ * At most this many outgoing email requests per request: a Worker may make only
+ * 50, and a send that falls back to the second provider makes two.
+ */
+export const MAX_REMINDER_REQUESTS = 40;
+const MAX_BULK_LOANS = 100;
+/** A claim left "pending" this long (the request died mid-send) can be taken over. */
+const PENDING_TIMEOUT_MS = 15 * 60 * 1000;
+
+interface RemindLoan {
+  id: string;
+  dueOn: string;
+  familyId: string | null;
+  title: string;
+}
+
+const remindLoanQuery = `select l.id as id, l.due_on as dueOn, l.family_id as familyId, t.title as title
+  from loans l
+  join copies c on c.id = l.copy_id and c.library_id = l.library_id
+  join titles t on t.id = c.title_id and t.library_id = c.library_id
+  where l.library_id = ? and l.returned_at is null and l.id in (select value from json_each(?))
+  order by l.due_on, t.title`;
+
+const reminderKey = (loanId: string, now: string) => `manual:${loanId}:${now}`;
+
+/**
+ * Sends each family one reminder email (per parent) listing its loans. Each
+ * loan's key must already be claimed as "pending": a sent family's keys are
+ * marked "sent", and every other key is released (even after an error) so it
+ * can be tried again. Stops at the request budget or when today's routine
+ * quota runs out.
+ */
+async function remindFamilies(
+  c: AppContext,
+  actor: Actor,
+  families: Map<string, RemindLoan[]>,
+  now: string,
+) {
+  const DB = c.env.DB;
+  const result = {
+    reminded: 0,
+    books: 0,
+    deferred: 0,
+    failed: 0,
+    notYet: 0,
+    noEmail: 0,
+    sentLoanIds: [] as string[],
+  };
+  const allKeys = [...families.values()].flat().map((l) => reminderKey(l.id, now));
+  try {
+    const { results: parents } = await DB.prepare(
+      `select m.family_id as familyId, u.email as email from memberships m join users u on u.id = m.user_id
+       where m.library_id = ? and m.family_id in (select value from json_each(?))`,
+    )
+      .bind(actor.library.id, JSON.stringify([...families.keys()]))
+      .all<{ familyId: string; email: string }>();
+    // In production this is the QuotaMailer; other senders ignore the priority.
+    const mailer = c.get("email") as Pick<QuotaMailer, "send">;
+    let requests = 0;
+    let quotaHit = false;
+
+    for (const [familyId, loans] of families) {
+      const to = parents.filter((p) => p.familyId === familyId).map((p) => p.email);
+      if (to.length === 0) {
+        result.noEmail += 1;
+        continue;
+      }
+      if (quotaHit) {
+        result.deferred += 1;
+        continue;
+      }
+      // Budget for the worst case (every send falls back), but always try one family.
+      if (requests > 0 && requests + to.length * 2 > MAX_REMINDER_REQUESTS) {
+        result.notYet += 1;
+        continue;
+      }
+      let delivered = 0;
+      try {
+        const offUrl = await nudgesOffUrl(c.env, c.get("origin"), familyId);
+        const lines = loans.map((loan) => {
+          const overdueDays = daysOverdue(loan.dueOn, now);
+          return {
+            title: loan.title,
+            dueOn: loan.dueOn,
+            kind: overdueDays > 0 ? ("overdue" as const) : ("due_soon" as const),
+            overdueDays,
+          };
+        });
+        for (const email of to) {
+          const message = reminderEmail({
+            libraryName: actor.library.name,
+            to: email,
+            siteUrl: c.get("origin"),
+            nudgesOffUrl: offUrl,
+            lines,
+          });
+          // Routine: a reminder must never use up the emails kept for sign-in codes.
+          const sent = await mailer.send(message, "routine");
+          requests += sent.attempts ?? 1;
+          if (sent.ok) delivered += 1;
+          else if (sent.error === "deferred_quota") quotaHit = true;
+        }
+      } catch {
+        // Counted as failed below; its keys are released so it can be tried again.
+      }
+      if (delivered > 0) {
+        result.reminded += 1;
+        result.books += loans.length;
+        result.sentLoanIds.push(...loans.map((l) => l.id));
+      } else if (quotaHit) result.deferred += 1;
+      else result.failed += 1;
+    }
+  } finally {
+    const sentKeys = result.sentLoanIds.map((id) => reminderKey(id, now));
+    const sent = new Set(sentKeys);
+    await DB.batch([
+      DB.prepare(
+        "update notifications set status = 'sent' where dedupe_key in (select value from json_each(?))",
+      ).bind(JSON.stringify(sentKeys)),
+      DB.prepare(
+        "delete from notifications where status = 'pending' and dedupe_key in (select value from json_each(?))",
+      ).bind(JSON.stringify(allKeys.filter((k) => !sent.has(k)))),
+    ]);
+  }
+  return result;
+}
+
+/**
+ * Claims today's reminder key for each loan; returns the loans whose key was
+ * free (or left pending by a request that died more than 15 minutes ago).
+ */
+async function claimReminders(c: AppContext, actor: Actor, loans: RemindLoan[], now: string) {
+  if (loans.length === 0) return [];
+  const DB = c.env.DB;
+  const at = Date.now();
+  const claims = await DB.batch<{ id: string }>(
+    loans.map((loan) =>
+      DB.prepare(
+        `insert into notifications (id, library_id, family_id, kind, dedupe_key, status, created_at)
+         values (?1, ?2, ?3, 'manual_reminder', ?4, 'pending', ?5)
+         on conflict (dedupe_key) do update set created_at = ?5
+           where notifications.status = 'pending' and notifications.created_at < ?6
+         returning id`,
+      ).bind(
+        newId(),
+        actor.library.id,
+        loan.familyId,
+        reminderKey(loan.id, now),
+        at,
+        at - PENDING_TIMEOUT_MS,
+      ),
+    ),
+  );
+  return loans.filter((_, i) => (claims[i]?.results.length ?? 0) > 0);
+}
+
+const groupByFamily = (loans: RemindLoan[]) => {
+  const families = new Map<string, RemindLoan[]>();
+  for (const loan of loans) {
+    if (!loan.familyId) continue;
+    families.set(loan.familyId, [...(families.get(loan.familyId) ?? []), loan]);
+  }
+  return families;
+};
+
+const quotaMessage =
+  "Today's emails are nearly used up, so reminders wait until tomorrow. Sign-in codes still work.";
+
+const bulkRemindBody = z.object({
+  loanIds: z
+    .array(z.string().max(64))
+    .min(1, "Choose at least one loan.")
+    .max(MAX_BULK_LOANS, `Choose up to ${MAX_BULK_LOANS} loans at a time.`),
+});
+
 export const adminRoutes = new Hono<AppEnv>()
   .get("/dashboard", async (c) => {
     const actor = await requirePermission(c, "loans:manage");
@@ -248,84 +423,55 @@ export const adminRoutes = new Hono<AppEnv>()
   /** Email the family a reminder about this book now (at most once a day per loan). */
   .post("/loans/:id/remind", async (c) => {
     const actor = await requirePermission(c, "loans:manage");
-    const DB = c.env.DB;
     const now = today(actor);
-    const loan = await DB.prepare(
-      `select l.id as id, l.due_on as dueOn, l.family_id as familyId, t.title as title
-       from loans l
-       join copies c on c.id = l.copy_id and c.library_id = l.library_id
-       join titles t on t.id = c.title_id and t.library_id = c.library_id
-       where l.id = ? and l.library_id = ? and l.returned_at is null`,
-    )
-      .bind(c.req.param("id"), actor.library.id)
-      .first<{ id: string; dueOn: string; familyId: string | null; title: string }>();
+    const { results } = await c.env.DB.prepare(remindLoanQuery)
+      .bind(actor.library.id, JSON.stringify([c.req.param("id")]))
+      .all<RemindLoan>();
+    const loan = results[0];
     if (!loan) fail(404, "not_found", "That loan was not found. The book may already be back.");
     if (!loan.familyId) {
       fail(409, "no_family", "This family's account was deleted, so there is no one to email.");
     }
-    const key = `manual:${loan.id}:${now}`;
-    const claimed = await DB.prepare(
-      `insert into notifications (id, library_id, family_id, kind, dedupe_key, status)
-       values (?, ?, ?, 'manual_reminder', ?, 'pending') on conflict (dedupe_key) do nothing returning id`,
-    )
-      .bind(newId(), actor.library.id, loan.familyId, key)
-      .first();
-    if (!claimed) {
+    if ((await claimReminders(c, actor, [loan], now)).length === 0) {
       fail(409, "already_reminded", "This family was already reminded about this book today.");
     }
-
-    let delivered = 0;
-    let deferred = false;
-    try {
-      const { results: parents } = await DB.prepare(
-        `select u.email as email from memberships m join users u on u.id = m.user_id
-         where m.library_id = ? and m.family_id = ?`,
-      )
-        .bind(actor.library.id, loan.familyId)
-        .all<{ email: string }>();
-      const overdueDays = daysOverdue(loan.dueOn, now);
-      const offUrl = await nudgesOffUrl(c.env, c.get("origin"), loan.familyId);
-      // In production this is the QuotaMailer; other senders ignore the priority.
-      const mailer = c.get("email") as Pick<QuotaMailer, "send">;
-      for (const parent of parents) {
-        const message = reminderEmail({
-          libraryName: actor.library.name,
-          to: parent.email,
-          siteUrl: c.get("origin"),
-          nudgesOffUrl: offUrl,
-          lines: [
-            {
-              title: loan.title,
-              dueOn: loan.dueOn,
-              kind: overdueDays > 0 ? "overdue" : "due_soon",
-              overdueDays,
-            },
-          ],
-        });
-        // Routine: a reminder must never use up the emails kept for sign-in codes.
-        const result = await mailer.send(message, "routine");
-        if (result.ok) delivered += 1;
-        else if (result.error === "deferred_quota") deferred = true;
-      }
-    } finally {
-      await DB.prepare(
-        delivered > 0
-          ? "update notifications set status = 'sent' where dedupe_key = ?"
-          : "delete from notifications where dedupe_key = ?",
-      )
-        .bind(key)
-        .run();
+    const result = await remindFamilies(c, actor, groupByFamily([loan]), now);
+    if (result.noEmail) {
+      fail(409, "no_email", "No parent in this family has an email address to send to.");
     }
-    if (delivered === 0) {
+    if (result.reminded === 0) {
       fail(
         503,
-        deferred ? "email_quota" : "email_failed",
-        deferred
-          ? "Today's emails are nearly used up, so reminders wait until tomorrow. Sign-in codes still work."
+        result.deferred ? "email_quota" : "email_failed",
+        result.deferred
+          ? quotaMessage
           : "The reminder could not be sent. Check the email settings, then try again.",
       );
     }
-    return c.json({ sent: delivered });
+    return c.json({ sent: 1 });
+  })
+
+  /**
+   * Email reminders for several loans at once: one email per family listing
+   * its chosen books. Books already reminded about today are skipped.
+   */
+  .post("/loans/remind", async (c) => {
+    const actor = await requirePermission(c, "loans:manage");
+    const { loanIds } = await readBody(c, bulkRemindBody);
+    const now = today(actor);
+    const ids = [...new Set(loanIds)];
+    const { results: loans } = await c.env.DB.prepare(remindLoanQuery)
+      .bind(actor.library.id, JSON.stringify(ids))
+      .all<RemindLoan>();
+    const withFamily = loans.filter((l) => l.familyId);
+    const claimed = await claimReminders(c, actor, withFamily, now);
+    const result = await remindFamilies(c, actor, groupByFamily(claimed), now);
+    return c.json({
+      ...result,
+      alreadyReminded: withFamily.length - claimed.length,
+      // Returned, removed, or a family whose account was deleted.
+      skipped: ids.length - withFamily.length,
+    });
   })
 
   .get("/settings", async (c) => {

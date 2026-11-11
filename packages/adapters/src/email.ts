@@ -11,9 +11,13 @@ export interface EmailMessage {
   idempotencyKey?: string;
 }
 
-export type SendResult =
+export type SendResult = (
   | { ok: true; provider: string; id: string }
-  | { ok: false; provider: string; retryable: boolean; error: string };
+  | { ok: false; provider: string; retryable: boolean; error: string }
+) & {
+  /** Outgoing requests this send made (a fallback provider adds one). Unset means one. */
+  attempts?: number;
+};
 
 export interface EmailSender {
   readonly name: string;

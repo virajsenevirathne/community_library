@@ -10,6 +10,7 @@ interface Loan {
   code: string;
   title: string;
   titleId: string;
+  familyId: string | null;
   familyName: string;
   dueOn: string;
   overdueDays: number;
@@ -56,6 +57,13 @@ export function LoansPage() {
   const searchRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
   useSlashFocus(searchRef);
+  // Loans ticked for "Send reminders". Only loans on screen stay ticked, so
+  // nothing hidden by the filter or search is ever emailed.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkStep, setBulkStep] = useState<"idle" | "confirm" | "sending">("idle");
+  const selectAllRef = useRef<HTMLInputElement>(null);
+  const sendButtonRef = useRef<HTMLButtonElement>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -63,6 +71,11 @@ export function LoansPage() {
         `/admin/loans?filter=${filter}`,
       );
       setLoans(res.loans);
+      // Loans that left the list (returned, say) drop out of the selection.
+      setSelected((current) => {
+        const open = new Set(res.loans.map((l) => l.id));
+        return new Set([...current].filter((id) => open.has(id)));
+      });
       setCounts(res.counts ?? {});
       setError("");
       return res.loans;
@@ -73,6 +86,8 @@ export function LoansPage() {
   }, [filter]);
   useEffect(() => {
     setLoans(null);
+    setSelected(new Set());
+    setBulkStep("idle");
     setCardMessage(undefined);
     setTopMessage(undefined);
     void load();
@@ -105,6 +120,74 @@ export function LoansPage() {
           [l.title, l.familyName, l.code].some((v) => v.toLowerCase().includes(q)),
         )
       : loans;
+
+  // Search narrows what's on screen: drop ticks on loans it hides.
+  const shownKey = shown?.map((l) => l.id).join(",") ?? "";
+  useEffect(() => {
+    const visible = new Set(shownKey.split(","));
+    setSelected((current) => {
+      const next = new Set([...current].filter((id) => visible.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [shownKey]);
+
+  const chosen = (shown ?? []).filter((l) => selected.has(l.id));
+  const chosenFamilies = new Set(chosen.map((l) => l.familyId ?? l.id)).size;
+  const selectable = (shown ?? []).slice(0, MAX_BULK);
+  const allChosen = selectable.length > 0 && selectable.every((l) => selected.has(l.id));
+  const someChosen = chosen.length > 0 && !allChosen;
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someChosen;
+  }, [someChosen]);
+  // With nothing ticked there is nothing to confirm.
+  useEffect(() => {
+    if (chosen.length === 0 && bulkStep === "confirm") setBulkStep("idle");
+  }, [chosen.length, bulkStep]);
+
+  // Asking first: focus goes to Cancel, so a stray Enter or double tap sends nothing.
+  useEffect(() => {
+    if (bulkStep === "confirm") cancelButtonRef.current?.focus();
+  }, [bulkStep]);
+
+  const busyBulk = bulkStep !== "idle";
+  const toggle = (id: string, on: boolean) => {
+    setTopMessage(undefined);
+    setSelected((current) => {
+      const next = new Set(current);
+      if (on && next.size < MAX_BULK) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+  const toggleAll = (on: boolean) => {
+    setTopMessage(undefined);
+    setSelected(on ? new Set(selectable.map((l) => l.id)) : new Set());
+  };
+
+  const sendReminders = async () => {
+    setBulkStep("sending");
+    setTopMessage(undefined);
+    let message: Message;
+    try {
+      const res = await api<BulkResult>("/admin/loans/remind", {
+        body: { loanIds: chosen.map((l) => l.id) },
+      });
+      message = bulkMessage(res);
+      // Untick what was sent or skipped; what still needs sending stays ticked.
+      const settled = new Set(res.sentLoanIds);
+      if (res.notYet === 0 && res.failed === 0 && res.deferred === 0) setSelected(new Set());
+      else setSelected((current) => new Set([...current].filter((id) => !settled.has(id))));
+    } catch (e) {
+      message = { kind: "error", text: errorMessage(e) };
+    }
+    setBulkStep("idle");
+    setTopMessage(message);
+    requestAnimationFrame(() => topRef.current?.focus());
+  };
+  const cancelSend = () => {
+    setBulkStep("idle");
+    requestAnimationFrame(() => sendButtonRef.current?.focus());
+  };
 
   return (
     <Layout title="Loans" width="wide">
@@ -155,24 +238,97 @@ export function LoansPage() {
           </div>
         </div>
       ) : (
-        <div className="loan-table">
-          <div className="loan-head" aria-hidden="true">
-            <span>Book</span>
-            <span>Family</span>
-            <span>Due</span>
-            <span />
+        <>
+          <p className="muted bulk-hint">Tick loans to email their families a reminder.</p>
+          <label className="check select-all">
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              checked={allChosen}
+              disabled={busyBulk}
+              onChange={(e) => toggleAll(e.target.checked)}
+            />
+            {shown.length > MAX_BULK
+              ? `Select the first ${MAX_BULK} loans`
+              : `Select all ${shown.length} ${shown.length === 1 ? "loan" : "loans"}`}
+            {q ? " that match" : ""}
+          </label>
+          <div className="loan-table">
+            <div className="loan-head" aria-hidden="true">
+              <span />
+              <span>Book</span>
+              <span>Family</span>
+              <span>Due</span>
+              <span />
+            </div>
+            <ul className="loan-list loan-list--table">
+              {shown.map((loan) => (
+                <LoanCard
+                  key={loan.id}
+                  loan={loan}
+                  message={cardMessage?.loanId === loan.id ? cardMessage : undefined}
+                  onRun={run}
+                  selected={selected.has(loan.id)}
+                  selectDisabled={busyBulk || (!selected.has(loan.id) && selected.size >= MAX_BULK)}
+                  onSelect={(on) => toggle(loan.id, on)}
+                />
+              ))}
+            </ul>
           </div>
-          <ul className="loan-list loan-list--table">
-            {shown.map((loan) => (
-              <LoanCard
-                key={loan.id}
-                loan={loan}
-                message={cardMessage?.loanId === loan.id ? cardMessage : undefined}
-                onRun={run}
-              />
-            ))}
-          </ul>
-        </div>
+        </>
+      )}
+      {/* Always present, so screen readers hear the count change. */}
+      <p className="visually-hidden" role="status">
+        {chosen.length > 0 ? `${chosen.length} selected` : ""}
+      </p>
+      {chosen.length > 0 && (
+        <section className="bulk-bar" aria-label="Selected loans">
+          {bulkStep === "idle" ? (
+            <>
+              <p className="bulk-bar__text">
+                {chosen.length} selected
+                {chosen.length >= MAX_BULK && <span className="muted"> (the most at a time)</span>}
+              </p>
+              <div className="bulk-bar__actions">
+                <Button ref={sendButtonRef} onClick={() => setBulkStep("confirm")}>
+                  Send reminders
+                </Button>
+                <Button variant="secondary" onClick={() => setSelected(new Set())}>
+                  Clear
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="bulk-bar__text" id="bulk-question">
+                Email {families(chosenFamilies)} about {books(chosen.length)}?{" "}
+                <span className="bulk-bar__detail">
+                  Each family gets one email listing its books. Books already reminded about today
+                  are skipped.
+                </span>
+              </p>
+              <div className="bulk-bar__actions">
+                <Button
+                  variant="secondary"
+                  onClick={cancelSend}
+                  disabled={bulkStep === "sending"}
+                  aria-describedby="bulk-question"
+                  ref={cancelButtonRef}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={sendReminders}
+                  busy={bulkStep === "sending"}
+                  busyLabel="Sending…"
+                  aria-describedby="bulk-question"
+                >
+                  Yes, email {families(chosenFamilies)}
+                </Button>
+              </div>
+            </>
+          )}
+        </section>
       )}
       <p className="hint-card">
         Checking in a basket of books? <Link href="/admin/returns">Scan them in one go</Link>
@@ -181,14 +337,76 @@ export function LoansPage() {
   );
 }
 
+/** The server accepts this many loans per "Send reminders". */
+const MAX_BULK = 100;
+
+interface BulkResult {
+  sentLoanIds: string[];
+  noEmail: number;
+  reminded: number;
+  books: number;
+  deferred: number;
+  failed: number;
+  notYet: number;
+  alreadyReminded: number;
+  skipped: number;
+}
+
+const families = (n: number) => `${n} ${n === 1 ? "family" : "families"}`;
+const books = (n: number) => `${n} ${n === 1 ? "book" : "books"}`;
+
+/** One plain sentence per outcome of "Send reminders". */
+function bulkMessage(res: BulkResult): Message {
+  const parts: string[] = [];
+  if (res.reminded > 0) {
+    parts.push(`Reminders sent to ${families(res.reminded)} about ${books(res.books)}.`);
+  }
+  if (res.alreadyReminded > 0) {
+    parts.push(
+      `${books(res.alreadyReminded)} already had a reminder today, so ${res.alreadyReminded === 1 ? "it was" : "they were"} skipped.`,
+    );
+  }
+  if (res.skipped > 0) {
+    parts.push(`${books(res.skipped)} ${res.skipped === 1 ? "is" : "are"} no longer out.`);
+  }
+  if (res.notYet > 0) {
+    parts.push(
+      `${families(res.notYet)} still to go: press Send reminders again to email the rest.`,
+    );
+  }
+  if (res.deferred > 0) {
+    parts.push(
+      `Today's emails are nearly used up, so ${families(res.deferred)} will need a reminder tomorrow.`,
+    );
+  }
+  if (res.noEmail > 0) {
+    parts.push(
+      `${families(res.noEmail)} ${res.noEmail === 1 ? "has" : "have"} no parent email address, so no reminder went.`,
+    );
+  }
+  if (res.failed > 0) {
+    parts.push(
+      `${families(res.failed)} couldn't be emailed. Check the email settings, then try again.`,
+    );
+  }
+  const bad = res.reminded === 0 && (res.deferred > 0 || res.failed > 0 || res.noEmail > 0);
+  return { kind: bad ? "error" : "success", text: parts.join(" ") || "Nothing to send." };
+}
+
 function LoanCard({
   loan,
   message,
   onRun,
+  selected,
+  selectDisabled,
+  onSelect,
 }: {
   loan: Loan;
   message: Message | undefined;
   onRun: (loan: Loan, request: () => Promise<unknown>, success: string) => Promise<void>;
+  selected: boolean;
+  selectDisabled: boolean;
+  onSelect: (on: boolean) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<"lost" | "damaged" | null>(null);
@@ -210,7 +428,18 @@ function LoanCard({
   const late = lateText(loan.overdueDays);
   const locked = busy !== null;
   return (
-    <li className="card">
+    <li className={`card${selected ? " card--selected" : ""}`}>
+      <label className="loan-select">
+        <input
+          type="checkbox"
+          checked={selected}
+          disabled={selectDisabled}
+          onChange={(e) => onSelect(e.target.checked)}
+        />
+        <span className="visually-hidden">
+          Select {loan.title}, copy {loan.code} ({loan.familyName})
+        </span>
+      </label>
       <p>
         <Link href={`/admin/catalog/${loan.titleId}`}>
           <strong>{loan.title}</strong>

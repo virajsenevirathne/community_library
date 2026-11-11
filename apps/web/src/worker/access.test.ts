@@ -240,6 +240,11 @@ export const ROUTES: {
     body: { outcome: "returned" },
   },
   {
+    route: "POST /api/admin/loans/remind",
+    rule: "loans:manage",
+    body: { loanIds: ["missing"] },
+  },
+  {
     route: "POST /api/admin/loans/:id/remind",
     rule: "loans:manage",
     request: "/api/admin/loans/missing/remind",

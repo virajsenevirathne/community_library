@@ -68,7 +68,10 @@ describe("email quota", () => {
       () => new Date("2026-11-11T10:00:00Z"),
       limits,
     );
-    expect((await mailer.send(msg())).provider).toBe("mailjet");
+    const sent = await mailer.send(msg());
+    expect(sent.provider).toBe("mailjet");
+    // Two outgoing requests, so callers can stay under the Worker's limit.
+    expect(sent.attempts).toBe(2);
     const row = await env.DB.prepare(
       "select count from email_quota where provider = 'resend'",
     ).first("count");
@@ -86,6 +89,8 @@ describe("email quota", () => {
     const routine = [];
     for (let i = 0; i < 6; i++) routine.push((await mailer.send(msg(), "routine")).ok);
     expect(routine).toEqual([true, true, true, true, true, false]);
+    // Held back without calling any provider.
+    expect((await mailer.send(msg(), "routine")).attempts).toBe(0);
     expect((await mailer.send(msg(), "urgent")).ok).toBe(true);
   });
 });

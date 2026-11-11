@@ -201,6 +201,7 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   busy?: boolean;
   /** What the button says while busy, such as "Sending…". */
   busyLabel?: string;
+  ref?: Ref<HTMLButtonElement> | undefined;
 };
 
 export function Button({
