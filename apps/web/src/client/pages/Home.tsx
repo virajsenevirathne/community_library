@@ -1,6 +1,10 @@
-import { Alert, Layout } from "../components.tsx";
+import { useCallback, useEffect, useState } from "react";
+import { Alert, Button, Layout, Loading } from "../components.tsx";
+import { api, errorMessage } from "../lib/api.ts";
+import { formatDate, lateText } from "../lib/copies.ts";
 import { Link } from "../lib/router.tsx";
 import { isStaff, type Me, useSession } from "../lib/session.tsx";
+import { Cover } from "./admin/Cover.tsx";
 
 /** What the person can do right now, which decides what the home page says. */
 export function borrowState(
@@ -15,7 +19,18 @@ export function borrowState(
   return "ok";
 }
 
-/** A parent's home: their family's books. The list itself arrives with borrowing (VIR-11). */
+interface MyLoan {
+  id: string;
+  code: string;
+  title: string;
+  authors: string;
+  coverUrl: string | null;
+  dueOn: string;
+  overdueDays: number;
+  canExtend: boolean;
+}
+
+/** A parent's home: their family's books, soonest due first. */
 export function HomePage() {
   const { state } = useSession();
   if (state.status !== "ready") return null;
@@ -23,7 +38,7 @@ export function HomePage() {
   const status = borrowState(me);
 
   return (
-    <Layout title={status === "ok" || status === "pending" ? "Your books" : "Welcome"}>
+    <Layout title={status === "ok" ? "Your books" : "Welcome"}>
       {status === "not_member" && (
         <Alert kind="info">
           You're signed in, but you haven't joined this library yet. Ask the library staff for the
@@ -31,10 +46,15 @@ export function HomePage() {
         </Alert>
       )}
       {status === "pending" && (
-        <Alert kind="info">
-          Your family is waiting for staff approval. You can borrow once they approve it. Ask staff
-          if it's taking a while.
-        </Alert>
+        <>
+          <Alert kind="info">
+            Your family is waiting for staff approval. You can borrow once they approve it. Ask
+            staff if it's taking a while.
+          </Alert>
+          <p className="lead">
+            Once you're approved, scan the QR sticker inside a book's cover to borrow it.
+          </p>
+        </>
       )}
       {status === "paused" && (
         <Alert kind="info">
@@ -48,16 +68,131 @@ export function HomePage() {
           borrow for your own family, ask an admin to add you to one.
         </Alert>
       )}
-      {status === "ok" && (
-        <p className="lead">
-          To borrow or return a book, scan the QR sticker inside its cover with your phone camera.
-        </p>
-      )}
-      {status === "pending" && (
-        <p className="lead">
-          Once you're approved, scan the QR sticker inside a book's cover to borrow it.
-        </p>
-      )}
+      {status === "ok" && <MyBooks />}
     </Layout>
+  );
+}
+
+/** "Due today", "Due tomorrow" or "Due back Friday 21 November", plus lateness. */
+function dueText(loan: MyLoan): { text: string; urgent: boolean } {
+  if (loan.overdueDays > 0) {
+    return {
+      text: `${lateText(loan.overdueDays)}. Was due ${formatDate(loan.dueOn)}`,
+      urgent: true,
+    };
+  }
+  const today = new Date();
+  const iso = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const tomorrow = new Date(today.getTime() + 86_400_000);
+  if (loan.dueOn === iso(today)) return { text: "Due back today", urgent: true };
+  if (loan.dueOn === iso(tomorrow)) return { text: "Due back tomorrow", urgent: true };
+  return { text: `Due back ${formatDate(loan.dueOn)}`, urgent: false };
+}
+
+function MyBooks() {
+  const [data, setData] = useState<{ loans: MyLoan[]; maxLoans: number } | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  // Loans extended on this visit: the button is replaced by the new date in the same row.
+  const [extended, setExtended] = useState<Record<string, string>>({});
+  const [rowError, setRowError] = useState<Record<string, string>>({});
+
+  const load = useCallback(async () => {
+    try {
+      setData(await api<{ loans: MyLoan[]; maxLoans: number }>("/loans/mine"));
+      setError("");
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const extend = async (loan: MyLoan) => {
+    setBusy(loan.id);
+    setRowError((r) => ({ ...r, [loan.id]: "" }));
+    try {
+      const res = await api<{ dueOn: string }>(`/loans/${loan.id}/extend`, { body: {} });
+      setExtended((x) => ({ ...x, [loan.id]: res.dueOn }));
+      await load();
+    } catch (e) {
+      setRowError((r) => ({ ...r, [loan.id]: errorMessage(e) }));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const overdue = data?.loans.filter((l) => l.overdueDays > 0).length ?? 0;
+
+  return (
+    <>
+      {error && (
+        <Alert>
+          {error}{" "}
+          <Button variant="link" onClick={() => void load()}>
+            Try again
+          </Button>
+        </Alert>
+      )}
+      {data === null && !error && <Loading label="Loading your books…" />}
+      {data && (
+        <>
+          <h2>
+            {data.loans.length === 0
+              ? "No books out right now"
+              : `${data.loans.length} of ${data.maxLoans} books out`}
+          </h2>
+          {overdue > 0 && (
+            <p className="late">
+              {overdue === 1 ? "1 book is" : `${overdue} books are`} overdue. Please bring{" "}
+              {overdue === 1 ? "it" : "them"} back soon.
+            </p>
+          )}
+          <ul className="book-list">
+            {data.loans.map((loan) => {
+              const due = dueText(loan);
+              return (
+                <li key={loan.id} className="book-row book-row--wrap">
+                  <Cover url={loan.coverUrl} title={loan.title} size="sm" />
+                  <span className="book-row__text">
+                    <strong>{loan.title}</strong>
+                    <span className={due.urgent ? "late" : "muted"}>{due.text}</span>
+                    {extended[loan.id] && (
+                      <span className="ok" role="status">
+                        Extended to {formatDate(extended[loan.id] ?? "")}
+                      </span>
+                    )}
+                    {rowError[loan.id] && (
+                      <span className="late" role="alert">
+                        {rowError[loan.id]}
+                      </span>
+                    )}
+                  </span>
+                  {loan.canExtend && !extended[loan.id] && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => extend(loan)}
+                      busy={busy === loan.id}
+                      busyLabel="Extending…"
+                      aria-label={`Keep ${loan.title} longer`}
+                    >
+                      Keep longer
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+      <p className="lead" style={{ marginTop: "1.5rem" }}>
+        To borrow or return a book, scan the QR sticker inside its cover with your phone camera.
+      </p>
+      <p>
+        <Link href="/c">Camera won't scan? Type the code instead</Link>
+      </p>
+    </>
   );
 }

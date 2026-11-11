@@ -15,6 +15,7 @@ import { currentLibrary } from "./library.ts";
 import { consume } from "./limiter.ts";
 import { accountRoutes } from "./routes/account.ts";
 import { catalogRoutes } from "./routes/catalog.ts";
+import { loanRoutes } from "./routes/loans.ts";
 
 export type { AppEnv } from "./context.ts";
 
@@ -81,6 +82,9 @@ export function createApp(options: AppOptions = {}) {
     c.set("email", email);
     c.set("metadata", options.metadata ?? [new OpenLibraryProvider(), new GoogleBooksProvider()]);
 
+    const waitUntil = options.waitUntil ?? ((p: Promise<unknown>) => c.executionCtx.waitUntil(p));
+    c.set("waitUntil", waitUntil);
+
     let auth: Auth | undefined;
     const getAuth = () => {
       auth ??= createAuth({
@@ -89,7 +93,7 @@ export function createApp(options: AppOptions = {}) {
         origin,
         libraryName,
         email,
-        waitUntil: options.waitUntil ?? ((p) => c.executionCtx.waitUntil(p)),
+        waitUntil,
       });
       return auth;
     };
@@ -145,6 +149,7 @@ export function createApp(options: AppOptions = {}) {
   });
   app.route("/", accountRoutes);
   app.route("/catalog", catalogRoutes);
+  app.route("/", loanRoutes);
 
   app.notFound((c) => c.json({ error: "not_found", message: "Not found." }, 404));
   app.onError((err, c) => {

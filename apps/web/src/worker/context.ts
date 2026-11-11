@@ -20,6 +20,8 @@ export type AppEnv = {
     auth: () => Auth;
     email: EmailSender;
     user: SessionUser | null;
+    /** Keeps work (such as sending email) running after the response is sent. */
+    waitUntil: (promise: Promise<unknown>) => void;
     /** The site's public address, such as https://library.example.org. Used in QR links. */
     origin: string;
     /** Book lookup services, in the order to ask them. */

@@ -5,9 +5,11 @@ import { isStaff, type Me, SessionProvider, useSession } from "./lib/session.tsx
 import { AccountPage } from "./pages/Account.tsx";
 import { AddBooksPage } from "./pages/admin/AddBooks.tsx";
 import { AdminHomePage } from "./pages/admin/AdminHome.tsx";
+import { BulkReturnPage } from "./pages/admin/BulkReturn.tsx";
 import { CatalogPage } from "./pages/admin/Catalog.tsx";
 import { LabelsPage } from "./pages/admin/Labels.tsx";
 import { TitleDetailPage } from "./pages/admin/TitleDetail.tsx";
+import { CodeEntryPage, CopyPage } from "./pages/Copy.tsx";
 import { HomePage } from "./pages/Home.tsx";
 import { SetupPage } from "./pages/Setup.tsx";
 import { SignInPage } from "./pages/SignIn.tsx";
@@ -60,6 +62,10 @@ function Routes() {
   if (path === "/admin/add") return guard(<AddBooksPage />, isStaff);
   if (path === "/admin/catalog") return guard(<CatalogPage />, isStaff);
   if (path === "/admin/labels") return guard(<LabelsPage />, isStaff);
+  if (path === "/admin/returns") return guard(<BulkReturnPage />, isStaff);
+  if (path === "/c") return guard(<CodeEntryPage />);
+  const copyMatch = path.match(/^\/c\/([A-Za-z0-9-]{1,12})\/?$/);
+  if (copyMatch?.[1]) return guard(<CopyPage key={copyMatch[1]} code={copyMatch[1]} />);
   const titleMatch = path.match(/^\/admin\/catalog\/([\w-]+)$/);
   if (titleMatch?.[1])
     return guard(<TitleDetailPage key={titleMatch[1]} id={titleMatch[1]} />, isStaff);

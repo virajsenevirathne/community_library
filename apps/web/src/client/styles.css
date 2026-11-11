@@ -626,3 +626,52 @@ h2 {
   display: block;
   font-size: 0.875rem;
 }
+.late {
+  color: var(--danger);
+  font-weight: 600;
+}
+.book-row .btn {
+  margin-left: auto;
+  flex: none;
+}
+.ok {
+  color: var(--accent);
+  font-weight: 600;
+}
+.book-row--wrap {
+  flex-wrap: wrap;
+}
+.book-row--wrap .book-row__text {
+  flex: 1 1 10rem;
+}
+.btn--return {
+  background: var(--surface);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.scan-result {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 1rem;
+  margin: 1rem 0;
+  border-radius: var(--radius);
+  font-size: 1.125rem;
+}
+.scan-result--ok {
+  background: var(--success-soft);
+  border-left: 6px solid var(--accent);
+}
+.scan-result--warn {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+  border-left: 6px solid currentColor;
+}
+.scan-result--error {
+  background: var(--danger-soft);
+  border-left: 6px solid var(--danger);
+}
+.scan-result__icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}

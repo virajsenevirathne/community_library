@@ -115,3 +115,87 @@ export function signInCodeEmail(
     }),
   };
 }
+
+const DUE_FORMAT = new Intl.DateTimeFormat("en-GB", {
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+  timeZone: "UTC",
+});
+
+/** "Friday 21 November" for a YYYY-MM-DD due date. */
+export function formatDueDate(date: string): string {
+  return DUE_FORMAT.format(new Date(`${date}T12:00:00Z`));
+}
+
+/** Sent to every parent in the family when a book is borrowed. Always sent, even with nudges off. */
+export function checkoutEmail(options: {
+  libraryName: string;
+  to: string;
+  siteUrl: string;
+  borrowed: { title: string; dueOn: string };
+  booksOut: { title: string; dueOn: string }[];
+}): EmailMessage {
+  const library = cleanHeader(options.libraryName);
+  const due = formatDueDate(options.borrowed.dueOn);
+  const list = options.booksOut.map((b) => `- ${b.title} (due ${formatDueDate(b.dueOn)})`);
+  return {
+    to: options.to,
+    subject: `You borrowed ${cleanHeader(options.borrowed.title).slice(0, 80)}, due ${due}`,
+    text: [
+      `You borrowed "${options.borrowed.title}" from ${library}. Please bring it back by ${due}.`,
+      "",
+      `Your family has ${options.booksOut.length} ${options.booksOut.length === 1 ? "book" : "books"} out:`,
+      ...list,
+      "",
+      `See your books: ${options.siteUrl}/`,
+    ].join("\n"),
+    html: htmlEmail(library, {
+      title: "You borrowed a book",
+      preheader: `Due ${due}`,
+      paragraphs: [
+        `You borrowed <strong>${escapeHtml(options.borrowed.title)}</strong>. Please bring it back by <strong>${escapeHtml(due)}</strong>.`,
+        `Your family has ${options.booksOut.length} ${options.booksOut.length === 1 ? "book" : "books"} out:`,
+        `<ul style="margin:0;padding-left:20px">${options.booksOut
+          .map((b) => `<li>${escapeHtml(b.title)}, due ${escapeHtml(formatDueDate(b.dueOn))}</li>`)
+          .join("")}</ul>`,
+        `<a href="${escapeHtml(options.siteUrl)}/" style="color:#1f6f5c;font-weight:600;text-decoration:underline">See your books</a>`,
+      ],
+    }),
+  };
+}
+
+/** Tells a family that someone found a book they have out. */
+export function foundEmail(options: {
+  libraryName: string;
+  to: string;
+  title: string;
+  dueOn: string;
+  siteUrl: string;
+}): EmailMessage {
+  const library = cleanHeader(options.libraryName);
+  const due = formatDueDate(options.dueOn);
+  return {
+    to: options.to,
+    subject: `Someone found "${cleanHeader(options.title).slice(0, 80)}" at the library`,
+    text: [
+      `No action needed, unless you still have "${options.title}" at home.`,
+      "",
+      `Another parent found this book at ${library}. It's on your family's account (due ${due}).`,
+      "Staff will check it in when it's back on the shelf, and it will leave your list then.",
+      "If you do still have it at home, please let the library staff know.",
+      "",
+      `See your books: ${options.siteUrl}/`,
+    ].join("\n"),
+    html: htmlEmail(library, {
+      title: "Someone found your book",
+      preheader: "No action needed unless you still have it at home.",
+      paragraphs: [
+        `<strong>No action needed</strong>, unless you still have <strong>${escapeHtml(options.title)}</strong> at home.`,
+        `Another parent found this book at the library. It's on your family's account (due ${escapeHtml(due)}). Staff will check it in when it's back on the shelf.`,
+        "If you do still have it at home, please let the library staff know.",
+        `<a href="${escapeHtml(options.siteUrl)}/" style="color:#1f6f5c;font-weight:600;text-decoration:underline">See your books</a>`,
+      ],
+    }),
+  };
+}

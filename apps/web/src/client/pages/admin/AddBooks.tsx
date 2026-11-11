@@ -179,6 +179,8 @@ function StartStep({
         <>
           <Scanner
             label="Camera view for scanning a book barcode"
+            hint="Point the camera at the barcode on the back cover"
+            typeWhat="ISBN"
             formats={["ean_13"]}
             accept={(value) => normalizeIsbn(value)}
             onScan={onIsbn}

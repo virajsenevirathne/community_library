@@ -7,6 +7,12 @@ export function AdminHomePage() {
     <Layout title="Admin">
       <ul className="tiles">
         <li>
+          <Link href="/admin/returns" className="tile">
+            <strong>Check in returns</strong>
+            <span>Scan the books in the returns basket</span>
+          </Link>
+        </li>
+        <li>
           <Link href="/admin/add" className="tile">
             <strong>Add books</strong>
             <span>Scan a barcode or type the details</span>

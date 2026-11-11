@@ -205,6 +205,32 @@ export const ROUTES: {
     rule: "catalog:edit",
     body: { copyIds: ["missing"] },
   },
+  { route: "GET /api/copies/:code", rule: "member", request: "/api/copies/ZZZZ" },
+  {
+    route: "POST /api/copies/:code/borrow",
+    rule: "borrower",
+    request: "/api/copies/ZZZZ/borrow",
+    body: {},
+  },
+  {
+    route: "POST /api/copies/:code/return",
+    rule: "loans:own",
+    request: "/api/copies/ZZZZ/return",
+    body: {},
+  },
+  {
+    route: "POST /api/copies/:code/found",
+    rule: "copies:report-found",
+    request: "/api/copies/ZZZZ/found",
+    body: {},
+  },
+  { route: "GET /api/loans/mine", rule: "member" },
+  {
+    route: "POST /api/loans/:id/extend",
+    rule: "loans:own",
+    request: "/api/loans/missing/extend",
+    body: {},
+  },
 ];
 
 type Who = "signedOut" | "nonMember" | "pendingMember" | "member" | "staff" | "admin";
