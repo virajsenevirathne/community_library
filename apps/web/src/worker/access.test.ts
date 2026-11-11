@@ -300,6 +300,12 @@ export const ROUTES: {
     body: { email: "new@example.com" },
   },
   {
+    route: "POST /api/admin/staff/:userId/role",
+    rule: "library:admin",
+    request: "/api/admin/staff/missing/role",
+    body: { role: "staff" },
+  },
+  {
     route: "POST /api/admin/staff/invite",
     rule: "library:admin",
     body: { email: "x@example", role: "staff" },

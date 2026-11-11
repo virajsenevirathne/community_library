@@ -178,7 +178,8 @@ describe("pausing a library", () => {
       mailer: ctx.outbox,
       siteUrl: "https://library.example.org",
     });
-    expect(result.libraries).toBe(0);
+    // Still tidied for privacy, but nothing is sent for it.
+    expect(result.sent).toBe(0);
 
     owner.library = null;
     await owner.json("/api/owner/libraries/lib-1", { method: "PATCH", body: { status: "active" } });

@@ -9,7 +9,13 @@ import { sha256Hex } from "./crypto.ts";
 import type { Db } from "./db/client.ts";
 import { schema } from "./db/client.ts";
 import { signInCodeEmail } from "./email.ts";
-import { consume } from "./limiter.ts";
+import { clientIp, consume } from "./limiter.ts";
+
+/**
+ * Sign-in codes the whole site sends in a day, at most. Codes come first in
+ * the shared email allowance, but a flood of requests must not use it all.
+ */
+export const MAX_SIGN_IN_CODES_PER_DAY = 200;
 
 export const JOIN_TOKEN_HEADER = "x-join-token";
 export const INVITE_TOKEN_HEADER = "x-invite-token";
@@ -149,14 +155,21 @@ export function createAuth(deps: AuthDeps) {
                 console.log("Sign-in code not sent: address is not known to the library.");
                 return;
               }
-              // Per-address limit, so one inbox cannot be flooded from many IPs.
-              const limit = await consume(env.DB, secret, `otp-send:${to.toLowerCase()}`, {
-                window: 600,
-                max: 3,
-              });
-              if (!limit.allowed) {
-                console.log("Sign-in code not sent: too many codes for this address recently.");
-                return;
+              // Limits, in order: per address (so one inbox can't be flooded from
+              // many networks), per network (so one sender can't cycle through
+              // addresses), and for the whole site (so nobody can spend the day's
+              // email allowance that every library shares).
+              const address = to.toLowerCase();
+              for (const [key, rule] of [
+                [`otp-send:${address}`, { window: 600, max: 3 }],
+                [`otp-send-day:${address}`, { window: 86_400, max: 10 }],
+                [`otp-send-ip:${clientIp(headers)}`, { window: 86_400, max: 30 }],
+                ["otp-send-site", { window: 86_400, max: MAX_SIGN_IN_CODES_PER_DAY }],
+              ] as const) {
+                if (!(await consume(env.DB, secret, key, rule)).allowed) {
+                  console.log(`Sign-in code not sent: limit reached (${key.split(":")[0]}).`);
+                  return;
+                }
               }
               const result = await email.send(signInCodeEmail(libraryName, to, otp, url.hostname));
               if (!result.ok) {

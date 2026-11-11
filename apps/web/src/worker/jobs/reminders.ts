@@ -71,6 +71,7 @@ interface Library {
   name: string;
   slug: string;
   settings: LibrarySettings;
+  status: "active" | "paused";
 }
 
 /** Counts emails sent, and outgoing email requests made, to stay under the per-run limit. */
@@ -100,13 +101,18 @@ export async function runHourlyJob(
     .run();
   const budget = new Budget();
   const errors: string[] = [];
+  // Rate-limit records older than the longest window (a day) count for nothing.
+  await DB.prepare("delete from rate_limits where last_request < ?")
+    .bind(now.getTime() - 2 * 86_400_000)
+    .run();
   const { results } = await DB.prepare(
-    "select id, name, slug, settings from libraries where status = 'active'",
+    "select id, name, slug, settings, status from libraries",
   ).all<{
     id: string;
     name: string;
     slug: string;
     settings: string;
+    status: "active" | "paused";
   }>();
   for (const row of results) {
     // One library's problem must not stop the others.
@@ -116,6 +122,7 @@ export async function runHourlyJob(
         name: row.name,
         slug: row.slug,
         settings: parseSettings(row.settings),
+        status: row.status,
       });
     } catch (error) {
       console.error(`Hourly job failed for library ${row.id}:`, error);
@@ -131,7 +138,9 @@ export async function runHourlyJob(
 async function runForLibrary(deps: JobDeps, now: Date, budget: Budget, library: Library) {
   const settings = library.settings;
   const local = localParts(now, settings.timezone);
+  // Paused libraries still get their privacy tidy-up, but send nothing.
   await tidyUp(deps.DB, library, now);
+  if (library.status === "paused") return;
   await sendQueuedInvites(deps, library, budget);
 
   if (local.hour < settings.reminderHour) return;
@@ -168,6 +177,12 @@ async function tidyUp(DB: D1Database, library: Library, now: Date) {
        where library_id = ? and accepted_at is null and sent_at is not null and expires_at < ?
          and email is not null`,
     ).bind(library.id, now.getTime()),
+    // Invites that were never sent (an import over the daily limit) are
+    // dropped after 30 days, so their addresses aren't kept.
+    DB.prepare(
+      `delete from invitations
+       where library_id = ? and accepted_at is null and sent_at is null and created_at < ?`,
+    ).bind(library.id, now.getTime() - 30 * 86_400_000),
   ]);
 }
 

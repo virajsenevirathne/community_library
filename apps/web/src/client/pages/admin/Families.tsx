@@ -23,7 +23,7 @@ interface Family {
 
 interface FamiliesData {
   families: Family[];
-  staff: { email: string; role: string }[];
+  staff: { userId: string; email: string; role: string }[];
   staffInvites: Invite[];
   joinUrl: string | null;
   canManageStaff: boolean;
@@ -588,8 +588,63 @@ function FamilyCard({ family, notify }: { family: Family; notify: Notify }) {
   );
 }
 
+/** One staff member, with their role and a way to change it. */
+function StaffRow({
+  person,
+  notify,
+}: {
+  person: { userId: string; email: string; role: string };
+  notify: Notify;
+}) {
+  const [choice, setChoice] = useState(person.role);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (
+      choice === "none" &&
+      !confirm(`Take ${person.email} off the staff? They lose staff access straight away.`)
+    )
+      return;
+    setBusy(true);
+    try {
+      await api(`/admin/staff/${person.userId}/role`, { body: { role: choice } });
+      await notify.success(
+        choice === "none"
+          ? `${person.email} is no longer on the staff.`
+          : `${person.email} is now ${choice === "admin" ? "an admin" : "staff"}.`,
+      );
+    } catch (e) {
+      notify.error(errorMessage(e));
+      setChoice(person.role);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <li className="staff-row">
+      <span>
+        {person.email} <span className="muted">· {ROLE_NAMES[person.role] ?? person.role}</span>
+      </span>
+      <span className="row row--tight">
+        <label className="inline-select">
+          <span className="visually-hidden">Role for {person.email}</span>
+          <select value={choice} disabled={busy} onChange={(e) => setChoice(e.target.value)}>
+            <option value="admin">Admin</option>
+            <option value="staff">Staff</option>
+            <option value="none">Not staff</option>
+          </select>
+        </label>
+        {choice !== person.role && (
+          <Button onClick={save} busy={busy} busyLabel="Saving…">
+            Save
+          </Button>
+        )}
+      </span>
+    </li>
+  );
+}
+
 function StaffSection(props: {
-  staff: { email: string; role: string }[];
+  staff: { userId: string; email: string; role: string }[];
   invites: Invite[];
   notify: Notify;
 }) {
@@ -618,9 +673,7 @@ function StaffSection(props: {
       </h2>
       <ul className="plain">
         {props.staff.map((s) => (
-          <li key={s.email}>
-            {s.email} <span className="muted">· {ROLE_NAMES[s.role] ?? s.role}</span>
-          </li>
+          <StaffRow key={s.userId} person={s} notify={props.notify} />
         ))}
         {props.invites.map((i) => (
           <InviteRow key={i.id} invite={i} notify={props.notify} />

@@ -8,7 +8,7 @@ import {
 } from "@community-library/core";
 import { Hono } from "hono";
 import { z } from "zod";
-import { type Actor, requirePermission } from "../access.ts";
+import { type Actor, isPlatformOwner, requirePermission } from "../access.ts";
 import { authSecret } from "../config.ts";
 import { type AppContext, type AppEnv, fail, readBody } from "../context.ts";
 import { hmacHex, timingSafeEqual } from "../crypto.ts";
@@ -329,9 +329,10 @@ export const adminRoutes = new Hono<AppEnv>()
         // A missed run is a problem only once there is something to remind about.
         stale:
           lastFinished === null ? loans.length > 0 : Date.now() - lastFinished > STALE_AFTER_MS,
-        // Raw error text is for the admin only; staff see that it failed.
+        // The job runs for every library, so its raw error text is for the
+        // site's owner only; everyone else sees that it failed.
         error: job?.error
-          ? actor.role === "admin"
+          ? (await isPlatformOwner(c))
             ? job.error
             : "The last run had a problem."
           : null,
