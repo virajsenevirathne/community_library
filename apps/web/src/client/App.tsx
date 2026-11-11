@@ -8,9 +8,12 @@ import { AdminHomePage } from "./pages/admin/AdminHome.tsx";
 import { BulkReturnPage } from "./pages/admin/BulkReturn.tsx";
 import { CatalogPage } from "./pages/admin/Catalog.tsx";
 import { LabelsPage } from "./pages/admin/Labels.tsx";
+import { LoansPage } from "./pages/admin/Loans.tsx";
+import { SettingsPage } from "./pages/admin/Settings.tsx";
 import { TitleDetailPage } from "./pages/admin/TitleDetail.tsx";
 import { CodeEntryPage, CopyPage } from "./pages/Copy.tsx";
 import { HomePage } from "./pages/Home.tsx";
+import { RemindersOffPage } from "./pages/RemindersOff.tsx";
 import { SetupPage } from "./pages/Setup.tsx";
 import { SignInPage } from "./pages/SignIn.tsx";
 
@@ -41,6 +44,8 @@ function Routes() {
   const me = state.me;
 
   if (path === "/signin") return me.user ? <Redirect to="/" /> : <SignInPage />;
+  // Opened from an email; works without signing in (the link is signed).
+  if (path === "/reminders-off") return <RemindersOffPage />;
 
   const guard = (
     page: ReactNode,
@@ -63,6 +68,10 @@ function Routes() {
   if (path === "/admin/catalog") return guard(<CatalogPage />, isStaff);
   if (path === "/admin/labels") return guard(<LabelsPage />, isStaff);
   if (path === "/admin/returns") return guard(<BulkReturnPage />, isStaff);
+  if (path === "/admin/loans") return guard(<LoansPage />, isStaff);
+  if (path === "/admin/settings") {
+    return guard(<SettingsPage />, (m) => m.membership?.role === "admin", "admin");
+  }
   if (path === "/c") return guard(<CodeEntryPage />);
   const copyMatch = path.match(/^\/c\/([A-Za-z0-9-]{1,12})\/?$/);
   if (copyMatch?.[1]) return guard(<CopyPage key={copyMatch[1]} code={copyMatch[1]} />);

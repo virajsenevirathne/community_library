@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Button, Layout, Loading, LoadingPage } from "../components.tsx";
+import { api, errorMessage } from "../lib/api.ts";
 import { authClient, isPasskeyCancel, passkeyHint, passkeysSupported } from "../lib/auth.ts";
 import { navigate } from "../lib/router.tsx";
 import { useSession } from "../lib/session.tsx";
@@ -132,6 +133,8 @@ export function AccountPage() {
         </p>
       )}
 
+      {me.membership?.family && <ReminderSetting />}
+
       <h2>Sign out</h2>
       <Button
         variant="secondary"
@@ -151,4 +154,50 @@ const DATE = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 function describe(passkey: PasskeyRow): string {
   const name = passkey.name || "Passkey";
   return passkey.createdAt ? `${name}, added ${DATE.format(new Date(passkey.createdAt))}` : name;
+}
+
+/** Turn the family's due-date reminder emails on or off. */
+function ReminderSetting() {
+  const [on, setOn] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    api<{ on: boolean }>("/family/reminders")
+      .then((res) => setOn(res.on))
+      .catch(() => setOn(null));
+  }, []);
+  if (on === null) return null;
+  const change = async (next: boolean) => {
+    setBusy(true);
+    setMessage("");
+    try {
+      const res = await api<{ on: boolean }>("/family/reminders", {
+        method: "PUT",
+        body: { on: next },
+      });
+      setOn(res.on);
+      setMessage(res.on ? "Reminders are on." : "Reminders are off.");
+    } catch (e) {
+      setMessage(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <h2>Reminder emails</h2>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={on}
+          disabled={busy}
+          onChange={(e) => void change(e.target.checked)}
+        />
+        Email my family when books are due back or late
+      </label>
+      <p className="muted" role="status">
+        {message || "You'll always get an email when you borrow, whatever you choose here."}
+      </p>
+    </>
+  );
 }

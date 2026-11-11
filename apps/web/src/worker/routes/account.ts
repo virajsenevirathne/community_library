@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { actorFor } from "../access.ts";
-import { isLocalHost, secrets } from "../config.ts";
+import { authSecret, isLocalHost, secrets } from "../config.ts";
 import { type AppEnv, fail, readBody, requireUser } from "../context.ts";
 import { sha256Hex, timingSafeEqual } from "../crypto.ts";
 import { newId, schema } from "../db/client.ts";
@@ -58,7 +58,8 @@ export const accountRoutes = new Hono<AppEnv>()
   /** First run: the first person to sign in creates the library and becomes its admin. */
   .post("/setup", async (c) => {
     const user = requireUser(c);
-    const { BETTER_AUTH_SECRET: secret = "", SETUP_CODE } = secrets(c.env);
+    const secret = authSecret(c.env);
+    const { SETUP_CODE } = secrets(c.env);
     // Few guesses per person and per network, so the setup code cannot be brute-forced.
     for (const key of [`setup:user:${user.id}`, `setup:ip:${clientIp(c.req.raw.headers)}`]) {
       const limit = await consume(c.env.DB, secret, key, { window: 3600, max: 10 });

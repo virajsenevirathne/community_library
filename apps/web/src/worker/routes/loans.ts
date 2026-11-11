@@ -19,7 +19,7 @@ import {
   requirePermission,
   scope,
 } from "../access.ts";
-import { secrets } from "../config.ts";
+import { authSecret } from "../config.ts";
 import { type AppContext, type AppEnv, fail } from "../context.ts";
 import { type Db, newId, schema } from "../db/client.ts";
 import { checkoutEmail, foundEmail } from "../email.ts";
@@ -425,7 +425,7 @@ export const loanRoutes = new Hono<AppEnv>()
     }
     if (row.foundAt === null) {
       // Each report emails a family, so limit how often one person (and the library) can report.
-      const secret = secrets(c.env).BETTER_AUTH_SECRET ?? "";
+      const secret = authSecret(c.env);
       for (const [key, max] of [
         [`found:user:${actor.userId}`, 10],
         [`found:library:${actor.library.id}`, 30],

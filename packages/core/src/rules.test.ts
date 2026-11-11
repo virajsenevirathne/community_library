@@ -130,3 +130,38 @@ describe("settings", () => {
     });
   });
 });
+
+describe("reminders", () => {
+  const settings = { remindBeforeDays: 2, overdueReminderDays: [1, 7, 14] };
+  const loan = (loanId: string, familyId: string, dueOn: string) => ({ loanId, familyId, dueOn });
+
+  it("pick the latest stage each loan has reached, grouped by family", async () => {
+    const { remindersFor } = await import("./reminders.ts");
+    const plan = remindersFor(
+      [
+        loan("a", "f1", "2026-11-12"), // due in 1 day → due soon
+        loan("b", "f1", "2026-11-10"), // 1 day late
+        loan("c", "f2", "2026-11-01"), // 10 days late → stage 7
+        loan("d", "f2", "2026-11-20"), // not yet
+        loan("e", "f3", "2026-10-01"), // 41 days late → stage 14
+      ],
+      settings,
+      "2026-11-11",
+    );
+    expect(plan.get("f1")?.map((r) => r.key)).toEqual(["loan:a:due_soon", "loan:b:overdue:1"]);
+    expect(plan.get("f2")?.map((r) => r.key)).toEqual(["loan:c:overdue:7"]);
+    expect(plan.get("f3")?.map((r) => r.stage)).toEqual([14]);
+  });
+
+  it("send nothing before the window or when heads-ups are off", async () => {
+    const { remindersFor } = await import("./reminders.ts");
+    expect(remindersFor([loan("a", "f", "2026-11-14")], settings, "2026-11-11").size).toBe(0);
+    expect(
+      remindersFor(
+        [loan("a", "f", "2026-11-12")],
+        { ...settings, remindBeforeDays: 0 },
+        "2026-11-11",
+      ).size,
+    ).toBe(0);
+  });
+});

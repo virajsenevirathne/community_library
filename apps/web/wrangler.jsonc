@@ -24,10 +24,10 @@
     }
   ],
 
-  // Daily reminder job. Cron runs in UTC: 20:00 UTC is 07:00 in Sydney during
-  // daylight saving. Per-library local times are handled in VIR-23.
+  // Hourly job: each library's reminders go out once a day at its own local
+  // reminder hour (Settings), plus the Monday staff digest and privacy tidy-up.
   "triggers": {
-    "crons": ["0 20 * * *"]
+    "crons": ["0 * * * *"]
   },
 
   "vars": {

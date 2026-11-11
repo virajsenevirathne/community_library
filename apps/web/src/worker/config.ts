@@ -34,3 +34,15 @@ export function secrets(env: Env): Secrets {
 export function isLocalHost(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
 }
+
+/**
+ * The secret used for sessions, rate-limit keys and signed links. Never falls
+ * back to an empty string: without it, signed links could be forged.
+ */
+export function authSecret(env: Env): string {
+  const secret = secrets(env).BETTER_AUTH_SECRET;
+  if (!secret || secret.length < 16) {
+    throw new Error("BETTER_AUTH_SECRET is missing or too short. See apps/web/.dev.vars.example.");
+  }
+  return secret;
+}

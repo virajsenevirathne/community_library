@@ -23,3 +23,16 @@ export function timingSafeEqual(a: string, b: string): boolean {
   }
   return diff === 0;
 }
+
+/** Hex HMAC-SHA256, for links that must not be guessable (such as "turn off reminders"). */
+export async function hmacHex(secret: string, value: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
+  return [...new Uint8Array(signature)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}

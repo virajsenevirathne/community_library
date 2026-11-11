@@ -7,13 +7,15 @@ import {
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { type Auth, createAuth } from "./auth.ts";
-import { secrets } from "./config.ts";
+import { authSecret } from "./config.ts";
 import type { AppEnv } from "./context.ts";
 import { createDb } from "./db/client.ts";
-import { configuredSenders, emailStatus, FallbackSender } from "./email.ts";
+import { configuredSenders, emailStatus } from "./email.ts";
 import { currentLibrary } from "./library.ts";
 import { consume } from "./limiter.ts";
+import { QuotaMailer } from "./mailer.ts";
 import { accountRoutes } from "./routes/account.ts";
+import { adminRoutes, nudgeRoutes } from "./routes/admin.ts";
 import { catalogRoutes } from "./routes/catalog.ts";
 import { loanRoutes } from "./routes/loans.ts";
 
@@ -78,7 +80,7 @@ export function createApp(options: AppOptions = {}) {
     c.set("origin", origin);
     const email =
       options.email?.(c.env) ??
-      new FallbackSender(configuredSenders(c.env, libraryName, new URL(origin).hostname));
+      new QuotaMailer(c.env.DB, configuredSenders(c.env, libraryName, new URL(origin).hostname));
     c.set("email", email);
     c.set("metadata", options.metadata ?? [new OpenLibraryProvider(), new GoogleBooksProvider()]);
 
@@ -130,7 +132,7 @@ export function createApp(options: AppOptions = {}) {
       if (typeof body?.email === "string") {
         const limit = await consume(
           c.env.DB,
-          secrets(c.env).BETTER_AUTH_SECRET ?? "",
+          authSecret(c.env),
           `otp-verify:${body.email.trim().toLowerCase()}`,
           { window: 900, max: 10 },
         );
@@ -150,6 +152,8 @@ export function createApp(options: AppOptions = {}) {
   app.route("/", accountRoutes);
   app.route("/catalog", catalogRoutes);
   app.route("/", loanRoutes);
+  app.route("/admin", adminRoutes);
+  app.route("/", nudgeRoutes);
 
   app.notFound((c) => c.json({ error: "not_found", message: "Not found." }, 404));
   app.onError((err, c) => {

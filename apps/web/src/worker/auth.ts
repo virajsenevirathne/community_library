@@ -4,7 +4,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { emailOTP } from "better-auth/plugins/email-otp";
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
-import { secrets } from "./config.ts";
+import { authSecret } from "./config.ts";
 import { sha256Hex } from "./crypto.ts";
 import type { Db } from "./db/client.ts";
 import { schema } from "./db/client.ts";
@@ -74,8 +74,7 @@ export async function mayReceiveCode(
 
 export function createAuth(deps: AuthDeps) {
   const { db, env, origin, libraryName, email } = deps;
-  const secret = secrets(env).BETTER_AUTH_SECRET;
-  if (!secret) throw new Error("BETTER_AUTH_SECRET is not set. See apps/web/.dev.vars.example.");
+  const secret = authSecret(env);
   const url = new URL(origin);
 
   return betterAuth({

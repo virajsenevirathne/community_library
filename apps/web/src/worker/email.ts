@@ -46,20 +46,6 @@ export function emailStatus(env: Env): "ok" | "no_provider" | "placeholder_sende
   return "ok";
 }
 
-/** Tries each sender in turn until one accepts the message. */
-export class FallbackSender implements EmailSender {
-  readonly name = "fallback";
-  constructor(private readonly senders: EmailSender[]) {}
-  async send(message: EmailMessage): Promise<SendResult> {
-    let last: SendResult = { ok: false, provider: "none", retryable: false, error: "no_provider" };
-    for (const sender of this.senders) {
-      last = await sender.send(message);
-      if (last.ok) return last;
-    }
-    return last;
-  }
-}
-
 /** Removes line breaks and control characters, which must never reach an email header. */
 export function cleanHeader(value: string): string {
   // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is the point
@@ -195,6 +181,124 @@ export function foundEmail(options: {
         `Another parent found this book at the library. It's on your family's account (due ${escapeHtml(due)}). Staff will check it in when it's back on the shelf.`,
         "If you do still have it at home, please let the library staff know.",
         `<a href="${escapeHtml(options.siteUrl)}/" style="color:#1f6f5c;font-weight:600;text-decoration:underline">See your books</a>`,
+      ],
+    }),
+  };
+}
+
+export interface ReminderLine {
+  title: string;
+  dueOn: string;
+  kind: "due_soon" | "overdue";
+  overdueDays: number;
+}
+
+/** One email per parent per day, listing every book that needs attention. */
+export function reminderEmail(options: {
+  libraryName: string;
+  to: string;
+  siteUrl: string;
+  lines: ReminderLine[];
+  /** Link that turns these reminders off (checkout confirmations still go out). */
+  nudgesOffUrl: string;
+}): EmailMessage {
+  const library = cleanHeader(options.libraryName);
+  const overdue = options.lines.filter((l) => l.kind === "overdue");
+  const count = options.lines.length;
+  // Subjects never name the book: they show on lock screens.
+  const subject =
+    overdue.length > 0
+      ? `Reminder: ${count === 1 ? "a library book" : `${count} library books`} to bring back`
+      : `${count === 1 ? "A library book is" : `${count} library books are`} due back soon`;
+  const describe = (l: ReminderLine) =>
+    l.kind === "overdue"
+      ? `${l.title}: was due ${formatDueDate(l.dueOn)} (${l.overdueDays} ${l.overdueDays === 1 ? "day" : "days"} ago)`
+      : `${l.title}: due ${formatDueDate(l.dueOn)}`;
+  const intro =
+    overdue.length > 0
+      ? `Our records show ${count === 1 ? "this book is" : "these books are"} past the due date. If you've already brought ${count === 1 ? "it" : "them"} back, thank you, and sorry for the mix-up.`
+      : `A friendly heads-up from ${library}: ${count === 1 ? "this book is" : "these books are"} due back soon.`;
+  return {
+    to: options.to,
+    subject,
+    text: [
+      intro,
+      "",
+      ...options.lines.map((l) => `- ${describe(l)}`),
+      "",
+      `See your books (and keep one longer, if allowed): ${options.siteUrl}/`,
+      "",
+      `Don't want these reminders? ${options.nudgesOffUrl}`,
+    ].join("\n"),
+    html: htmlEmail(library, {
+      title: subject,
+      preheader: intro,
+      paragraphs: [
+        escapeHtml(intro),
+        `<ul style="margin:0;padding-left:20px">${options.lines.map((l) => `<li>${escapeHtml(describe(l))}</li>`).join("")}</ul>`,
+        `<a href="${escapeHtml(options.siteUrl)}/" style="color:#1f6f5c;font-weight:600;text-decoration:underline">See your books and keep one longer</a>`,
+        `<span style="font-size:14px;color:#3d4743">Don't want these reminders? <a href="${escapeHtml(options.nudgesOffUrl)}" style="color:#3d4743;text-decoration:underline">Turn them off</a>. You'll still get an email when you borrow.</span>`,
+      ],
+    }),
+  };
+}
+
+export interface DigestLine {
+  title: string;
+  familyName: string;
+  dueOn: string;
+  overdueDays: number;
+}
+
+/** Monday email to staff: what is overdue, what needs following up, what was added. */
+export function digestEmail(options: {
+  libraryName: string;
+  to: string;
+  siteUrl: string;
+  overdue: DigestLine[];
+  staffFlagDays: number;
+  newTitles: number;
+  pendingFamilies: number;
+}): EmailMessage {
+  const library = cleanHeader(options.libraryName);
+  const flagged = options.overdue.filter((l) => l.overdueDays >= options.staffFlagDays);
+  const MAX_LISTED = 15;
+  const shown = flagged.slice(0, MAX_LISTED);
+  const more = flagged.length - shown.length;
+  const line = (l: DigestLine) =>
+    `${l.title}: ${l.familyName}, ${l.overdueDays} ${l.overdueDays === 1 ? "day" : "days"} late`;
+  const summary = [
+    `${options.overdue.length} ${options.overdue.length === 1 ? "book is" : "books are"} overdue${flagged.length > 0 ? `, ${flagged.length} for ${options.staffFlagDays}+ days` : ""}.`,
+    `${options.newTitles} new ${options.newTitles === 1 ? "book was" : "books were"} added this week.`,
+    ...(options.pendingFamilies > 0
+      ? [
+          `${options.pendingFamilies} ${options.pendingFamilies === 1 ? "family is" : "families are"} waiting for approval.`,
+        ]
+      : []),
+  ];
+  return {
+    to: options.to,
+    subject: `${library} weekly summary: ${options.overdue.length === 0 ? "all clear" : `${options.overdue.length} overdue`}`,
+    text: [
+      ...summary,
+      "",
+      ...(flagged.length > 0
+        ? ["Needs following up:", ...flagged.map((l) => `- ${line(l)}`), ""]
+        : []),
+      `Open the library: ${options.siteUrl}/admin`,
+    ].join("\n"),
+    html: htmlEmail(library, {
+      title: "Weekly summary",
+      preheader: summary[0] ?? "",
+      paragraphs: [
+        ...summary.map(escapeHtml),
+        ...(flagged.length > 0
+          ? [
+              "<strong>Needs following up:</strong>",
+              `<ul style="margin:0;padding-left:20px">${shown.map((l) => `<li>${escapeHtml(line(l))}</li>`).join("")}${more > 0 ? `<li>and ${more} more</li>` : ""}</ul>`,
+            ]
+          : []),
+        `<a href="${escapeHtml(options.siteUrl)}/admin" style="color:#1f6f5c;font-weight:600;text-decoration:underline">Open the library</a>`,
       ],
     }),
   };

@@ -373,7 +373,7 @@ export const invitations = sqliteTable(
   ],
 );
 
-export const NOTIFICATION_STATUSES = ["sent", "failed", "deferred"] as const;
+export const NOTIFICATION_STATUSES = ["pending", "sent", "failed", "deferred"] as const;
 
 /** One row per email the jobs send. The unique key stops a re-run sending twice. */
 export const notifications = sqliteTable(

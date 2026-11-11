@@ -5,7 +5,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { Hono } from "hono";
 import { z } from "zod";
 import { type Actor, requirePermission, scope } from "../access.ts";
-import { secrets } from "../config.ts";
+import { authSecret } from "../config.ts";
 import { type AppContext, type AppEnv, fail, readBody } from "../context.ts";
 import { type Db, newId, schema } from "../db/client.ts";
 import { COPY_STATUSES } from "../db/schema.ts";
@@ -206,15 +206,10 @@ async function lookupOnline(
   const cached = await cache?.match(cacheKey).catch(() => undefined);
   if (cached) return (await cached.json()) as BookMetadata | null;
 
-  const limit = await consume(
-    c.env.DB,
-    secrets(c.env).BETTER_AUTH_SECRET ?? "",
-    `isbn-lookup:${actor.userId}`,
-    {
-      window: 60,
-      max: 60,
-    },
-  );
+  const limit = await consume(c.env.DB, authSecret(c.env), `isbn-lookup:${actor.userId}`, {
+    window: 60,
+    max: 60,
+  });
   if (!limit.allowed)
     fail(429, "too_many_lookups", "That's a lot of lookups. Please wait a minute.");
 

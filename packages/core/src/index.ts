@@ -17,6 +17,7 @@ export {
   weekdayOf,
 } from "./dates.ts";
 export { checkLoanLimit, type LoanLimitResult } from "./loans.ts";
+export { type LoanReminder, needsStaff, type OpenLoan, remindersFor } from "./reminders.ts";
 export {
   DEFAULT_SETTINGS,
   defaultSettings,

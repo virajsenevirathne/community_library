@@ -231,6 +231,25 @@ export const ROUTES: {
     request: "/api/loans/missing/extend",
     body: {},
   },
+  { route: "GET /api/admin/dashboard", rule: "loans:manage" },
+  { route: "GET /api/admin/loans", rule: "loans:manage" },
+  {
+    route: "POST /api/admin/loans/:id/close",
+    rule: "loans:manage",
+    request: "/api/admin/loans/missing/close",
+    body: { outcome: "returned" },
+  },
+  {
+    route: "POST /api/admin/loans/:id/remind",
+    rule: "loans:manage",
+    request: "/api/admin/loans/missing/remind",
+    body: {},
+  },
+  { route: "GET /api/admin/settings", rule: "library:admin" },
+  { route: "PATCH /api/admin/settings", rule: "library:admin", body: {} },
+  { route: "POST /api/reminders-off", rule: "public", body: { f: "x", t: "y" } },
+  { route: "GET /api/family/reminders", rule: "loans:own" },
+  { route: "PUT /api/family/reminders", rule: "loans:own", body: { on: true } },
 ];
 
 type Who = "signedOut" | "nonMember" | "pendingMember" | "member" | "staff" | "admin";

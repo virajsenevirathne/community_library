@@ -4,6 +4,8 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    /** Per-field problems, when the server lists them (such as settings). */
+    readonly errors?: { field: string; message: string }[],
   ) {
     super(message);
   }
@@ -37,12 +39,17 @@ export async function api<T>(
     if (init.signal?.aborted) throw error;
     throw new ApiError(0, "offline", OFFLINE_MESSAGE);
   }
-  const data = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
+  const data = (await res.json().catch(() => null)) as {
+    error?: string;
+    message?: string;
+    errors?: { field: string; message: string }[];
+  } | null;
   if (!res.ok) {
     throw new ApiError(
       res.status,
       data?.error ?? "error",
       data?.message ?? "Something went wrong. Please try again.",
+      data?.errors,
     );
   }
   return data as T;
