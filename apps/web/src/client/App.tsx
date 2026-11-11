@@ -7,12 +7,15 @@ import { AddBooksPage } from "./pages/admin/AddBooks.tsx";
 import { AdminHomePage } from "./pages/admin/AdminHome.tsx";
 import { BulkReturnPage } from "./pages/admin/BulkReturn.tsx";
 import { CatalogPage } from "./pages/admin/Catalog.tsx";
+import { FamiliesPage } from "./pages/admin/Families.tsx";
+import { ImportPage } from "./pages/admin/Import.tsx";
 import { LabelsPage } from "./pages/admin/Labels.tsx";
 import { LoansPage } from "./pages/admin/Loans.tsx";
 import { SettingsPage } from "./pages/admin/Settings.tsx";
 import { TitleDetailPage } from "./pages/admin/TitleDetail.tsx";
 import { CodeEntryPage, CopyPage } from "./pages/Copy.tsx";
 import { HomePage } from "./pages/Home.tsx";
+import { InvitePage, JoinPage } from "./pages/Join.tsx";
 import { RemindersOffPage } from "./pages/RemindersOff.tsx";
 import { SetupPage } from "./pages/Setup.tsx";
 import { SignInPage } from "./pages/SignIn.tsx";
@@ -46,6 +49,11 @@ function Routes() {
   if (path === "/signin") return me.user ? <Redirect to="/" /> : <SignInPage />;
   // Opened from an email; works without signing in (the link is signed).
   if (path === "/reminders-off") return <RemindersOffPage />;
+  // Sign-up and invite links work before signing in; they lead to sign-in themselves.
+  const joinMatch = path.match(/^\/join\/([0-9a-f]{32})$/);
+  if (joinMatch?.[1]) return <JoinPage token={joinMatch[1]} />;
+  const inviteMatch = path.match(/^\/invite\/([\w-]{20,100})$/);
+  if (inviteMatch?.[1]) return <InvitePage token={inviteMatch[1]} />;
 
   const guard = (
     page: ReactNode,
@@ -69,6 +77,8 @@ function Routes() {
   if (path === "/admin/labels") return guard(<LabelsPage />, isStaff);
   if (path === "/admin/returns") return guard(<BulkReturnPage />, isStaff);
   if (path === "/admin/loans") return guard(<LoansPage />, isStaff);
+  if (path === "/admin/families") return guard(<FamiliesPage />, isStaff);
+  if (path === "/admin/families/import") return guard(<ImportPage />, isStaff);
   if (path === "/admin/settings") {
     return guard(<SettingsPage />, (m) => m.membership?.role === "admin", "admin");
   }

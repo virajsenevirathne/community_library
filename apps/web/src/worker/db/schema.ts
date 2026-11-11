@@ -147,8 +147,14 @@ export const libraries = sqliteTable(
     slug: text("slug").notNull().unique(),
     /** JSON, see LibrarySettings in @community-library/core. */
     settings: text("settings").notNull().default("{}"),
-    /** SHA-256 of the current sign-up link token. Replacing it kills old links. */
+    /** SHA-256 of the current sign-up link token, to recognise it. Replacing it kills old links. */
     joinTokenHash: text("join_token_hash"),
+    /**
+     * Random value the sign-up token is derived from (HMAC with the server
+     * secret), so the link can be shown again without storing it. Null when
+     * sign-up by link is turned off.
+     */
+    joinNonce: text("join_nonce"),
     createdAt: createdAt(),
   },
   () => [check("libraries_settings_json", sql`json_valid(settings)`)],
@@ -348,7 +354,8 @@ export const invitations = sqliteTable(
     libraryId: text("library_id")
       .notNull()
       .references(() => libraries.id, { onDelete: "cascade" }),
-    familyId: text("family_id").notNull(),
+    /** The family the person joins. Null for staff invites. */
+    familyId: text("family_id"),
     /** Lowercased. Cleared when the invite is accepted or expires, so it is not kept. */
     email: text("email"),
     /** The API only lets staff invite members; only admins invite staff or admins. */

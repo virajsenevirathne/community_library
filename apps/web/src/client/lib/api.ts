@@ -6,6 +6,8 @@ export class ApiError extends Error {
     message: string,
     /** Per-field problems, when the server lists them (such as settings). */
     readonly errors?: { field: string; message: string }[],
+    /** The whole response body, for errors that carry details (such as books still out). */
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
   }
@@ -50,6 +52,7 @@ export async function api<T>(
       data?.error ?? "error",
       data?.message ?? "Something went wrong. Please try again.",
       data?.errors,
+      (data ?? undefined) as Record<string, unknown> | undefined,
     );
   }
   return data as T;

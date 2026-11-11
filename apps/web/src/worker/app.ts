@@ -17,6 +17,7 @@ import { QuotaMailer } from "./mailer.ts";
 import { accountRoutes } from "./routes/account.ts";
 import { adminRoutes, nudgeRoutes } from "./routes/admin.ts";
 import { catalogRoutes } from "./routes/catalog.ts";
+import { familyRoutes } from "./routes/families.ts";
 import { loanRoutes } from "./routes/loans.ts";
 
 export type { AppEnv } from "./context.ts";
@@ -154,6 +155,7 @@ export function createApp(options: AppOptions = {}) {
   app.route("/", loanRoutes);
   app.route("/admin", adminRoutes);
   app.route("/", nudgeRoutes);
+  app.route("/", familyRoutes);
 
   app.notFound((c) => c.json({ error: "not_found", message: "Not found." }, 404));
   app.onError((err, c) => {

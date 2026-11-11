@@ -1,0 +1,637 @@
+import QRCode from "qrcode";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { Alert, Button, Field, Layout, Loading } from "../../components.tsx";
+import { ApiError, api, errorMessage } from "../../lib/api.ts";
+import { Link } from "../../lib/router.tsx";
+import { useSession } from "../../lib/session.tsx";
+
+interface Invite {
+  id: string;
+  email: string;
+  role: string;
+  state: "queued" | "sent" | "expired";
+}
+
+interface Family {
+  id: string;
+  name: string;
+  status: "active" | "pending" | "deactivated";
+  booksOut: number;
+  parents: string[];
+  invites: Invite[];
+}
+
+interface FamiliesData {
+  families: Family[];
+  staff: { email: string; role: string }[];
+  staffInvites: Invite[];
+  joinUrl: string | null;
+  canManageStaff: boolean;
+}
+
+const STATUS: Record<Family["status"], string> = {
+  active: "Active",
+  pending: "Waiting for approval",
+  deactivated: "Paused",
+};
+
+const INVITE_STATE: Record<Invite["state"], string> = {
+  queued: "invitation waiting to send",
+  sent: "invited",
+  expired: "invitation expired",
+};
+
+const ROLE_NAMES: Record<string, string> = { admin: "Admin", staff: "Staff", member: "Parent" };
+
+type Notify = { success: (message: string) => Promise<void>; error: (message: string) => void };
+
+export function FamiliesPage() {
+  const [data, setData] = useState<FamiliesData | null>(null);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [query, setQuery] = useState("");
+  const [onlyWaiting, setOnlyWaiting] = useState(false);
+  const messageRef = useRef<HTMLDivElement>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setData(await api<FamiliesData>("/admin/families"));
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // Every action reports here; the message gets focus so it is read out.
+  const notify: Notify = {
+    success: async (message) => {
+      setNotice(message);
+      setError("");
+      await load();
+      messageRef.current?.focus();
+    },
+    error: (message) => {
+      setError(message);
+      setNotice("");
+      messageRef.current?.focus();
+    },
+  };
+
+  if (!data) {
+    return (
+      <Layout title="Families" back="/admin">
+        {error ? <Alert>{error}</Alert> : <Loading />}
+      </Layout>
+    );
+  }
+
+  const q = query.trim().toLowerCase();
+  const pending = data.families.filter((f) => f.status === "pending").length;
+  const shown = data.families.filter(
+    (f) =>
+      (!onlyWaiting || f.status === "pending") &&
+      (!q ||
+        f.name.toLowerCase().includes(q) ||
+        f.parents.some((p) => p.toLowerCase().includes(q))),
+  );
+
+  return (
+    <Layout title="Families" back="/admin">
+      <div ref={messageRef} tabIndex={-1}>
+        <Alert>{error}</Alert>
+        <Alert kind="success">{notice}</Alert>
+      </div>
+
+      <JoinLinkCard url={data.joinUrl} canChange={data.canManageStaff} notify={notify} />
+
+      <h2>
+        {data.families.length} {data.families.length === 1 ? "family" : "families"}
+        {pending > 0 && (
+          <span className="badge badge--found">
+            <span className="visually-hidden">, </span>
+            {pending} waiting
+          </span>
+        )}
+      </h2>
+      <p>
+        <Link href="/admin/families/import">Import a list of families (CSV)</Link>
+      </p>
+      {pending > 0 && (
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={onlyWaiting}
+            onChange={(e) => setOnlyWaiting(e.target.checked)}
+          />
+          Show only families waiting for approval
+        </label>
+      )}
+      {data.families.length > 5 && (
+        <Field
+          label="Find a family"
+          type="search"
+          hint="Family name or parent email"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      )}
+      {shown.length === 0 && (
+        <p>
+          {q || onlyWaiting
+            ? "No families match."
+            : "No families yet. Share the sign-up link above."}
+        </p>
+      )}
+      <ul className="loan-list">
+        {shown.map((family) => (
+          <FamilyCard key={family.id} family={family} notify={notify} />
+        ))}
+      </ul>
+
+      {data.canManageStaff && (
+        <StaffSection staff={data.staff} invites={data.staffInvites} notify={notify} />
+      )}
+    </Layout>
+  );
+}
+
+function JoinLinkCard({
+  url,
+  canChange,
+  notify,
+}: {
+  url: string | null;
+  canChange: boolean;
+  notify: Notify;
+}) {
+  const { state } = useSession();
+  const libraryName =
+    state.status === "ready" ? (state.me.library?.name ?? "the library") : "the library";
+  const [qr, setQr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [confirming, setConfirming] = useState<"replace" | "off" | null>(null);
+
+  useEffect(() => {
+    if (!url) return setQr("");
+    void QRCode.toString(url, { type: "svg", margin: 2, errorCorrectionLevel: "M" }).then(setQr);
+  }, [url]);
+
+  const change = async (enabled: boolean) => {
+    setBusy(true);
+    try {
+      await api("/admin/join-link", { body: { enabled } });
+      setConfirming(null);
+      await notify.success(
+        enabled
+          ? url
+            ? "New sign-up link ready. Reprint any posters: the old QR code no longer works."
+            : "Sign-up link ready."
+          : "The sign-up link is turned off.",
+      );
+    } catch (e) {
+      notify.error(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copy = async () => {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 3000);
+    } catch {
+      notify.error("Couldn't copy. Select the link and copy it instead.");
+    }
+  };
+
+  const printPoster = () => {
+    // Print only the QR code and its words; the class is removed once printing is done.
+    document.body.classList.add("print-poster");
+    window.addEventListener("afterprint", () => document.body.classList.remove("print-poster"), {
+      once: true,
+    });
+    window.print();
+  };
+
+  return (
+    <section className="card" id="join-card" aria-labelledby="join-heading">
+      <h2 id="join-heading" style={{ marginTop: 0 }}>
+        Sign-up link
+      </h2>
+      {url ? (
+        <>
+          <p>
+            Share this link (in the centre's app, newsletter or email), or print the QR code as a
+            poster by the shelf. Parents open it, sign in with their email, and type their family
+            name.
+          </p>
+          <p className="poster-only">{libraryName}</p>
+          <p className="poster-only poster-only--sub">
+            Borrow our books! Point your phone camera at this code to join.
+          </p>
+          <div className="join-link">
+            {qr && (
+              <div
+                className="join-link__qr"
+                role="img"
+                aria-label="QR code for the sign-up link"
+                // Generated locally by the qrcode library from our own link.
+                // biome-ignore lint/security/noDangerouslySetInnerHtml: trusted, locally generated SVG
+                dangerouslySetInnerHTML={{ __html: qr }}
+              />
+            )}
+            <div className="stack">
+              <input
+                className="join-link__url"
+                readOnly
+                value={url}
+                aria-label="Sign-up link"
+                onFocus={(e) => e.target.select()}
+              />
+              <div className="row">
+                <Button variant="secondary" onClick={copy}>
+                  {copied ? "Copied" : "Copy link"}
+                </Button>
+                <Button variant="secondary" onClick={printPoster}>
+                  Print a poster
+                </Button>
+              </div>
+              <span className="visually-hidden" role="status">
+                {copied ? "Link copied" : ""}
+              </span>
+            </div>
+          </div>
+          <p className="poster-only poster-only--url">{url}</p>
+          {canChange &&
+            (confirming ? (
+              <div className="confirm" style={{ marginTop: "0.75rem" }}>
+                <p className="confirm__text">
+                  {confirming === "replace"
+                    ? "Make a new link? The current link and QR code will stop working straight away, so reprint any posters."
+                    : "Turn off the sign-up link? New families can then only join by invitation."}
+                </p>
+                <div className="row">
+                  <Button variant="secondary" onClick={() => setConfirming(null)} autoFocus>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="danger"
+                    onClick={() => change(confirming === "replace")}
+                    busy={busy}
+                    busyLabel="Saving…"
+                  >
+                    {confirming === "replace" ? "Make a new link" : "Turn the link off"}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="row" style={{ marginTop: "0.75rem" }}>
+                  <Button variant="link" onClick={() => setConfirming("replace")}>
+                    Make a new link
+                  </Button>
+                  <Button variant="link" onClick={() => setConfirming("off")}>
+                    Turn the link off
+                  </Button>
+                </div>
+                <p className="muted">
+                  Make a new link if the old one was shared more widely than you'd like.
+                </p>
+              </>
+            ))}
+        </>
+      ) : canChange ? (
+        <>
+          <p>
+            A sign-up link lets families join themselves: anyone with the link can sign up. To check
+            each new family first, turn on approval in Settings.
+          </p>
+          <Button onClick={() => change(true)} busy={busy} busyLabel="Creating…">
+            Create a sign-up link
+          </Button>
+        </>
+      ) : (
+        <p>The sign-up link is turned off. The library admin can turn it on.</p>
+      )}
+    </section>
+  );
+}
+
+function InviteRow({ invite, notify }: { invite: Invite; notify: Notify }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const run = async (key: string, request: () => Promise<unknown>, message: string) => {
+    setBusy(key);
+    try {
+      await request();
+      await notify.success(message);
+    } catch (e) {
+      notify.error(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <li className="invite-row muted">
+      <span>
+        {invite.email} · {ROLE_NAMES[invite.role] ?? invite.role} · {INVITE_STATE[invite.state]}
+      </span>
+      <span className="row">
+        <Button
+          variant="link"
+          onClick={() =>
+            run(
+              "resend",
+              () => api(`/admin/invites/${invite.id}/resend`, { body: {} }),
+              `Invitation sent again to ${invite.email}.`,
+            )
+          }
+          busy={busy === "resend"}
+          aria-label={`Send the invitation to ${invite.email} again`}
+        >
+          Send again
+        </Button>
+        <Button
+          variant="link"
+          onClick={() =>
+            run(
+              "cancel",
+              () => api(`/admin/invites/${invite.id}`, { method: "DELETE" }),
+              `Invitation to ${invite.email} cancelled.`,
+            )
+          }
+          busy={busy === "cancel"}
+          aria-label={`Cancel the invitation to ${invite.email}`}
+        >
+          Cancel invitation
+        </Button>
+      </span>
+    </li>
+  );
+}
+
+function FamilyCard({ family, notify }: { family: Family; notify: Notify }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [inviting, setInviting] = useState(false);
+  const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [moreOpen, setMoreOpen] = useState(false);
+  // "ask": confirm removal. Any other text: removal was refused because books are out.
+  const [removing, setRemoving] = useState<string | null>(null);
+  const confirmRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (removing) confirmRef.current?.focus();
+  }, [removing]);
+
+  const call = async (key: string, request: () => Promise<unknown>, message: string) => {
+    setBusy(key);
+    try {
+      await request();
+      await notify.success(message);
+    } catch (e) {
+      notify.error(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const invite = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy("invite");
+    setEmailError("");
+    try {
+      const res = await api<{ sent: boolean }>(`/admin/families/${family.id}/invite`, {
+        body: { email },
+      });
+      setInviting(false);
+      setEmail("");
+      await notify.success(
+        res.sent
+          ? `Invitation sent to ${email}.`
+          : `Invitation for ${email} saved; it will be emailed shortly.`,
+      );
+    } catch (e) {
+      setEmailError(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const remove = async (markLost: boolean) => {
+    setBusy("remove");
+    try {
+      await api(`/admin/families/${family.id}/remove`, { body: { markLost } });
+      await notify.success(`The ${family.name} family has been removed.`);
+    } catch (e) {
+      if (e instanceof ApiError && e.code === "books_out") setRemoving(e.message);
+      else notify.error(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const statusClass =
+    family.status === "active" ? "available" : family.status === "pending" ? "found" : "lost";
+
+  return (
+    <li className="card">
+      <p className="meta-row">
+        <strong>{family.name}</strong>
+        <span className={`badge badge--${statusClass}`}>{STATUS[family.status]}</span>
+        <span className="muted">
+          {family.booksOut} {family.booksOut === 1 ? "book" : "books"} out
+        </span>
+      </p>
+      <ul className="plain">
+        {family.parents.map((p) => (
+          <li key={p}>{p}</li>
+        ))}
+        {family.invites.map((i) => (
+          <InviteRow key={i.id} invite={i} notify={notify} />
+        ))}
+      </ul>
+      <div className="row">
+        {family.status === "pending" && (
+          <Button
+            onClick={() =>
+              call(
+                "approve",
+                () => api(`/admin/families/${family.id}/status`, { body: { status: "active" } }),
+                `The ${family.name} family can now borrow. We've emailed them.`,
+              )
+            }
+            busy={busy === "approve"}
+            busyLabel="Approving…"
+            aria-label={`Approve the ${family.name} family`}
+          >
+            Approve
+          </Button>
+        )}
+        {family.status === "deactivated" && (
+          <Button
+            variant="secondary"
+            onClick={() =>
+              call(
+                "activate",
+                () => api(`/admin/families/${family.id}/status`, { body: { status: "active" } }),
+                `The ${family.name} family can borrow again.`,
+              )
+            }
+            busy={busy === "activate"}
+          >
+            Turn borrowing back on
+          </Button>
+        )}
+        <Button
+          variant="secondary"
+          onClick={() => {
+            setInviting(!inviting);
+            setEmail("");
+            setEmailError("");
+          }}
+          aria-expanded={inviting}
+          aria-controls={`invite-${family.id}`}
+        >
+          Add a parent
+        </Button>
+      </div>
+      {inviting && (
+        <form id={`invite-${family.id}`} onSubmit={invite} noValidate className="inline-form">
+          <Field
+            label={`Email of another parent in the ${family.name} family`}
+            type="email"
+            autoComplete="off"
+            autoFocus
+            error={emailError}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <Button type="submit" busy={busy === "invite"} busyLabel="Sending…">
+            Send invitation
+          </Button>
+        </form>
+      )}
+      <details className="more" open={moreOpen} onToggle={(e) => setMoreOpen(e.currentTarget.open)}>
+        <summary>More</summary>
+        {removing ? (
+          <div className="confirm">
+            <p className="confirm__text" ref={confirmRef} tabIndex={-1}>
+              {removing === "ask"
+                ? `Remove the ${family.name} family? Their parents lose access to the library and their sign-in is deleted. Past loans are kept as counts without their name. This can't be undone.`
+                : `${removing} Remove the family anyway and mark those books lost?`}
+            </p>
+            <div className="row">
+              <Button variant="secondary" onClick={() => setRemoving(null)} autoFocus>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => remove(removing !== "ask")}
+                busy={busy === "remove"}
+                busyLabel="Removing…"
+              >
+                {removing === "ask" ? `Remove the ${family.name} family` : "Remove and mark lost"}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="row">
+            {family.status === "active" && (
+              <Button
+                variant="link"
+                onClick={() =>
+                  call(
+                    "pause",
+                    () =>
+                      api(`/admin/families/${family.id}/status`, {
+                        body: { status: "deactivated" },
+                      }),
+                    `Borrowing is paused for the ${family.name} family.`,
+                  )
+                }
+                busy={busy === "pause"}
+              >
+                Pause borrowing
+              </Button>
+            )}
+            <Button
+              variant="link"
+              onClick={() => setRemoving("ask")}
+              aria-label={`Remove the ${family.name} family`}
+            >
+              Remove family
+            </Button>
+          </div>
+        )}
+      </details>
+    </li>
+  );
+}
+
+function StaffSection(props: {
+  staff: { email: string; role: string }[];
+  invites: Invite[];
+  notify: Notify;
+}) {
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<"staff" | "admin">("staff");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const invite = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await api("/admin/staff/invite", { body: { email, role } });
+      setEmail("");
+      await props.notify.success(`Invitation sent to ${email}.`);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section>
+      <h2>Staff</h2>
+      <ul className="plain">
+        {props.staff.map((s) => (
+          <li key={s.email}>
+            {s.email} <span className="muted">· {ROLE_NAMES[s.role] ?? s.role}</span>
+          </li>
+        ))}
+        {props.invites.map((i) => (
+          <InviteRow key={i.id} invite={i} notify={props.notify} />
+        ))}
+      </ul>
+      <form onSubmit={invite} noValidate className="inline-form">
+        <Field
+          label="Invite someone to help run the library"
+          type="email"
+          autoComplete="off"
+          error={error}
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <div className="field">
+          <label htmlFor="staff-role">Role</label>
+          <select
+            id="staff-role"
+            value={role}
+            onChange={(e) => setRole(e.target.value as "staff" | "admin")}
+          >
+            <option value="staff">Staff: books, loans and families</option>
+            <option value="admin">Admin: also settings and staff</option>
+          </select>
+        </div>
+        <Button type="submit" variant="secondary" busy={busy} busyLabel="Sending…">
+          Send invitation
+        </Button>
+      </form>
+    </section>
+  );
+}

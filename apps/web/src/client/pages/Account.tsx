@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Button, Layout, Loading, LoadingPage } from "../components.tsx";
-import { api, errorMessage } from "../lib/api.ts";
+import { Alert, Button, Field, Layout, Loading, LoadingPage } from "../components.tsx";
+import { ApiError, api, errorMessage } from "../lib/api.ts";
 import { authClient, isPasskeyCancel, passkeyHint, passkeysSupported } from "../lib/auth.ts";
 import { navigate } from "../lib/router.tsx";
 import { useSession } from "../lib/session.tsx";
@@ -135,6 +135,8 @@ export function AccountPage() {
 
       {me.membership?.family && <ReminderSetting />}
 
+      <DeleteAccount />
+
       <h2>Sign out</h2>
       <Button
         variant="secondary"
@@ -198,6 +200,135 @@ function ReminderSetting() {
       <p className="muted" role="status">
         {message || "You'll always get an email when you borrow, whatever you choose here."}
       </p>
+    </>
+  );
+}
+
+/** "Delete my account": checks nothing blocks it, then confirms with an emailed code. */
+function DeleteAccount() {
+  const { state, refresh } = useSession();
+  const user = state.status === "ready" ? state.me.user : null;
+  const [step, setStep] = useState<"idle" | "blocked" | "code">("idle");
+  const [blocked, setBlocked] = useState<{ books: { title: string }[]; lastAdmin: boolean } | null>(
+    null,
+  );
+  const [familyGoes, setFamilyGoes] = useState(false);
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const start = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await api<{ codeSent: boolean; familyWillBeRemoved: boolean }>(
+        "/account/delete/start",
+        { body: {} },
+      );
+      setFamilyGoes(res.familyWillBeRemoved);
+      setStep("code");
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409 && e.details) {
+        setBlocked({
+          books: (e.details.books as { title: string }[] | undefined) ?? [],
+          lastAdmin: e.details.lastAdmin === true,
+        });
+        setStep("blocked");
+      } else setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await api("/account/delete/confirm", { body: { code } });
+      await refresh();
+      navigate("/signin?deleted=1", { replace: true });
+    } catch (e) {
+      setError(errorMessage(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <h2>Delete my account</h2>
+      <Alert>{error}</Alert>
+      {step === "idle" && (
+        <>
+          <p className="muted">
+            Signs you out everywhere and removes your email and sign-in from the library straight
+            away. If you're the last parent in your family, the family is removed too. Books
+            borrowed in the past stay in the library's counts without your name.
+          </p>
+          <Button variant="secondary" onClick={start} busy={busy} busyLabel="Checking…">
+            Delete my account
+          </Button>
+        </>
+      )}
+      {step === "blocked" && (
+        <div className="stack">
+          <Alert kind="info">
+            {blocked?.lastAdmin ? (
+              "You're the library's only admin. Invite another admin first (Admin › Families › Staff), then you can delete your account."
+            ) : (
+              <>
+                Your family still has {blocked?.books.length === 1 ? "a book" : "books"} out. Please
+                return {blocked?.books.length === 1 ? "it" : "them"} first, then you can delete your
+                account:
+                <ul className="plain">
+                  {blocked?.books.map((b) => (
+                    <li key={b.title}>{b.title}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </Alert>
+          <Button variant="secondary" onClick={start} busy={busy} busyLabel="Checking…">
+            Check again
+          </Button>
+        </div>
+      )}
+      {step === "code" && (
+        <div className="stack">
+          <p id="delete-code-help">
+            We've emailed {user?.email ?? "you"} a 6-digit code. Enter it to delete your account.
+            {familyGoes && " Your family will be removed from the library too."}{" "}
+            <strong>This can't be undone.</strong>
+          </p>
+          <Field
+            label="6-digit code"
+            className="code-input"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            enterKeyHint="done"
+            autoFocus
+            describedBy="delete-code-help"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+          />
+          <div className="row">
+            <Button
+              variant="danger"
+              onClick={confirmDelete}
+              disabled={code.length !== 6}
+              busy={busy}
+              busyLabel="Deleting…"
+            >
+              Yes, delete my account permanently
+            </Button>
+            <Button variant="secondary" onClick={() => setStep("idle")}>
+              Keep my account
+            </Button>
+          </div>
+          <Button variant="link" onClick={start} busy={busy}>
+            Send a new code
+          </Button>
+        </div>
+      )}
     </>
   );
 }

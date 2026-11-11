@@ -37,8 +37,20 @@ export function HomePage() {
   const me = state.me;
   const status = borrowState(me);
 
+  const joined = new URLSearchParams(window.location.search).get("joined") === "1";
+
   return (
     <Layout title={status === "ok" ? "Your books" : "Welcome"}>
+      {joined && status === "ok" && (
+        <Alert kind="success">
+          Welcome to {me.library?.name ?? "the library"}! You can borrow straight away.
+        </Alert>
+      )}
+      {joined && status === "pending" && (
+        <Alert kind="success">
+          Thanks for joining. We'll email you as soon as staff approve your family.
+        </Alert>
+      )}
       {status === "not_member" && (
         <Alert kind="info">
           You're signed in, but you haven't joined this library yet. Ask the library staff for the

@@ -37,6 +37,8 @@ export async function mayReceiveCode(
   email: string,
   headers: Headers | undefined,
   now = Date.now(),
+  /** Whether the sign-up link may trigger another code (it is capped per hour). */
+  allowJoinCode: (tokenHash: string) => Promise<boolean> = async () => true,
 ): Promise<boolean> {
   const address = email.trim().toLowerCase();
   const user = await db.query.users.findFirst({
@@ -65,7 +67,9 @@ export async function mayReceiveCode(
       columns: { id: true },
       where: eq(schema.libraries.joinTokenHash, await sha256Hex(joinToken)),
     });
-    if (library) return true;
+    // A printed QR poster can be scanned by anyone, so cap how many codes the
+    // link can trigger: 30 an hour across all addresses.
+    if (library) return allowJoinCode(await sha256Hex(joinToken));
   }
 
   const anyLibrary = await db.select({ n: sql<number>`count(*)` }).from(schema.libraries).get();
@@ -130,7 +134,14 @@ export function createAuth(deps: AuthDeps) {
           // response time is the same for members and strangers.
           deps.waitUntil(
             (async () => {
-              if (!(await mayReceiveCode(db, to, headers))) {
+              const allowJoinCode = async (tokenHash: string) =>
+                (
+                  await consume(env.DB, secret, `join-codes:${tokenHash}`, {
+                    window: 3600,
+                    max: 30,
+                  })
+                ).allowed;
+              if (!(await mayReceiveCode(db, to, headers, Date.now(), allowJoinCode))) {
                 console.log("Sign-in code not sent: address is not known to the library.");
                 return;
               }

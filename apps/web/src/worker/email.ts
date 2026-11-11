@@ -303,3 +303,116 @@ export function digestEmail(options: {
     }),
   };
 }
+
+/** Invitation to join the library (from a CSV import, or staff adding a parent). */
+export function inviteEmail(options: {
+  libraryName: string;
+  to: string;
+  url: string;
+  familyName: string | null;
+  role: "member" | "staff" | "admin";
+  expiresOn: string;
+}): EmailMessage {
+  const library = cleanHeader(options.libraryName);
+  const what =
+    options.role === "member"
+      ? `borrow books from ${library}${options.familyName ? ` as the ${options.familyName} family` : ""}`
+      : `help run ${library} as ${options.role === "admin" ? "an admin" : "staff"}`;
+  return {
+    to: options.to,
+    subject: `You're invited to ${library}`,
+    text: [
+      `You're invited to ${what}.`,
+      "",
+      `Join here: ${options.url}`,
+      "",
+      "You'll sign in with a code sent to this email address. No password needed.",
+      "This link is just for you, so please don't forward it.",
+      `The invitation works until ${formatDueDate(options.expiresOn)}.`,
+      "If you weren't expecting this, you can ignore it.",
+    ].join("\n"),
+    html: htmlEmail(library, {
+      title: `You're invited to ${library}`,
+      preheader: `You're invited to ${what}.`,
+      paragraphs: [
+        `You're invited to ${escapeHtml(what)}.`,
+        `<a href="${escapeHtml(options.url)}" style="display:inline-block;background:#1f6f5c;color:#ffffff;padding:12px 20px;border-radius:8px;font-weight:600;text-decoration:none">Join the library</a>`,
+        "You'll sign in with a code sent to this email address. No password needed. This link is just for you, so please don't forward it.",
+        `The invitation works until ${escapeHtml(formatDueDate(options.expiresOn))}. If you weren't expecting this, you can ignore it.`,
+      ],
+    }),
+  };
+}
+
+/** The code that confirms deleting an account. */
+export function deleteCodeEmail(libraryName: string, to: string, code: string): EmailMessage {
+  const library = cleanHeader(libraryName);
+  return {
+    to,
+    subject: `${code} is your code to delete your ${library} account`,
+    text: [
+      `Someone asked to delete your ${library} account. To confirm, enter this code:`,
+      "",
+      `    ${code}`,
+      "",
+      "It works for 10 minutes. Once deleted, your account can't be restored.",
+      "If this wasn't you, ignore this email: nothing will be deleted.",
+    ].join("\n"),
+    html: htmlEmail(library, {
+      title: "Confirm deleting your account",
+      preheader: "If this wasn't you, ignore this email.",
+      paragraphs: [
+        "Someone asked to delete your account. To confirm, enter this code:",
+        `<strong style="font-size:32px;letter-spacing:6px">${escapeHtml(code)}</strong>`,
+        "It works for 10 minutes. If this wasn't you, ignore this email: nothing will be deleted.",
+      ],
+    }),
+  };
+}
+
+/** Confirms an account was deleted. Sent to the address that was just removed. */
+export function goodbyeEmail(libraryName: string, to: string): EmailMessage {
+  const library = cleanHeader(libraryName);
+  return {
+    to,
+    subject: `Your ${library} account has been deleted`,
+    text: [
+      `Your ${library} account has been deleted, as you asked.`,
+      "Your email address and sign-in details are gone, and you won't get any more emails from the library.",
+      "Thank you for borrowing with us. You're welcome back any time: ask staff for the sign-up link.",
+    ].join("\n"),
+    html: htmlEmail(library, {
+      title: "Account deleted",
+      preheader: "Your account has been deleted.",
+      paragraphs: [
+        "Your account has been deleted, as you asked.",
+        "Your email address and sign-in details are gone, and you won't get any more emails from the library.",
+        "Thank you for borrowing with us. You're welcome back any time: ask staff for the sign-up link.",
+      ],
+    }),
+  };
+}
+
+/** Tells parents that staff approved their family, so they can borrow. */
+export function approvedEmail(libraryName: string, to: string, siteUrl: string): EmailMessage {
+  const library = cleanHeader(libraryName);
+  return {
+    to,
+    subject: `You can now borrow from ${library}`,
+    text: [
+      `Good news: the library staff have approved your family, so you can borrow books now.`,
+      "Scan the QR sticker inside a book's cover to borrow it.",
+      "",
+      `Open the library: ${siteUrl}/`,
+    ].join("\n"),
+    html: htmlEmail(library, {
+      title: "You can now borrow",
+      preheader: "The library staff have approved your family.",
+      paragraphs: [
+        "Good news: the library staff have approved your family, so you can borrow books now.",
+        "Scan the QR sticker inside a book's cover to borrow it.",
+        `<a href="${escapeHtml(siteUrl)}/" style="color:#1f6f5c;font-weight:600;text-decoration:underline">Open the library</a>`,
+      ],
+    }),
+  };
+}

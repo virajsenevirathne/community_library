@@ -165,3 +165,45 @@ describe("reminders", () => {
     ).toBe(0);
   });
 });
+
+describe("CSV import", () => {
+  it("reads quoted fields, semicolons and a byte-order mark", async () => {
+    const { parseCsv } = await import("./csv.ts");
+    expect(parseCsv('﻿a,"b, c","say ""hi"""\r\n1,2,3\n')).toEqual([
+      ["a", "b, c", 'say "hi"'],
+      ["1", "2", "3"],
+    ]);
+    expect(parseCsv("Surname;Email\nLee;lee@example.com")).toEqual([
+      ["Surname", "Email"],
+      ["Lee", "lee@example.com"],
+    ]);
+  });
+
+  it("finds the family and email columns and ignores everything else", async () => {
+    const { readInvites } = await import("./csv.ts");
+    const csv = [
+      "Child first name,Room,Family name,Parent email,Phone",
+      "Mia,Possums,Nguyen,ANH@example.com,0400",
+      "Leo,Possums,Nguyen,binh@example.com,0400",
+      "Sam,Wombats,,sam@example.com,",
+      "Ava,Wombats,Okafor,not-an-email,",
+      "Zoe,Wombats,Okafor,anh@example.com,",
+    ].join("\n");
+    const { rows, error } = readInvites(csv);
+    expect(error).toBeNull();
+    expect(rows.map((r) => [r.line, r.familyName, r.email, r.problem])).toEqual([
+      [2, "Nguyen", "anh@example.com", null],
+      [3, "Nguyen", "binh@example.com", null],
+      [4, "", "sam@example.com", "missing_family"],
+      [5, "Okafor", "not-an-email", "invalid_email"],
+      [6, "Okafor", "anh@example.com", "duplicate_in_file"],
+    ]);
+    // Children's names and rooms are never part of the result.
+    expect(JSON.stringify(rows)).not.toContain("Mia");
+  });
+
+  it("explains when the headings are missing", async () => {
+    const { readInvites } = await import("./csv.ts");
+    expect(readInvites("Nguyen,anh@example.com").error).toMatch(/headings/);
+  });
+});

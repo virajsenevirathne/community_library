@@ -822,3 +822,105 @@ fieldset.field legend {
 fieldset.field {
   min-inline-size: 0;
 }
+
+/* Families */
+.join-link {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+}
+.join-link__qr {
+  width: 9rem;
+  flex: none;
+  background: #fff;
+  padding: 0.25rem;
+  border-radius: 8px;
+}
+.join-link__qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.join-link .stack {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.join-link__url {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0.5rem 0.75rem;
+  border: 2px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+}
+.plain {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+.plain > li {
+  padding: 0.125rem 0;
+  overflow-wrap: anywhere;
+}
+.inline-form {
+  margin-top: 1rem;
+}
+.table-wrap {
+  overflow-x: auto;
+}
+.table-wrap table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.table-wrap th,
+.table-wrap td {
+  text-align: left;
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.poster-only {
+  display: none;
+}
+@media print {
+  /* "Print a poster" on the Families page: just the QR code, large. */
+  body.print-poster main > :not(#join-card),
+  body.print-poster #join-card > :not(.join-link, .poster-only),
+  body.print-poster .join-link .stack {
+    display: none;
+  }
+  body.print-poster #join-card {
+    border: none;
+  }
+  body.print-poster .poster-only {
+    display: block;
+    text-align: center;
+    font-size: 28pt;
+    font-weight: 700;
+    margin: 2cm 0 0;
+  }
+  body.print-poster .poster-only--sub {
+    font-size: 18pt;
+    font-weight: 400;
+    margin-top: 0.5cm;
+  }
+  body.print-poster .poster-only--url {
+    font-size: 11pt;
+    font-weight: 400;
+    margin-top: 0;
+    overflow-wrap: anywhere;
+  }
+  body.print-poster .join-link__qr {
+    width: 12cm;
+    margin: 1cm auto;
+  }
+}
+.invite-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+}

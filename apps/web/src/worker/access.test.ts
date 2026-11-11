@@ -250,6 +250,51 @@ export const ROUTES: {
   { route: "POST /api/reminders-off", rule: "public", body: { f: "x", t: "y" } },
   { route: "GET /api/family/reminders", rule: "loans:own" },
   { route: "PUT /api/family/reminders", rule: "loans:own", body: { on: true } },
+  { route: "GET /api/join/:token", rule: "public", request: "/api/join/x" },
+  { route: "POST /api/join", rule: "user", body: { token: "x", familyName: "X" } },
+  { route: "GET /api/invites/:token", rule: "public", request: "/api/invites/x" },
+  { route: "POST /api/invites/accept", rule: "user", body: { token: "x" } },
+  { route: "GET /api/admin/families", rule: "families:manage" },
+  {
+    route: "POST /api/admin/families/:id/status",
+    rule: "families:manage",
+    request: "/api/admin/families/missing/status",
+    body: { status: "active" },
+  },
+  {
+    route: "POST /api/admin/families/:id/invite",
+    rule: "families:manage",
+    request: "/api/admin/families/missing/invite",
+    body: { email: "new@example.com" },
+  },
+  {
+    route: "POST /api/admin/staff/invite",
+    rule: "library:admin",
+    body: { email: "x@example", role: "staff" },
+  },
+  {
+    route: "POST /api/admin/invites/:id/resend",
+    rule: "families:manage",
+    request: "/api/admin/invites/missing/resend",
+    body: {},
+  },
+  {
+    route: "DELETE /api/admin/invites/:id",
+    rule: "families:manage",
+    request: "/api/admin/invites/missing",
+  },
+  { route: "POST /api/admin/import/preview", rule: "families:manage", body: { csv: "" } },
+  { route: "POST /api/admin/import", rule: "families:manage", body: { csv: "" } },
+  {
+    route: "POST /api/admin/families/:id/remove",
+    rule: "families:manage",
+    request: "/api/admin/families/missing/remove",
+    body: {},
+  },
+  { route: "POST /api/admin/join-link", rule: "library:admin", body: { enabled: "no" } },
+  // Any signed-in person may start deleting their own account; a code is needed to finish.
+  { route: "POST /api/account/delete/start", rule: "user", body: {} },
+  { route: "POST /api/account/delete/confirm", rule: "user", body: { code: "abc" } },
 ];
 
 type Who = "signedOut" | "nonMember" | "pendingMember" | "member" | "staff" | "admin";

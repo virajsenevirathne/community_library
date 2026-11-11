@@ -212,3 +212,17 @@ describe("delivery problems", () => {
     );
   });
 });
+
+describe("queued invites", () => {
+  it("sends invites waiting from an import", async () => {
+    await env.DB.prepare(
+      "insert into invitations (id, library_id, family_id, email, role, token_hash, expires_at) values ('i1', 'lib-1', 'f2', 'new@example.com', 'member', 'unsent:i1', 0)",
+    ).run();
+    await run(new Date("2026-11-11T05:00:00Z")); // before reminder time: invites still go
+    expect(sent.map((m) => m.to)).toEqual(["new@example.com"]);
+    expect(sent[0]?.text).toContain("https://library.example.org/invite/");
+    sent = [];
+    await run(new Date("2026-11-11T06:00:00Z"));
+    expect(sent).toHaveLength(0);
+  });
+});

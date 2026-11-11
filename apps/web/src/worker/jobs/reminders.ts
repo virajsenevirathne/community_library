@@ -12,6 +12,7 @@ import { hmacHex } from "../crypto.ts";
 import { newId } from "../db/client.ts";
 import { digestEmail, type ReminderLine, reminderEmail } from "../email.ts";
 import type { Priority } from "../mailer.ts";
+import { sendInvite, unsentInvites } from "../routes/families.ts";
 
 /*
  * The hourly job (Cron Trigger "0 * * * *"). Each library gets its reminders
@@ -117,6 +118,7 @@ async function runForLibrary(deps: JobDeps, now: Date, budget: Budget, library: 
   const settings = library.settings;
   const local = localParts(now, settings.timezone);
   await tidyUp(deps.DB, library, now);
+  await sendQueuedInvites(deps, library, budget);
 
   if (local.hour < settings.reminderHour) return;
   // Staff get the weekly summary on Monday even when the centre is closed.
@@ -149,7 +151,8 @@ async function tidyUp(DB: D1Database, library: Library, now: Date) {
     ),
     DB.prepare(
       `update invitations set email = null
-       where library_id = ? and accepted_at is null and expires_at < ? and email is not null`,
+       where library_id = ? and accepted_at is null and sent_at is not null and expires_at < ?
+         and email is not null`,
     ).bind(library.id, now.getTime()),
   ]);
 }
@@ -331,5 +334,21 @@ async function sendWeeklyDigest(
     }
     await settle(DB, [key], result.ok, result.provider);
     if (result.ok) budget.sent += 1;
+  }
+}
+
+/** Invites from a CSV import that have not gone out yet (kept under the daily email limit). */
+async function sendQueuedInvites(deps: JobDeps, library: Library, budget: Budget) {
+  if (budget.left <= 0) return;
+  for (const invite of await unsentInvites(deps.DB, library.id, budget.left)) {
+    const ok = await sendInvite(
+      { env: deps.env, email: deps.mailer, origin: deps.siteUrl },
+      invite,
+      library,
+      "routine",
+    );
+    // Out of quota for today: the rest wait for tomorrow.
+    if (!ok) return;
+    budget.sent += 1;
   }
 }

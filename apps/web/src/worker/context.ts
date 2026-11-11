@@ -35,7 +35,7 @@ export type AppContext = Context<AppEnv>;
 
 /** Throws a JSON error response with a stable code and a message people can read. */
 export function fail(
-  status: 400 | 401 | 403 | 404 | 409 | 422 | 429 | 503,
+  status: 400 | 401 | 403 | 404 | 409 | 410 | 422 | 429 | 503,
   code: string,
   message: string,
 ): never {

@@ -29,7 +29,7 @@ export function SignInPage() {
   const { state, refresh } = useSession();
   const [step, setStep] = useState<Step>("email");
   // Kept here so "Use a different email" returns with the address still filled in.
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(query.get("email") ?? "");
   const setupNeeded = state.status === "ready" && state.me.setupNeeded;
 
   const finish = async () => {
@@ -153,6 +153,15 @@ function EmailStep(props: {
 
   return (
     <>
+      {new URLSearchParams(window.location.search).get("deleted") === "1" && (
+        <Alert kind="success">
+          Your account has been deleted. A confirmation email is on its way. You're welcome back any
+          time: ask staff for the sign-up link.
+        </Alert>
+      )}
+      {new URLSearchParams(window.location.search).get("email") && (
+        <p className="muted">Sign in with the address your invitation was sent to.</p>
+      )}
       {setupNeeded ? (
         <Alert kind="info">
           This library is not set up yet. Sign in with your email, then you can set it up.
