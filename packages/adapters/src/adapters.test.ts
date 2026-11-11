@@ -92,7 +92,13 @@ describe("metadata providers", () => {
     });
     // A complete first answer doesn't ask anyone else.
     let asked = false;
-    const spy = { name: "spy", lookup: async () => ((asked = true), null) };
+    const spy = {
+      name: "spy",
+      lookup: async () => {
+        asked = true;
+        return null;
+      },
+    };
     const full = new OpenLibraryProvider(
       fakeFetch({
         "ISBN:9780140328721": {
