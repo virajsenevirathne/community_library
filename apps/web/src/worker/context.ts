@@ -4,6 +4,7 @@ import { HTTPException } from "hono/http-exception";
 import type { z } from "zod";
 import type { Auth } from "./auth.ts";
 import type { Db } from "./db/client.ts";
+import type { LibraryInfo } from "./library.ts";
 
 export interface SessionUser {
   id: string;
@@ -19,6 +20,8 @@ export type AppEnv = {
     auth: () => Auth;
     email: EmailSender;
     user: SessionUser | null;
+    /** The library this deployment serves, loaded once per request. Null before setup. */
+    library: LibraryInfo | null;
   };
 };
 

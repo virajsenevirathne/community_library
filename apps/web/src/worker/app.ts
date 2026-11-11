@@ -60,7 +60,9 @@ export function createApp(options: AppOptions = {}) {
   app.use(async (c, next) => {
     const db = createDb(c.env.DB);
     c.set("db", db);
-    const libraryName = (await currentLibrary(db))?.name ?? c.env.LIBRARY_NAME;
+    const library = await currentLibrary(db);
+    c.set("library", library);
+    const libraryName = library?.name ?? c.env.LIBRARY_NAME;
     // APP_URL pins the site's address (passkeys are tied to it). Without it, the
     // address the request came in on is used, which suits local development.
     const origin = c.env.APP_URL ? new URL(c.env.APP_URL).origin : new URL(c.req.url).origin;

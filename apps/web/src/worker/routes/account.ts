@@ -1,12 +1,13 @@
 import { defaultSettings, isValidTimezone, mergeSettings } from "@community-library/core";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
+import { actorFor } from "../access.ts";
 import { isLocalHost, secrets } from "../config.ts";
 import { type AppEnv, fail, readBody, requireUser } from "../context.ts";
 import { sha256Hex, timingSafeEqual } from "../crypto.ts";
 import { newId, schema } from "../db/client.ts";
-import { currentLibrary, slugify } from "../library.ts";
+import { slugify } from "../library.ts";
 import { clientIp, consume } from "../limiter.ts";
 
 /** A short name typed by a person: trimmed, not empty, no line breaks or control characters. */
@@ -33,7 +34,7 @@ export const accountRoutes = new Hono<AppEnv>()
   /** Who is signed in, what they can do, and whether the library still needs setting up. */
   .get("/me", async (c) => {
     const db = c.get("db");
-    const library = await currentLibrary(db);
+    const library = c.get("library");
     const user = c.get("user");
     if (!user) {
       return c.json({
@@ -42,22 +43,7 @@ export const accountRoutes = new Hono<AppEnv>()
         setupNeeded: !library,
       });
     }
-    const mine = library
-      ? await db.query.memberships.findFirst({
-          columns: { role: true, familyId: true },
-          where: and(
-            eq(schema.memberships.libraryId, library.id),
-            eq(schema.memberships.userId, user.id),
-          ),
-        })
-      : undefined;
-    const family =
-      mine?.familyId != null
-        ? await db.query.families.findFirst({
-            columns: { id: true, name: true, status: true },
-            where: eq(schema.families.id, mine.familyId),
-          })
-        : undefined;
+    const actor = await actorFor(c);
     const passkeyCount = await db.$count(schema.passkeys, eq(schema.passkeys.userId, user.id));
     return c.json({
       user: { id: user.id, email: user.email, name: user.name, hasPasskey: passkeyCount > 0 },
@@ -65,7 +51,7 @@ export const accountRoutes = new Hono<AppEnv>()
       setupNeeded: !library,
       // Only matters before setup: whether the setup form must ask for the code.
       setupCodeRequired: !library && Boolean(secrets(c.env).SETUP_CODE),
-      membership: mine ? { role: mine.role, family: family ?? null } : null,
+      membership: actor ? { role: actor.role, family: actor.family } : null,
     });
   })
 

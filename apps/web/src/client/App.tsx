@@ -35,10 +35,14 @@ function Routes() {
 
   if (path === "/signin") return me.user ? <Redirect to="/" /> : <SignInPage />;
 
-  const guard = (page: ReactNode, rule: (me: Me) => boolean = () => true) => {
+  const guard = (
+    page: ReactNode,
+    rule: (me: Me) => boolean = () => true,
+    who: "staff" | "admin" = "staff",
+  ) => {
     if (!me.user) return <Redirect to={signInPath(path, window.location.search)} />;
     if (me.setupNeeded && path !== "/setup") return <Redirect to="/setup" />;
-    if (!rule(me)) return <NotAllowed />;
+    if (!rule(me)) return <NotAllowed who={who} />;
     return page;
   };
 
@@ -51,12 +55,16 @@ function Routes() {
   return <NotFound />;
 }
 
-function NotAllowed() {
+function NotAllowed({ who }: { who: "staff" | "admin" }) {
   return (
-    <Layout title="Staff only">
-      <p>This page is for library staff. Ask the library's admin if you need access.</p>
+    <Layout title={who === "admin" ? "Admin only" : "Staff only"}>
       <p>
-        <Link href="/">Go to your books</Link>
+        {who === "admin"
+          ? "This page is only for the library admin."
+          : "This page is only for library staff. If you need it, ask the library admin."}
+      </p>
+      <p>
+        <Link href="/">Go to the home page</Link>
       </p>
     </Layout>
   );

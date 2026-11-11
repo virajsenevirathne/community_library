@@ -18,7 +18,7 @@ export interface LibraryInfo {
 export async function currentLibrary(db: Db): Promise<LibraryInfo | null> {
   const row = await db.query.libraries.findFirst({
     columns: { id: true, name: true, slug: true, settings: true },
-    orderBy: asc(schema.libraries.createdAt),
+    orderBy: [asc(schema.libraries.createdAt), asc(schema.libraries.id)],
   });
   if (!row) return null;
   return { id: row.id, name: row.name, slug: row.slug, settings: parseSettings(row.settings) };

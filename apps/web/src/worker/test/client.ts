@@ -17,8 +17,12 @@ export function createTestApp(env: Env) {
 }
 
 /** A browser-like client for one person: keeps cookies between requests. */
+let nextIp = 1;
+
 export class TestClient {
   private cookies = new Map<string, string>();
+  /** Each test person browses from their own address, like real parents on their own phones. */
+  readonly ip = `10.0.${Math.floor(nextIp / 250) % 250}.${nextIp++ % 250}`;
   constructor(
     private readonly ctx: ReturnType<typeof createTestApp>,
     readonly email: string,
@@ -31,6 +35,7 @@ export class TestClient {
   ) {
     const headers = new Headers(init.headers);
     headers.set("Origin", this.origin);
+    if (!headers.has("cf-connecting-ip")) headers.set("cf-connecting-ip", this.ip);
     if (init.body !== undefined) headers.set("Content-Type", "application/json");
     if (this.cookies.size > 0) {
       headers.set("Cookie", [...this.cookies].map(([k, v]) => `${k}=${v}`).join("; "));
