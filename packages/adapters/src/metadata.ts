@@ -231,16 +231,31 @@ export interface LookupResult {
   unavailable: boolean;
 }
 
-/** Asks each provider in turn and returns the first book found. */
+/** Keeps `book`, taking only a missing author list or cover from `extra`. */
+function fillGaps(book: BookMetadata, extra: BookMetadata): BookMetadata {
+  return {
+    ...book,
+    authors: book.authors.length > 0 ? book.authors : extra.authors,
+    coverUrl: book.coverUrl ?? extra.coverUrl,
+  };
+}
+
+/**
+ * Asks each provider in turn and returns the first book found. When that book
+ * has no author or no cover, the remaining providers are asked to fill in
+ * just those gaps (the first provider's title is kept).
+ */
 export async function lookupIsbn(
   providers: MetadataProvider[],
   isbn13: string,
 ): Promise<LookupResult> {
   let unavailable = false;
+  let book: BookMetadata | null = null;
   for (const provider of providers) {
+    if (book && book.authors.length > 0 && book.coverUrl) break;
     const answer = await provider.lookup(isbn13);
     if (answer === "unavailable") unavailable = true;
-    else if (answer) return { book: answer, unavailable: false };
+    else if (answer) book = book ? fillGaps(book, answer) : answer;
   }
-  return { book: null, unavailable };
+  return book ? { book, unavailable: false } : { book: null, unavailable };
 }

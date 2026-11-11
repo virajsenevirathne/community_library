@@ -67,6 +67,45 @@ describe("metadata providers", () => {
     });
   });
 
+  it("fill a found book's missing author and cover from the next provider", async () => {
+    const bare = new OpenLibraryProvider(
+      fakeFetch({ "ISBN:9781742990057": { title: "Possum Magic" } }),
+    );
+    const google = new GoogleBooksProvider(
+      fakeFetch({
+        items: [
+          {
+            volumeInfo: {
+              title: "Possum Magic (Board Book)",
+              authors: ["Mem Fox"],
+              imageLinks: { thumbnail: "http://books.google.com/books/content?id=x" },
+            },
+          },
+        ],
+      }),
+    );
+    expect((await lookupIsbn([bare, google], "9781742990057")).book).toMatchObject({
+      title: "Possum Magic",
+      authors: ["Mem Fox"],
+      coverUrl: "https://books.google.com/books/content?id=x",
+      source: "openlibrary",
+    });
+    // A complete first answer doesn't ask anyone else.
+    let asked = false;
+    const spy = { name: "spy", lookup: async () => ((asked = true), null) };
+    const full = new OpenLibraryProvider(
+      fakeFetch({
+        "ISBN:9780140328721": {
+          title: "Fantastic Mr Fox",
+          authors: [{ name: "Roald Dahl" }],
+          cover: { medium: "https://covers.openlibrary.org/b/id/1-M.jpg" },
+        },
+      }),
+    );
+    await lookupIsbn([full, spy], "9780140328721");
+    expect(asked).toBe(false);
+  });
+
   it("treat a rate-limited Google Books as unavailable, and send the key when set", async () => {
     const urls: string[] = [];
     const limited = (async (url: string) => {
