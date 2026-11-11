@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.ts";
 import { createTestApp, TestClient } from "./test/client.ts";
 import { createTestEnv } from "./test/env.ts";
+import { createLibrary, person } from "./test/fixtures.ts";
 
 let env: Env;
 let dispose: () => Promise<void>;
@@ -46,65 +47,60 @@ describe("unknown API routes", () => {
 });
 
 describe("first-run setup", () => {
-  it("lets the first person sign in, create the library and become admin", async () => {
-    const admin = new TestClient(ctx, "admin@example.com");
-    expect((await admin.json("/api/me")).body).toMatchObject({ user: null, setupNeeded: true });
+  it("makes the first person through the site's owner", async () => {
+    const owner = new TestClient(ctx, "owner@example.com");
+    owner.library = null;
+    expect((await owner.json("/api/me")).body).toMatchObject({ user: null, setupNeeded: true });
 
-    await admin.signIn();
-    const setup = await admin.json("/api/setup", {
-      body: {
-        setupCode: "open-sesame",
-        libraryName: "Little Owls",
-        timezone: "Australia/Sydney",
-        familyName: "Lee",
-      },
-    });
+    await owner.signIn();
+    const setup = await owner.json("/api/setup", { body: { setupCode: "open-sesame" } });
     expect(setup.status).toBe(201);
-    // The new library lives at its own address, named after it.
-    expect(setup.body).toMatchObject({ slug: "little-owls" });
-
-    // Site-wide, the person sees the libraries they belong to.
-    admin.library = null;
-    expect((await admin.json("/api/me")).body).toMatchObject({
-      library: null,
-      libraries: [{ slug: "little-owls", name: "Little Owls", role: "admin" }],
+    expect((await owner.json("/api/me")).body).toMatchObject({
+      user: { email: "owner@example.com" },
+      owner: true,
+      libraries: [],
       setupNeeded: false,
-    });
-
-    admin.library = "little-owls";
-    const me = await admin.json("/api/me");
-    expect(me.body).toMatchObject({
-      user: { email: "admin@example.com", hasPasskey: false },
-      library: { name: "Little Owls", slug: "little-owls" },
-      setupNeeded: false,
-      membership: { role: "admin", family: { name: "Lee", status: "active" } },
     });
   });
 
   it("refuses a wrong setup code, and a second setup", async () => {
-    const admin = new TestClient(ctx, "admin@example.com");
-    await admin.signIn();
-    const body = { libraryName: "Little Owls", timezone: "UTC" };
-    expect((await admin.json("/api/setup", { body: { ...body, setupCode: "nope" } })).status).toBe(
-      403,
+    const owner = new TestClient(ctx, "owner@example.com");
+    await owner.signIn();
+    expect((await owner.json("/api/setup", { body: { setupCode: "nope" } })).status).toBe(403);
+    expect((await owner.json("/api/setup", { body: { setupCode: "open-sesame" } })).status).toBe(
+      201,
     );
-    expect(
-      (await admin.json("/api/setup", { body: { ...body, setupCode: "open-sesame" } })).status,
-    ).toBe(201);
-    expect(
-      (await admin.json("/api/setup", { body: { ...body, setupCode: "open-sesame" } })).status,
-    ).toBe(409);
+    expect((await owner.json("/api/setup", { body: { setupCode: "open-sesame" } })).status).toBe(
+      409,
+    );
   });
 
-  it("requires sign-in and valid details", async () => {
+  it("on a site that already has libraries, only one of their admins can become owner", async () => {
+    await env.DB.batch([
+      env.DB.prepare(
+        "insert into libraries (id, name, slug, settings, terms_accepted_at) values ('old', 'Old', 'old', '{}', 1)",
+      ),
+    ]);
+    const stranger = new TestClient(ctx, "stranger@example.com");
+    // Strangers can't even get a sign-in code once libraries exist.
+    expect(await stranger.requestCode()).toBeUndefined();
+    const member = await person(ctx, { role: "member", libraryId: "old" });
+    member.library = null;
+    expect((await member.json("/api/me")).body).toMatchObject({ setupNeeded: false });
+    expect((await member.json("/api/setup", { body: { setupCode: "open-sesame" } })).status).toBe(
+      409,
+    );
+    const admin = await person(ctx, { role: "admin", libraryId: "old" });
+    admin.library = null;
+    expect((await admin.json("/api/me")).body).toMatchObject({ setupNeeded: true });
+    expect((await admin.json("/api/setup", { body: { setupCode: "open-sesame" } })).status).toBe(
+      201,
+    );
+  });
+
+  it("requires sign-in", async () => {
     const stranger = new TestClient(ctx, "x@example.com");
     expect((await stranger.json("/api/setup", { body: {} })).status).toBe(401);
-    await stranger.signIn();
-    const bad = await stranger.json("/api/setup", {
-      body: { setupCode: "open-sesame", libraryName: " ", timezone: "Mars/Base" },
-    });
-    expect(bad.status).toBe(422);
-    expect(bad.body).toMatchObject({ message: "Library name is required." });
   });
 });
 
@@ -112,9 +108,7 @@ describe("sign-in codes", () => {
   it("are only sent to people the library knows, once it is set up", async () => {
     const admin = new TestClient(ctx, "admin@example.com");
     await admin.signIn();
-    await admin.json("/api/setup", {
-      body: { setupCode: "open-sesame", libraryName: "L", timezone: "UTC" },
-    });
+    await admin.json("/api/setup", { body: { setupCode: "open-sesame" } });
 
     const stranger = new TestClient(ctx, "stranger@example.com");
     const res = await stranger.request("/api/auth/email-otp/send-verification-otp", {
@@ -158,9 +152,8 @@ describe("hardening", () => {
   async function setUpLibrary() {
     const admin = new TestClient(ctx, "admin@example.com");
     await admin.signIn();
-    await admin.json("/api/setup", {
-      body: { setupCode: "open-sesame", libraryName: "L", timezone: "UTC" },
-    });
+    await admin.json("/api/setup", { body: { setupCode: "open-sesame" } });
+    await createLibrary(env);
     return admin;
   }
 
@@ -215,23 +208,14 @@ describe("hardening", () => {
     const b = new TestClient(ctx, "b@example.com");
     await a.signIn();
     await b.signIn();
-    const body = { setupCode: "open-sesame", libraryName: "L", timezone: "UTC" };
+    const body = { setupCode: "open-sesame" };
     const results = await Promise.all([
       a.json("/api/setup", { body }),
       b.json("/api/setup", { body }),
     ]);
     expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
-    const admins = await env.DB.prepare("select count(*) as n from memberships").first("n");
-    expect(admins).toBe(1);
-  });
-
-  it("refuses names with line breaks", async () => {
-    const admin = new TestClient(ctx, "admin@example.com");
-    await admin.signIn();
-    const res = await admin.json("/api/setup", {
-      body: { setupCode: "open-sesame", libraryName: "Owls\nBcc: x@evil.test", timezone: "UTC" },
-    });
-    expect(res.status).toBe(422);
+    const owners = await env.DB.prepare("select count(*) as n from platform_admins").first("n");
+    expect(owners).toBe(1);
   });
 });
 
@@ -240,7 +224,7 @@ describe("a real deployment", () => {
     const remote = new TestClient(ctx, "admin@example.com", "https://library.example.org");
     await remote.signIn();
     const res = await remote.json("/api/setup", {
-      body: { setupCode: "open-sesame", libraryName: "L", timezone: "UTC" },
+      body: { setupCode: "open-sesame" },
     });
     expect(res.status).toBe(503);
     expect(res.body).toMatchObject({ error: "setup_code_too_short" });

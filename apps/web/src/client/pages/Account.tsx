@@ -161,12 +161,19 @@ export function AccountPage() {
           <LibraryList libraries={me.libraries} />
         </section>
       )}
-      {me.library && me.libraries.length > 1 && (
-        <p>
-          <Link href="/" absolute>
-            Switch to another library
-          </Link>
-        </p>
+      {(me.owner || (me.library && me.libraries.length > 1)) && (
+        <div className="row account-links">
+          {me.library && me.libraries.length > 1 && (
+            <Link href="/" absolute className="btn btn--secondary">
+              Switch library
+            </Link>
+          )}
+          {me.owner && (
+            <Link href="/owner" absolute className="btn btn--secondary">
+              Owner area
+            </Link>
+          )}
+        </div>
       )}
 
       <DeleteAccount />
@@ -236,9 +243,11 @@ function DeleteAccount() {
   const user = state.status === "ready" ? state.me.user : null;
   const libraryCount = state.status === "ready" ? state.me.libraries.length : 0;
   const [step, setStep] = useState<"idle" | "blocked" | "code">("idle");
-  const [blocked, setBlocked] = useState<{ books: { title: string }[]; lastAdmin: boolean } | null>(
-    null,
-  );
+  const [blocked, setBlocked] = useState<{
+    books: { title: string }[];
+    lastAdmin: boolean;
+    lastOwner?: boolean;
+  } | null>(null);
   const [familyGoes, setFamilyGoes] = useState(false);
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
@@ -259,6 +268,7 @@ function DeleteAccount() {
         setBlocked({
           books: (e.details.books as { title: string }[] | undefined) ?? [],
           lastAdmin: e.details.lastAdmin === true,
+          lastOwner: e.details.lastOwner === true,
         });
         setStep("blocked");
       } else setError(errorMessage(e));
@@ -303,7 +313,9 @@ function DeleteAccount() {
       {step === "blocked" && (
         <div className="stack">
           <Alert kind="info">
-            {blocked?.lastAdmin ? (
+            {blocked?.lastOwner ? (
+              "You run this site, so your account can't be deleted while you're its only owner."
+            ) : blocked?.lastAdmin ? (
               `You're the only admin of ${libraryCount > 1 ? "one of your libraries" : "the library"}. Invite another admin there first (Staff › Families › Staff), then you can delete your account.`
             ) : (
               <>

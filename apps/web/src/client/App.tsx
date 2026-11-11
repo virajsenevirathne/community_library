@@ -13,9 +13,12 @@ import { LabelsPage } from "./pages/admin/Labels.tsx";
 import { LoansPage } from "./pages/admin/Loans.tsx";
 import { SettingsPage } from "./pages/admin/Settings.tsx";
 import { TitleDetailPage } from "./pages/admin/TitleDetail.tsx";
+import { WelcomePage } from "./pages/admin/Welcome.tsx";
 import { CodeEntryPage, CopyPage } from "./pages/Copy.tsx";
 import { HomePage } from "./pages/Home.tsx";
 import { InvitePage, JoinPage } from "./pages/Join.tsx";
+import { OwnerPage } from "./pages/Owner.tsx";
+import { FrontPage, PrivacyPage, TermsPage } from "./pages/Public.tsx";
 import { RemindersOffPage } from "./pages/RemindersOff.tsx";
 import { SetupPage } from "./pages/Setup.tsx";
 import { SignInPage } from "./pages/SignIn.tsx";
@@ -50,6 +53,11 @@ function Routes() {
 
   // ---- Site-wide pages: the same for every library.
   if (!base) {
+    if (path === "/privacy") return <PrivacyPage />;
+    if (path === "/terms") return <TermsPage />;
+    // The front page, also for people who are signed in.
+    if (path === "/about") return <FrontPage />;
+    if (path === "/" && !me.user && !me.setupNeeded) return <FrontPage />;
     if (path === "/signin") return me.user ? <Redirect to="/" /> : <SignInPage />;
     // Opened from an email; works without signing in (the link is signed).
     if (path === "/reminders-off") return <RemindersOffPage />;
@@ -66,6 +74,7 @@ function Routes() {
   if (!base) {
     if (path === "/setup") return me.setupNeeded ? <SetupPage /> : <Redirect to="/" />;
     if (path === "/account") return <AccountPage />;
+    if (path === "/owner") return me.owner ? <OwnerPage /> : <NotFound />;
     // A book's QR code: the book names its library, and its page moves there.
     if (path === "/c") return <CodeEntryPage />;
     const copyMatch = path.match(/^\/c\/([A-Za-z0-9-]{1,12})\/?$/);
@@ -76,12 +85,16 @@ function Routes() {
       const rest = `${path}${window.location.search}${window.location.hash}`;
       if (only) return <Redirect to={`/${only.slug}${rest}`} absolute />;
       if (me.libraries.length > 1) return <LibraryPicker libraries={me.libraries} rest={rest} />;
+      // The site's owner, before any library of their own: their libraries page.
+      if (me.owner && path === "/") return <Redirect to="/owner" absolute />;
       return <HomePage />;
     }
     return <NotFound />;
   }
 
   // ---- A library's pages, under /<slug>/.
+  // Just moved here: wait for this library's answer before judging it.
+  if (state.base !== base) return <LoadingPage label="Opening the library…" />;
   if (!me.library) return <NotFound what="library" />;
   // Moving between libraries: wait for this one's details.
   if (me.library.slug !== base) return <LoadingPage label="Opening the library…" />;
@@ -91,6 +104,12 @@ function Routes() {
     rule: (me: Me) => boolean = () => true,
     who: "staff" | "admin" = "staff",
   ) => (rule(me) ? page : <NotAllowed who={who} />);
+
+  // A new library's admin finishes setting it up before anything else.
+  const isAdmin = me.membership?.role === "admin";
+  if (!me.library.setUp && isAdmin && !me.library.support && path !== "/account") {
+    return <WelcomePage />;
+  }
 
   if (path === "/admin") return guard(<AdminHomePage />, isStaff);
   if (path === "/admin/add") return guard(<AddBooksPage />, isStaff);
@@ -148,7 +167,7 @@ function NotFound({ what = "page" }: { what?: "page" | "library" }) {
       <Layout title="Library not found" siteWide>
         <p>
           There's no library at <span className="code">/{slug}</span>. Check the link, or ask your
-          centre for it.
+          library for it.
         </p>
         <Link href="/" absolute className="btn btn--primary">
           {libraries.length > 0 ? "See your libraries" : "Go to the home page"}

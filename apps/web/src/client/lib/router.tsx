@@ -18,7 +18,17 @@ let navigatedInApp = false;
  * Pages that belong to the whole site, never to one library. (Account opens
  * inside a library too, so a family's settings for it are at hand.)
  */
-const SITE_ONLY = new Set(["signin", "owner", "setup", "join", "invite", "reminders-off"]);
+const SITE_ONLY = new Set([
+  "signin",
+  "owner",
+  "privacy",
+  "terms",
+  "about",
+  "setup",
+  "join",
+  "invite",
+  "reminders-off",
+]);
 
 /** The library the address belongs to ("little-owls" in /little-owls/admin), or null. */
 export function libraryBase(pathname: string = window.location.pathname): string | null {

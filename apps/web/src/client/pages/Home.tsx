@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Button, Layout, Loading } from "../components.tsx";
-import { BookIllustration } from "../icons.tsx";
+import { BookStack } from "../icons.tsx";
 import { api, errorMessage } from "../lib/api.ts";
 import { formatDate, lateText } from "../lib/copies.ts";
 import { Link } from "../lib/router.tsx";
@@ -157,7 +157,7 @@ function MyBooks() {
         <>
           {data.loans.length === 0 ? (
             <div className="empty">
-              <BookIllustration className="empty__icon" />
+              <BookStack className="empty__icon" />
               <p className="empty__title">Nothing borrowed yet</p>
               <ol className="steps">
                 <li>Pick a book from the library shelf</li>

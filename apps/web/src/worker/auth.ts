@@ -72,8 +72,12 @@ export async function mayReceiveCode(
     if (library) return allowJoinCode(await sha256Hex(joinToken));
   }
 
-  const anyLibrary = await db.select({ n: sql<number>`count(*)` }).from(schema.libraries).get();
-  return (anyLibrary?.n ?? 0) === 0;
+  // On a brand-new site (no owner, no libraries) the first person may sign in to set it up.
+  const [owners, libraries] = await Promise.all([
+    db.select({ n: sql<number>`count(*)` }).from(schema.platformAdmins).get(),
+    db.select({ n: sql<number>`count(*)` }).from(schema.libraries).get(),
+  ]);
+  return (owners?.n ?? 0) === 0 && (libraries?.n ?? 0) === 0;
 }
 
 export function createAuth(deps: AuthDeps) {

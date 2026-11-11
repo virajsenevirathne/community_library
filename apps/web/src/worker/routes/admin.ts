@@ -477,11 +477,51 @@ export const adminRoutes = new Hono<AppEnv>()
 
   .get("/settings", async (c) => {
     const actor = await requirePermission(c, "library:admin");
+    // Days the site's owner opened this library for support (see access.ts).
+    const { results: supportVisits } = await c.env.DB.prepare(
+      `select json_extract(payload, '$.day') as day from events
+       where library_id = ? and type = 'owner_access' order by created_at desc limit 20`,
+    )
+      .bind(actor.library.id)
+      .all<{ day: string }>();
     return c.json({
       libraryName: actor.library.name,
       settings: actor.library.settings,
       labels: SETTING_LABELS,
+      supportVisits: supportVisits.map((v) => v.day),
     });
+  })
+
+  /**
+   * A new library's first admin finishes setting it up: accepts the terms and
+   * privacy policy, and chooses how returns work.
+   */
+  .post("/welcome", async (c) => {
+    const actor = await requirePermission(c, "library:admin");
+    if (actor.support) {
+      fail(403, "forbidden", "The library's own admin accepts the terms, not site support.");
+    }
+    const body = await readBody(
+      c,
+      z.object({
+        acceptTerms: z.literal(true, { error: "Please accept the terms and privacy policy." }),
+        returnsNeedCheckIn: z.boolean({ error: "Choose how returns work." }),
+      }),
+    );
+    const merged = mergeSettings(actor.library.settings, {
+      returnsNeedCheckIn: body.returnsNeedCheckIn,
+    });
+    if (!merged.ok) fail(422, "invalid_input", merged.errors[0]?.message ?? "Invalid settings.");
+    const DB = c.env.DB;
+    await DB.batch([
+      DB.prepare(
+        "update libraries set terms_accepted_at = coalesce(terms_accepted_at, ?), settings = ? where id = ?",
+      ).bind(Date.now(), JSON.stringify(merged.settings), actor.library.id),
+      DB.prepare(
+        "insert into events (id, library_id, actor_user_id, type) values (?, ?, ?, 'terms_accepted')",
+      ).bind(newId(), actor.library.id, actor.userId),
+    ]);
+    return c.json({ ok: true });
   })
 
   .patch("/settings", async (c) => {

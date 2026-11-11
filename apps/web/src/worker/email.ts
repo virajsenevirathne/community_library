@@ -312,8 +312,18 @@ export function inviteEmail(options: {
   familyName: string | null;
   role: "member" | "staff" | "admin";
   expiresOn: string;
+  /** The library is new: add the steps to get it running. */
+  firstAdmin?: boolean;
 }): EmailMessage {
   const library = cleanHeader(options.libraryName);
+  const steps = options.firstAdmin
+    ? [
+        "Open the link and sign in with the code we email you.",
+        "Accept the terms, and choose how returns work (self-serve, or staff check them in).",
+        "Add your books: scan each barcode, then print the QR stickers.",
+        "Print the sign-up poster so families can join, and invite your staff.",
+      ]
+    : [];
   const what =
     options.role === "member"
       ? `borrow books from ${library}${options.familyName ? ` as the ${options.familyName} family` : ""}`
@@ -323,6 +333,13 @@ export function inviteEmail(options: {
     subject: `You're invited to ${library}`,
     text: [
       `You're invited to ${what}.`,
+      ...(options.firstAdmin
+        ? [
+            "",
+            `${library} is new. Getting it ready takes about 15 minutes:`,
+            ...steps.map((s, i) => `${i + 1}. ${s}`),
+          ]
+        : []),
       "",
       `Join here: ${options.url}`,
       "",
@@ -336,6 +353,11 @@ export function inviteEmail(options: {
       preheader: `You're invited to ${what}.`,
       paragraphs: [
         `You're invited to ${escapeHtml(what)}.`,
+        ...(options.firstAdmin
+          ? [
+              `${escapeHtml(library)} is new. Getting it ready takes about 15 minutes:<br>${steps.map((s, i) => `${i + 1}. ${escapeHtml(s)}`).join("<br>")}`,
+            ]
+          : []),
         `<a href="${escapeHtml(options.url)}" style="display:inline-block;background:#1f6f5c;color:#ffffff;padding:12px 20px;border-radius:8px;font-weight:600;text-decoration:none">Join the library</a>`,
         "You'll sign in with a code sent to this email address. No password needed. This link is just for you, so please don't forward it.",
         `The invitation works until ${escapeHtml(formatDueDate(options.expiresOn))}. If you weren't expecting this, you can ignore it.`,

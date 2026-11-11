@@ -4,7 +4,7 @@
  * raw values so every screen lines up.
  */
 :root {
-  --bg: #f7f5f0;
+  --bg: #fbf7ee;
   --surface: #ffffff;
   --surface-2: #efece4;
   --text: #1d2522;
@@ -23,7 +23,34 @@
   --warning-text: #5c4100;
   --success-soft: #dcefe8;
   --focus: #1a5fb4;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 1px 3px rgb(0 0 0 / 0.04);
+  --shadow: 0 1px 2px rgb(40 30 10 / 0.06), 0 4px 14px rgb(40 30 10 / 0.06);
+  /* Playful colours for pictures, icons and edges: never for body text. */
+  --sun: #f6b73c;
+  --sun-soft: #fff1cf;
+  --sun-ink: #7a5200;
+  --coral: #e8604c;
+  --coral-soft: #fde3dd;
+  --coral-ink: #a8321f;
+  --sky: #3b82c4;
+  --sky-soft: #dcebf8;
+  --sky-ink: #1d5a94;
+  --plum: #8a5cc2;
+  --plum-soft: #ece2f8;
+  --plum-ink: #5e3a94;
+  --rainbow: linear-gradient(
+    90deg,
+    var(--coral) 0 20%,
+    var(--sun) 20% 40%,
+    var(--accent) 40% 60%,
+    var(--sky) 60% 80%,
+    var(--plum) 80% 100%
+  );
+  /* Rounded where the device has one (Apple), friendly system fonts elsewhere. */
+  --hero-sun: var(--sun-soft);
+  --hero-sky: var(--sky-soft);
+  --hero-coral: var(--coral-soft);
+  --font-display:
+    ui-rounded, "SF Pro Rounded", "Nunito", "Quicksand", "Segoe UI", system-ui, sans-serif;
 
   /* Spacing scale */
   --s-1: 0.25rem;
@@ -34,9 +61,9 @@
   --s-6: 2rem;
   --s-7: 3rem;
   /* Corner radii: small for chips, medium for controls, large for cards */
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 18px;
   --radius: var(--r-md);
   /* Page widths: narrow for reading and forms, wide for staff screens */
   --w-narrow: 44rem;
@@ -74,6 +101,21 @@
     --success-soft: #1f3a32;
     --focus: #8ab4f8;
     --shadow: none;
+    --sun: #f5c35a;
+    --sun-soft: #3a2f12;
+    --sun-ink: #f5d58a;
+    --coral: #ff9a8a;
+    --coral-soft: #3d1f1a;
+    --coral-ink: #ffc2b8;
+    --sky: #8fc0f0;
+    --sky-soft: #1b2f44;
+    --sky-ink: #bcdcf8;
+    --plum: #c9a6f2;
+    --plum-soft: #2e2440;
+    --plum-ink: #dfc9f8;
+    --hero-sun: color-mix(in srgb, var(--sun) 14%, transparent);
+    --hero-sky: color-mix(in srgb, var(--sky) 12%, transparent);
+    --hero-coral: color-mix(in srgb, var(--coral) 10%, transparent);
     color-scheme: dark;
   }
 }
@@ -87,6 +129,18 @@
 
 * {
   box-sizing: border-box;
+}
+
+/* Headings, buttons and big numbers use the friendlier display font. */
+h1,
+h2,
+h3,
+.brand__name,
+.empty__title,
+.stat__value,
+.tile__text strong,
+.btn {
+  font-family: var(--font-display);
 }
 
 body {
@@ -318,6 +372,7 @@ h1 {
   margin: 0 0 var(--s-4);
   font-size: clamp(1.5rem, 1.2rem + 1.5vw, 2rem);
   line-height: 1.2;
+  letter-spacing: -0.01em;
   text-wrap: balance;
 }
 .page-header h1 {
@@ -422,10 +477,11 @@ h1 + h2 {
   gap: var(--s-2);
   min-height: var(--tap);
   padding: 0 1.125rem;
-  border-radius: var(--r-md);
+  border-radius: 999px;
   border: 2px solid transparent;
-  font: inherit;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: inherit;
+  font-weight: 700;
   line-height: 1.2;
   text-align: center;
   cursor: pointer;
@@ -871,7 +927,7 @@ fieldset.field {
   height: 2.5rem;
   display: grid;
   place-items: center;
-  border-radius: var(--r-md);
+  border-radius: 50%;
   background: var(--accent-soft);
   color: var(--accent);
 }
@@ -1247,9 +1303,13 @@ fieldset.field {
 kbd {
   font: inherit;
   font-size: 0.8125rem;
+  display: inline-block;
+  min-width: 1.6em;
   padding: 0 0.375rem;
+  text-align: center;
   border: 1px solid var(--border-strong);
-  border-radius: var(--r-sm);
+  border-bottom-width: 2px;
+  border-radius: 4px;
   background: var(--surface-2);
 }
 
@@ -1514,10 +1574,6 @@ kbd {
 /* Loans on a computer: compact buttons inside the table rows. */
 .loan-family {
   font-weight: 600;
-}
-.brand__mark svg {
-  width: 1.125rem;
-  height: 1.125rem;
 }
 .desktop-only {
   display: none;
@@ -1917,7 +1973,7 @@ kbd {
 .desktop-only-flex {
   display: none;
 }
-@media (min-width: 40.0625rem) {
+@media (min-width: 52rem) {
   .desktop-only-flex {
     display: list-item;
   }
@@ -1928,4 +1984,356 @@ kbd {
   height: 1.25rem;
   margin-left: auto;
   color: var(--muted);
+}
+/* Owner area */
+.owner-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-3);
+}
+.owner-card {
+  margin: 0;
+}
+.owner-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--s-3);
+}
+.owner-card__name {
+  margin: 0;
+  font-size: 1.125rem;
+}
+.owner-card .muted.code {
+  margin: var(--s-1) 0 0;
+}
+.owner-card__stats {
+  margin: var(--s-3) 0 var(--s-1);
+}
+.owner-panel {
+  margin-top: var(--s-3);
+  padding: var(--s-3);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.owner-card .owner-panel > p {
+  margin: 0 0 var(--s-3);
+}
+.settings-support {
+  max-width: 36rem;
+  margin-top: var(--s-6);
+}
+.steps--left {
+  margin-left: 0;
+}
+
+/* ------------------------------------------------------- joyful layer
+   A children's library should feel warm and playful, and still calm enough
+   for staff to work in all day: colour lives in pictures, icons and edges,
+   while text, forms and tables stay plain. */
+/* A thin rainbow along the top of every page. */
+.site-header::before {
+  content: "";
+  display: block;
+  height: 4px;
+  background: var(--rainbow);
+}
+.brand__mark {
+  width: 2rem;
+  height: 2rem;
+  background: none;
+  border-radius: 0;
+}
+.btn--primary:not(:disabled) {
+  box-shadow: 0 2px 0 rgb(0 0 0 / 0.18);
+}
+.btn--primary:active:not(:disabled) {
+  box-shadow: none;
+}
+/* Tiles and steps take turns with the colours. */
+.tiles > li:nth-child(4n + 1) .tile__icon,
+.steps li:nth-child(4n + 1)::before {
+  background: var(--sun-soft);
+  color: var(--sun-ink);
+}
+.tiles > li:nth-child(4n + 2) .tile__icon,
+.steps li:nth-child(4n + 2)::before {
+  background: var(--sky-soft);
+  color: var(--sky-ink);
+}
+.tiles > li:nth-child(4n + 3) .tile__icon,
+.steps li:nth-child(4n + 3)::before {
+  background: var(--coral-soft);
+  color: var(--coral-ink);
+}
+.tiles > li:nth-child(4n + 4) .tile__icon,
+.steps li:nth-child(4n + 4)::before {
+  background: var(--plum-soft);
+  color: var(--plum-ink);
+}
+.tiles > li:nth-child(n) .tile--primary .tile__icon {
+  background: rgb(255 255 255 / 0.22);
+  color: inherit;
+}
+.tile {
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease;
+}
+.tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgb(40 30 10 / 0.1);
+}
+/* Dashboard numbers each get a coloured edge. */
+.stats > .stat > a,
+.stats > .stat > div {
+  border-top: 4px solid var(--border);
+}
+.stats > .stat:nth-child(4n + 1) > a,
+.stats > .stat:nth-child(4n + 1) > div {
+  border-top-color: var(--coral);
+}
+.stats > .stat:nth-child(4n + 2) > a,
+.stats > .stat:nth-child(4n + 2) > div {
+  border-top-color: var(--sun);
+}
+.stats > .stat:nth-child(4n + 3) > a,
+.stats > .stat:nth-child(4n + 3) > div {
+  border-top-color: var(--sky);
+}
+.stats > .stat:nth-child(4n + 4) > a,
+.stats > .stat:nth-child(4n + 4) > div {
+  border-top-color: var(--plum);
+}
+.empty {
+  border-color: var(--sun);
+  background: color-mix(in srgb, var(--sun-soft) 45%, transparent);
+}
+.empty__icon {
+  width: 7rem;
+  height: 7rem;
+}
+.cover--placeholder {
+  background: var(--sky-soft);
+  color: var(--sky-ink);
+}
+.book-list > li:nth-child(4n + 2) .cover--placeholder,
+.book-list > a:nth-child(4n + 2) .cover--placeholder {
+  background: var(--sun-soft);
+  color: var(--sun-ink);
+}
+.book-list > li:nth-child(4n + 3) .cover--placeholder,
+.book-list > a:nth-child(4n + 3) .cover--placeholder {
+  background: var(--coral-soft);
+  color: var(--coral-ink);
+}
+.book-list > li:nth-child(4n + 4) .cover--placeholder,
+.book-list > a:nth-child(4n + 4) .cover--placeholder {
+  background: var(--plum-soft);
+  color: var(--plum-ink);
+}
+.eyebrow {
+  display: inline-block;
+  padding: 0.125rem 0.75rem;
+  border-radius: 999px;
+  background: var(--sun-soft);
+  color: var(--sun-ink);
+}
+
+/* Front page */
+.hero {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  gap: var(--s-4);
+  justify-items: start;
+  padding: var(--s-6) var(--s-5);
+  margin: 0 0 var(--s-6);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 92% 12%, var(--sun-soft) 0 5.5rem, transparent 5.6rem),
+    radial-gradient(circle at 4% 96%, var(--sky-soft) 0 4.5rem, transparent 4.6rem),
+    radial-gradient(circle at 78% 104%, var(--coral-soft) 0 4rem, transparent 4.1rem),
+    var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+.hero__art,
+.hero__lead,
+.hero__cta {
+  position: relative;
+}
+.hero__art {
+  width: min(13rem, 60%);
+  height: auto;
+}
+.hero__lead {
+  margin: 0;
+  font-size: 1.125rem;
+  max-width: 34rem;
+}
+.hero__cta {
+  min-height: 3.25rem;
+  padding: 0 1.75rem;
+  font-size: 1.125rem;
+}
+@media (min-width: 40.0625rem) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    padding: var(--s-7) var(--s-6);
+  }
+  .hero__art {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    width: 15rem;
+  }
+}
+.features {
+  list-style: none;
+  margin: 0 0 var(--s-6);
+  padding: 0;
+  display: grid;
+  gap: var(--s-3);
+  grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr));
+}
+.feature {
+  padding: var(--s-4);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 4px solid var(--sun);
+}
+.feature:nth-child(2) {
+  border-top-color: var(--sky);
+}
+.feature:nth-child(3) {
+  border-top-color: var(--coral);
+}
+.feature__title {
+  margin: 0 0 var(--s-1);
+  font-size: 1.0625rem;
+}
+.feature__text {
+  margin: 0;
+  color: var(--muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tile {
+    transition: none;
+  }
+  .tile:hover {
+    transform: none;
+  }
+}
+@media print {
+  .site-header::before {
+    display: none;
+  }
+}
+
+.hero__actions {
+  gap: var(--s-4);
+}
+.hero__link {
+  font-weight: 700;
+}
+.hero__note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+.chips {
+  list-style: none;
+  margin: 0 0 var(--s-5);
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.chip {
+  padding: 0.25rem 0.875rem;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+.chip:nth-child(4n + 1) {
+  border-color: var(--sun);
+}
+.chip:nth-child(4n + 2) {
+  border-color: var(--sky);
+}
+.chip:nth-child(4n + 3) {
+  border-color: var(--coral);
+}
+.chip:nth-child(4n + 4) {
+  border-color: var(--plum);
+}
+.cta-band {
+  margin: var(--s-6) 0;
+  padding: var(--s-5);
+  border-radius: 24px;
+  background: var(--sun-soft);
+  color: var(--text);
+}
+.cta-band > h2 {
+  margin-top: 0;
+}
+.public-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+  margin-top: var(--s-7);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+.public-footer__name {
+  font-weight: 700;
+  font-family: var(--font-display);
+  color: var(--text);
+}
+/* "Get started" on a new library's dashboard */
+.get-started {
+  border-color: var(--sun);
+  border-width: 2px;
+}
+.checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-2);
+}
+.checklist > li {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: var(--tap);
+}
+.checklist__mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  font-weight: 800;
+}
+.checklist__done .checklist__mark {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.checklist__done > .checklist__link {
+  color: var(--muted);
+}
+.account-links {
+  margin: 0 0 var(--s-4);
 }

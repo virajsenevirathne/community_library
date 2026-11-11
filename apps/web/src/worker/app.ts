@@ -6,9 +6,10 @@ import {
 } from "@community-library/adapters";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
+import { isPlatformOwner } from "./access.ts";
 import { type Auth, createAuth } from "./auth.ts";
 import { authSecret, secrets } from "./config.ts";
-import type { AppEnv } from "./context.ts";
+import { type AppEnv, fail } from "./context.ts";
 import { createDb } from "./db/client.ts";
 import { configuredSenders, emailStatus } from "./email.ts";
 import { LIBRARY_HEADER, libraryForRequest } from "./library.ts";
@@ -19,6 +20,7 @@ import { adminRoutes, nudgeRoutes } from "./routes/admin.ts";
 import { catalogRoutes } from "./routes/catalog.ts";
 import { familyRoutes } from "./routes/families.ts";
 import { loanRoutes } from "./routes/loans.ts";
+import { ownerRoutes } from "./routes/owner.ts";
 
 export type { AppEnv } from "./context.ts";
 
@@ -156,7 +158,28 @@ export function createApp(options: AppOptions = {}) {
     }
     return c.get("auth")().handler(c.req.raw);
   });
+  // A paused library can be looked at but not changed, except by the site's
+  // owner. Account actions (deleting your own account) stay open.
+  app.use(async (c, next) => {
+    const library = c.get("library");
+    const reading = c.req.method === "GET" || c.req.method === "HEAD";
+    if (
+      library?.status === "paused" &&
+      !reading &&
+      !c.req.path.startsWith("/api/account/") &&
+      !(await isPlatformOwner(c))
+    ) {
+      fail(
+        403,
+        "library_paused",
+        "This library is paused, so nothing can be changed right now. Please ask the library staff.",
+      );
+    }
+    await next();
+  });
+
   app.route("/", accountRoutes);
+  app.route("/owner", ownerRoutes);
   app.route("/catalog", catalogRoutes);
   app.route("/", loanRoutes);
   app.route("/admin", adminRoutes);

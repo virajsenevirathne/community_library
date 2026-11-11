@@ -209,7 +209,7 @@ function EmailStep(props: {
       )}
       {!setupNeeded && (
         <p className="muted">
-          New here? Use the sign-up link or QR code from your daycare to join the library.
+          New here? Use the sign-up link or QR code from your library to join.
         </p>
       )}
     </>

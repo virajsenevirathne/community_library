@@ -1,7 +1,14 @@
 import { isEmail, localParts, readInvites } from "@community-library/core";
 import { Hono } from "hono";
 import { z } from "zod";
-import { type Actor, actorFor, actorsForUser, canGrantRole, requirePermission } from "../access.ts";
+import {
+  type Actor,
+  actorsForUser,
+  canGrantRole,
+  isPlatformOwner,
+  memberFor,
+  requirePermission,
+} from "../access.ts";
 import { authSecret } from "../config.ts";
 import { type AppContext, type AppEnv, fail, readBody, requireUser } from "../context.ts";
 import { hmacHex, randomToken, sha256Hex, timingSafeEqual } from "../crypto.ts";
@@ -23,7 +30,7 @@ const MAX_IMPORT_ROWS = 500;
 /** Invites sent straight away after an import; the rest go out with the hourly job. */
 const SEND_NOW = 20;
 
-const emailField = z
+export const emailField = z
   .string({ error: "Enter an email address." })
   .trim()
   .toLowerCase()
@@ -66,6 +73,8 @@ export async function sendInvite(
     email: string;
     role: "member" | "staff" | "admin";
     familyName: string | null;
+    /** The first admin of a new library: the email explains how to get it running. */
+    firstAdmin?: boolean;
   },
   library: { id: string; name: string; settings: { timezone: string } },
   priority: Priority,
@@ -93,6 +102,7 @@ export async function sendInvite(
         familyName: invite.familyName,
         role: invite.role,
         expiresOn: localParts(new Date(expiresAt), library.settings.timezone).date,
+        firstAdmin: invite.firstAdmin === true,
       }),
       priority,
     );
@@ -157,7 +167,7 @@ async function inviteByToken(c: AppContext, token: string) {
     }>();
 }
 
-function event(
+export function event(
   DB: D1Database,
   libraryId: string,
   actorUserId: string | null,
@@ -171,16 +181,34 @@ function event(
 
 // --------------------------------------------------------------- deletion
 
+/** Joining a paused library has to wait, whichever link or invite leads to it. */
+function refuseIfPaused(library: { status: "active" | "paused" }) {
+  if (library.status === "paused") {
+    fail(
+      403,
+      "library_paused",
+      "This library is paused, so nobody can join right now. Please ask the library staff.",
+    );
+  }
+}
+
 /**
  * Why the person's account can't be deleted yet, across every library they
- * belong to: books still out, or being some library's only admin.
+ * belong to: books still out, or being some library's only admin. The site's
+ * only owner can't delete theirs either: the site would be left ownerless.
  */
 async function accountBlockers(c: AppContext) {
   const actors = await actorsForUser(c);
   const each = await Promise.all(actors.map((actor) => deletionBlockers(c, actor)));
+  const otherOwners = (await isPlatformOwner(c))
+    ? await c.env.DB.prepare("select count(*) as n from platform_admins where user_id != ?")
+        .bind(c.get("user")?.id ?? "")
+        .first<number>("n")
+    : 1;
   return {
     actors,
     each,
+    lastOwner: (otherOwners ?? 0) === 0,
     books: each.flatMap((b) => b.books),
     lastAdmin: each.some((b) => b.lastAdmin),
     lastParent: each.some((b) => b.lastParent),
@@ -293,7 +321,8 @@ export const familyRoutes = new Hono<AppEnv>()
         "This sign-up link is no longer valid. Ask the library staff for the current one.",
       );
     }
-    if (await actorFor(c)) fail(409, "already_member", "You're already a member of this library.");
+    refuseIfPaused(library);
+    if (await memberFor(c)) fail(409, "already_member", "You're already a member of this library.");
     const DB = c.env.DB;
     const familyId = newId();
     const status = library.settings.requireApproval ? "pending" : "active";
@@ -365,7 +394,8 @@ export const familyRoutes = new Hono<AppEnv>()
       );
     }
     const DB = c.env.DB;
-    const existing = await actorFor(c);
+    refuseIfPaused(library);
+    const existing = await memberFor(c);
     if (existing && (existing.family || !invite.familyId) && existing.role !== "member") {
       if (invite.role === "member" && !existing.family && invite.familyId) {
         // Staff joining their own family: keep their role, add the family.
@@ -815,8 +845,16 @@ export const familyRoutes = new Hono<AppEnv>()
   .post("/account/delete/start", async (c) => {
     const user = requireUser(c);
     const blockers = await accountBlockers(c);
-    if (blockers.books.length > 0 || blockers.lastAdmin) {
-      return c.json({ blocked: true, books: blockers.books, lastAdmin: blockers.lastAdmin }, 409);
+    if (blockers.books.length > 0 || blockers.lastAdmin || blockers.lastOwner) {
+      return c.json(
+        {
+          blocked: true,
+          books: blockers.books,
+          lastAdmin: blockers.lastAdmin,
+          lastOwner: blockers.lastOwner,
+        },
+        409,
+      );
     }
     const secret = authSecret(c.env);
     const limit = await consume(c.env.DB, secret, `delete-start:${user.id}`, {
@@ -893,8 +931,16 @@ export const familyRoutes = new Hono<AppEnv>()
     }
     // Check again: a book may have been borrowed since the code was sent.
     const blockers = await accountBlockers(c);
-    if (blockers.books.length > 0 || blockers.lastAdmin) {
-      return c.json({ blocked: true, books: blockers.books, lastAdmin: blockers.lastAdmin }, 409);
+    if (blockers.books.length > 0 || blockers.lastAdmin || blockers.lastOwner) {
+      return c.json(
+        {
+          blocked: true,
+          books: blockers.books,
+          lastAdmin: blockers.lastAdmin,
+          lastOwner: blockers.lastOwner,
+        },
+        409,
+      );
     }
     const email = user.email.toLowerCase();
     const statements: D1PreparedStatement[] = [

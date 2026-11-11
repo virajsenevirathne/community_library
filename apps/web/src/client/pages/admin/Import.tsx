@@ -110,8 +110,8 @@ export function ImportPage() {
       ) : (
         <>
           <p className="lead">
-            Export the parent contact list from your centre's system as a CSV file, then choose it
-            here.
+            Export your contact list (from your enrolment system or a spreadsheet) as a CSV file,
+            then choose it here.
           </p>
           <ul>
             <li>

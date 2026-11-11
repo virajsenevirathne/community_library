@@ -57,8 +57,8 @@ export function JoinPage({ token }: { token: string }) {
       <Layout title={error ? "This sign-up link isn't active" : "Opening the sign-up page…"}>
         {error ? (
           <Alert kind="info">
-            This sign-up link is no longer active. Please ask staff at the centre for the current
-            link or QR code.
+            This sign-up link is no longer active. Please ask your library for the current link or
+            QR code.
           </Alert>
         ) : (
           <Loading />

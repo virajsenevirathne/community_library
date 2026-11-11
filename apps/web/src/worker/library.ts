@@ -8,6 +8,10 @@ export interface LibraryInfo {
   name: string;
   slug: string;
   settings: LibrarySettings;
+  /** Paused libraries are read-only; see app.ts. */
+  status: "active" | "paused";
+  /** False until its first admin has accepted the terms and finished setting up. */
+  setUp: boolean;
 }
 
 /**
@@ -16,11 +20,32 @@ export interface LibraryInfo {
  */
 export const LIBRARY_HEADER = "X-Library";
 
-const columns = { id: true, name: true, slug: true, settings: true } as const;
-type Row = { id: string; name: string; slug: string; settings: string };
+const columns = {
+  id: true,
+  name: true,
+  slug: true,
+  settings: true,
+  status: true,
+  termsAcceptedAt: true,
+} as const;
+type Row = {
+  id: string;
+  name: string;
+  slug: string;
+  settings: string;
+  status: "active" | "paused";
+  termsAcceptedAt: Date | null;
+};
 const toInfo = (row: Row | undefined): LibraryInfo | null =>
   row
-    ? { id: row.id, name: row.name, slug: row.slug, settings: parseSettings(row.settings) }
+    ? {
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        settings: parseSettings(row.settings),
+        status: row.status,
+        setUp: row.termsAcceptedAt !== null,
+      }
     : null;
 
 /**

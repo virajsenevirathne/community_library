@@ -60,6 +60,52 @@ function Tile(props: {
   );
 }
 
+/** A new library's first jobs, ticked off as they're done. */
+function GetStarted({ counts }: { counts: NonNullable<Dashboard["counts"]> }) {
+  const steps = [
+    {
+      done: counts.titles > 0,
+      href: "/admin/add",
+      text: "Add your books: scan each barcode, or type the title.",
+    },
+    {
+      done: counts.titles > 0 && counts.needLabels === 0,
+      href: "/admin/labels",
+      text: "Print the QR stickers and put one inside each cover.",
+    },
+    {
+      done: counts.families > 0,
+      href: "/admin/families",
+      text: "Share the sign-up link or print the poster, so families can join.",
+    },
+    {
+      done: false,
+      href: "/admin/settings",
+      text: "Check loan length and the days you're closed.",
+    },
+  ];
+  return (
+    <section className="card get-started" aria-labelledby="get-started-heading">
+      <h2 id="get-started-heading" className="section-title">
+        Get started
+      </h2>
+      <ol className="checklist">
+        {steps.map((step, i) => (
+          <li key={step.href} className={step.done ? "checklist__done" : undefined}>
+            <span className="checklist__mark" aria-hidden="true">
+              {step.done ? "✓" : i + 1}
+            </span>
+            <Link href={step.href} className="checklist__link">
+              {step.text}
+            </Link>
+            {step.done && <span className="visually-hidden"> (done)</span>}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 /** Staff home: what needs attention first, the day's jobs, then the rest of the library. */
 export function AdminHomePage() {
   const { state } = useSession();
@@ -114,6 +160,10 @@ export function AdminHomePage() {
                 Only {data.email.leftToday} emails can still be sent today. Reminder emails will go
                 out tomorrow; sign-in codes still work.
               </Alert>
+            )}
+
+            {counts && (counts.titles === 0 || counts.families === 0) && (
+              <GetStarted counts={counts} />
             )}
 
             <ul className="stats" aria-label="Library summary">

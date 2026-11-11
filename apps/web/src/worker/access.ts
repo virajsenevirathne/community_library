@@ -25,6 +25,66 @@ export interface Actor {
   library: LibraryInfo;
   role: Role;
   family: { id: string; name: string; status: FamilyStatus } | null;
+  /** The platform owner, in a library they don't belong to, for support. */
+  support?: true;
+}
+
+// Asked several times in one request, so the answer is kept per request.
+const ownerChecks = new WeakMap<Request, Promise<boolean>>();
+const supportLogged = new WeakMap<Request, Set<string>>();
+
+/** True when the signed-in person runs the whole site (see platform_admins). */
+export function isPlatformOwner(c: AppContext): Promise<boolean> {
+  const user = c.get("user");
+  if (!user) return Promise.resolve(false);
+  const cached = ownerChecks.get(c.req.raw);
+  if (cached) return cached;
+  const check = c.env.DB.prepare("select 1 from platform_admins where user_id = ?")
+    .bind(user.id)
+    .first()
+    .then((row) => row !== null);
+  ownerChecks.set(c.req.raw, check);
+  return check;
+}
+
+/** Signed in and the platform owner. Fails with 401 or 403. */
+export async function requireOwner(c: AppContext): Promise<{ userId: string }> {
+  const user = requireUser(c);
+  if (!(await isPlatformOwner(c))) {
+    fail(403, "forbidden", "This is only for the person who runs this site.");
+  }
+  return { userId: user.id };
+}
+
+/**
+ * The owner opening a library they don't belong to acts as its admin, for
+ * support. Each day's first visit is logged in the library's events, and
+ * its admins see these in Settings.
+ */
+async function supportActor(c: AppContext, library: LibraryInfo): Promise<Actor | null> {
+  const user = c.get("user");
+  if (!user || !(await isPlatformOwner(c))) return null;
+  const logged = supportLogged.get(c.req.raw) ?? new Set<string>();
+  supportLogged.set(c.req.raw, logged);
+  if (!logged.has(library.id)) {
+    logged.add(library.id);
+    const day = new Date().toISOString().slice(0, 10);
+    // No log, no access: if the visit can't be recorded, the request fails.
+    await c.env.DB.prepare(
+      `insert into events (id, library_id, actor_user_id, type, payload)
+       values (?, ?, ?, 'owner_access', json_object('day', ?)) on conflict (id) do nothing`,
+    )
+      .bind(`owner-access:${library.id}:${user.id}:${day}`, library.id, user.id, day)
+      .run();
+  }
+  return {
+    userId: user.id,
+    email: user.email,
+    library,
+    role: "admin",
+    family: null,
+    support: true,
+  };
 }
 
 export const PERMISSIONS = {
@@ -58,6 +118,16 @@ export function canGrantRole(actor: Pick<Actor, "role">, role: Role): boolean {
 export async function actorFor(c: AppContext): Promise<Actor | null> {
   const library = c.get("library");
   return library ? actorIn(c, library) : null;
+}
+
+/**
+ * The signed-in person's own membership of this library, or null. Unlike
+ * `actorFor`, the site owner's support access doesn't count: use this when
+ * the question is "have they joined?" (sign-up links, invites).
+ */
+export async function memberFor(c: AppContext): Promise<Actor | null> {
+  const actor = await actorFor(c);
+  return actor?.support ? null : actor;
 }
 
 /**
@@ -105,7 +175,7 @@ async function actorIn(c: AppContext, library: LibraryInfo): Promise<Actor | nul
       and(eq(schema.memberships.libraryId, library.id), eq(schema.memberships.userId, user.id)),
     )
     .get();
-  if (!row) return null;
+  if (!row) return supportActor(c, library);
   return {
     userId: user.id,
     email: user.email,

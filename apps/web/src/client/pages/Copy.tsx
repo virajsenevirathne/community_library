@@ -50,8 +50,14 @@ export function CopyPage({ code }: { code: string }) {
         // A sticker's short address (/c/K7R2), or a book opened from another
         // library's pages, moves to the book's own library, so the page shows
         // that library and what this person can do there.
-        if (libraryBase() !== found.library.slug) {
-          navigate(`/${found.library.slug}/c/${found.code}`, { replace: true, absolute: true });
+        const here = libraryBase();
+        if (here !== found.library.slug) {
+          // Say so when the scan came from another library's pages.
+          const from = here ? `?from=${encodeURIComponent(here)}` : "";
+          navigate(`/${found.library.slug}/c/${found.code}${from}`, {
+            replace: true,
+            absolute: true,
+          });
           return;
         }
         setCopy(found);
@@ -151,6 +157,8 @@ export function CopyPage({ code }: { code: string }) {
     );
   }
 
+  const fromSlug = new URLSearchParams(window.location.search).get("from");
+  const movedFrom = fromSlug !== null && fromSlug !== copy.library.slug;
   const staff = me ? isStaff(me) : false;
   const family = copy.family;
 
@@ -165,6 +173,12 @@ export function CopyPage({ code }: { code: string }) {
         </div>
         <div>
           <div className="book-hero__text">
+            {movedFrom && (
+              <Alert kind="info">
+                This book belongs to <strong>{copy.library.name}</strong>, so you're now in that
+                library.
+              </Alert>
+            )}
             {done && (
               <p>
                 <strong>{copy.title.title}</strong>
@@ -174,7 +188,7 @@ export function CopyPage({ code }: { code: string }) {
             <p className="row row--tight">
               {!done && <StatusPill copy={copy} />}
               <span className="muted">
-                Copy <span className="code">{copy.code}</span>
+                Book code <span className="code">{copy.code}</span>
               </span>
             </p>
           </div>
@@ -184,7 +198,7 @@ export function CopyPage({ code }: { code: string }) {
             <div className="stack">
               <Alert kind="success">
                 Due back <strong>{formatDate(done.dueOn)}</strong>
-                {done.movedForClosure && " (moved to a day the centre is open)"}.
+                {done.movedForClosure && " (moved to a day the library is open)"}.
                 {family && ` That's ${family.booksOut} of ${family.maxLoans} books out.`} A
                 confirmation email is on its way.
               </Alert>

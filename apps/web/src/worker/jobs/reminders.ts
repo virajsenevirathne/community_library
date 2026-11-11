@@ -100,7 +100,9 @@ export async function runHourlyJob(
     .run();
   const budget = new Budget();
   const errors: string[] = [];
-  const { results } = await DB.prepare("select id, name, slug, settings from libraries").all<{
+  const { results } = await DB.prepare(
+    "select id, name, slug, settings from libraries where status = 'active'",
+  ).all<{
     id: string;
     name: string;
     slug: string;
