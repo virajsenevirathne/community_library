@@ -1,4 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Core runs in Workers and browsers; both provide the Web Crypto global.
+    "lib": ["ES2023", "DOM"]
+  },
   "include": ["src"]
 }

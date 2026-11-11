@@ -28,6 +28,8 @@
   "allowScripts": {
     "workerd@1.20261101.1": true,
     "workerd@1.20261104.1": true,
-    "esbuild@0.28.2": true
+    "esbuild@0.28.2": true,
+    "esbuild@0.18.20": true,
+    "esbuild@0.25.12": true
   }
 }
