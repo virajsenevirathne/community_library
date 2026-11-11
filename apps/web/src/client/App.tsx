@@ -57,7 +57,8 @@ function Routes() {
     if (path === "/terms") return <TermsPage />;
     // The front page, also for people who are signed in.
     if (path === "/about") return <FrontPage />;
-    if (path === "/" && !me.user && !me.setupNeeded) return <FrontPage />;
+    // Signed out, the home page is the front page, with sign-in at the top.
+    if (path === "/" && !me.user) return <FrontPage />;
     if (path === "/signin") return me.user ? <Redirect to="/" /> : <SignInPage />;
     // Opened from an email; works without signing in (the link is signed).
     if (path === "/reminders-off") return <RemindersOffPage />;

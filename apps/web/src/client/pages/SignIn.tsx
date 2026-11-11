@@ -23,7 +23,28 @@ const TITLES: Record<Step, string> = {
 const RESEND_SECONDS = 30;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** The sign-in page: the shared sign-in steps on a page of their own. */
 export function SignInPage() {
+  const [step, setStep] = useState<Step>("email");
+  return (
+    <Layout title={TITLES[step]} focusKey={step}>
+      <SignInFlow onStep={setStep} />
+    </Layout>
+  );
+}
+
+/** A heading for each sign-in step, for pages that host the steps. */
+export function signInTitle(step: Step): string {
+  return TITLES[step];
+}
+
+export type SignInStep = Step;
+
+/**
+ * Signing in: email, then the emailed code, then an offer to save a passkey.
+ * Used on the sign-in page and at the top of the front page.
+ */
+export function SignInFlow({ onStep }: { onStep?: (step: Step) => void }) {
   const { query } = useLocation();
   const next = safeNext(query.get("next"));
   const { state, refresh } = useSession();
@@ -45,8 +66,12 @@ export function SignInPage() {
     else await finish();
   };
 
+  useEffect(() => {
+    onStep?.(step);
+  }, [step, onStep]);
+
   return (
-    <Layout title={TITLES[step]} focusKey={step}>
+    <>
       {step === "email" && (
         <EmailStep
           email={email}
@@ -60,7 +85,7 @@ export function SignInPage() {
         <CodeStep email={email} onBack={() => setStep("email")} onSignedIn={afterCodeSignIn} />
       )}
       {step === "passkey" && <PasskeyOffer onDone={finish} />}
-    </Layout>
+    </>
   );
 }
 

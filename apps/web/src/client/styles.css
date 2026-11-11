@@ -2346,3 +2346,29 @@ kbd {
   padding: var(--s-2) 0;
   border-bottom: 1px solid var(--border);
 }
+/* The front page's sign-in card, beside the picture on wide screens. */
+.signin-card {
+  position: relative;
+  width: 100%;
+  margin: 0;
+}
+@media (min-width: 40.0625rem) {
+  .hero--signin {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    align-items: start;
+  }
+  .hero--signin .hero__art {
+    grid-column: 1;
+    grid-row: 1;
+    width: 13rem;
+  }
+  .hero--signin .hero__lead {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .hero--signin .signin-card {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}
