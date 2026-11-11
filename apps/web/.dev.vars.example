@@ -19,3 +19,7 @@ GOOGLE_BOOKS_API_KEY=
 RESEND_API_KEY=
 MAILJET_API_KEY=
 MAILJET_API_SECRET=
+
+# Leave empty for local development, so links and passkeys use the address
+# you open (localhost). The live address is set in wrangler.jsonc.
+APP_URL=

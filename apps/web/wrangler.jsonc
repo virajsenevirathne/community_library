@@ -5,10 +5,15 @@
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
-  // The free *.workers.dev address stays on (handy before a domain is attached).
+  // One public address only: passkeys work only on the address they were saved
+  // on, so the free *.workers.dev address is off once a domain is attached.
   // Per-version preview URLs stay off: they would all share the live database.
-  "workers_dev": true,
+  "workers_dev": false,
   "preview_urls": false,
+
+  // The library's public address. Cloudflare creates the DNS record and
+  // certificate. Anyone reusing this project puts their own domain here.
+  "routes": [{ "pattern": "readingjoey.com", "custom_domain": true }],
 
   // The React app is served as static assets. Only /api/* runs the Worker first;
   // every other path falls back to index.html so client-side routes work.
@@ -38,10 +43,10 @@
     // Shown before the library is set up, and used as the passkey name.
     "LIBRARY_NAME": "Community Library",
     // Sender for all email. Must be on a domain verified with Resend and Mailjet.
-    "EMAIL_FROM": "library@example.com",
+    "EMAIL_FROM": "library@readingjoey.com",
     // The site's public address, such as https://library.example.org. Set it in
     // production: passkeys only work on the address they were saved on. Empty
     // means "whatever address the request used", which suits local development.
-    "APP_URL": ""
+    "APP_URL": "https://readingjoey.com"
   }
 }
