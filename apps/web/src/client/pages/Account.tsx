@@ -92,7 +92,7 @@ export function AccountPage() {
 
       <section className="card" aria-labelledby="passkeys-heading">
         <h2 id="passkeys-heading" className="section-title">
-          Passkeys
+          Quick sign-in (passkeys)
         </h2>
         <p className="muted">
           Sign in with Face ID, a fingerprint or your screen lock instead of an email code.

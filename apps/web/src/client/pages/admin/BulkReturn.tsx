@@ -34,6 +34,11 @@ export function BulkReturnPage() {
   const busyRef = useRef(false);
   // Codes checked in this session: scanning one again does not call the server.
   const seen = useRef(new Set<string>());
+  // At a desk (mouse, often a USB barcode scanner that types), typing comes
+  // first; on a phone or tablet, the camera does.
+  const [desk] = useState(() => window.matchMedia?.("(pointer: fine)").matches ?? false);
+  const [camera, setCamera] = useState(!desk);
+  const codeInput = useRef<HTMLInputElement>(null);
 
   const add = (result: Omit<Result, "key">) => {
     signal(result.kind === "error" ? "error" : "ok");
@@ -82,19 +87,45 @@ export function BulkReturnPage() {
       setTypedError("That code doesn't look right. It's 4 letters or numbers, like K7R2.");
       return;
     }
-    // Only clear the field once the code was taken.
+    // Only clear the field once the code was taken; stay in it for the next scan.
     if (await checkIn(code)) setTyped("");
+    codeInput.current?.focus();
   };
 
   const latest = results[0];
   const checkedIn = results.filter((r) => r.kind === "ok" || r.kind === "late").length;
 
-  return (
-    <Layout title="Check in returns" back="/admin">
-      <p className="lead">
-        Scan the QR sticker inside each book from the returns basket. Each one is checked in,
-        whoever had it.
-      </p>
+  const codeForm = (
+    <form onSubmit={submitTyped} noValidate>
+      <Field
+        ref={codeInput}
+        label={desk ? "Scan or type a book code" : "Or type a book code"}
+        hint={desk ? "A USB barcode scanner types the code here for you." : undefined}
+        autoFocus={desk}
+        autoCapitalize="characters"
+        autoComplete="off"
+        spellCheck={false}
+        enterKeyHint="done"
+        maxLength={200}
+        error={typedError}
+        value={typed}
+        onChange={(e) => {
+          setTyped(e.target.value.toUpperCase());
+          if (typedError) setTypedError("");
+        }}
+      />
+      <Button
+        type="submit"
+        variant={desk ? "primary" : "secondary"}
+        busy={busy}
+        busyLabel="Checking in…"
+      >
+        Check in
+      </Button>
+    </form>
+  );
+  const cameraPart = camera ? (
+    <>
       <Scanner
         label="Camera view for scanning book stickers"
         hint="Point the camera at the QR sticker inside the front cover"
@@ -105,42 +136,54 @@ export function BulkReturnPage() {
         paused={busy}
         sound={false}
       />
-      <div aria-live="polite" aria-atomic="true">
-        {latest && (
-          <div
-            className={`scan-result scan-result--${latest.kind === "late" || latest.kind === "already" ? "warn" : latest.kind}`}
-          >
-            <span className="scan-result__icon" aria-hidden="true">
-              {ICONS[latest.kind]}
-            </span>
-            <span>
-              <span className="visually-hidden">{LABELS[latest.kind]}: </span>
-              <strong>{latest.title}</strong>
-              <br />
-              {latest.detail}
-            </span>
-          </div>
-        )}
-      </div>
-      <form onSubmit={submitTyped} noValidate>
-        <Field
-          label="Or type a book code"
-          autoCapitalize="characters"
-          autoComplete="off"
-          spellCheck={false}
-          enterKeyHint="done"
-          maxLength={200}
-          error={typedError}
-          value={typed}
-          onChange={(e) => {
-            setTyped(e.target.value.toUpperCase());
-            if (typedError) setTypedError("");
-          }}
-        />
-        <Button type="submit" variant="secondary" busy={busy} busyLabel="Checking in…">
-          Check in
-        </Button>
-      </form>
+      <Button variant="secondary" className="btn--block" onClick={() => setCamera(false)}>
+        Stop the camera
+      </Button>
+    </>
+  ) : (
+    <Button variant={desk ? "secondary" : "primary"} onClick={() => setCamera(true)}>
+      Use the camera instead
+    </Button>
+  );
+  const latestResult = (
+    <div aria-live="polite" aria-atomic="true">
+      {latest && (
+        <div
+          className={`scan-result scan-result--${latest.kind === "late" || latest.kind === "already" ? "warn" : latest.kind}`}
+        >
+          <span className="scan-result__icon" aria-hidden="true">
+            {ICONS[latest.kind]}
+          </span>
+          <span>
+            <span className="visually-hidden">{LABELS[latest.kind]}: </span>
+            <strong>{latest.title}</strong>
+            <br />
+            {latest.detail}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <Layout title="Check in returns" back="/admin">
+      <p className="lead">
+        Scan the QR sticker inside each book from the returns basket. Each one is checked in,
+        whoever had it.
+      </p>
+      {desk ? (
+        <>
+          {codeForm}
+          {latestResult}
+          {cameraPart}
+        </>
+      ) : (
+        <>
+          {cameraPart}
+          {latestResult}
+          {codeForm}
+        </>
+      )}
       <h2>{checkedIn === 0 ? "Nothing checked in yet" : `${checkedIn} checked in so far`}</h2>
       <ul className="list">
         {results.slice(1).map((r) => (

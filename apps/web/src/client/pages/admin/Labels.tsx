@@ -2,6 +2,7 @@ import { LABEL_TEMPLATES, type LabelTemplate, labelsPerSheet } from "@community-
 import QRCode from "qrcode";
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Layout, Loading } from "../../components.tsx";
+import { Icon } from "../../icons.tsx";
 import { api, errorMessage } from "../../lib/api.ts";
 import { Link, useLocation } from "../../lib/router.tsx";
 import { useSession } from "../../lib/session.tsx";
@@ -141,168 +142,174 @@ export function LabelsPage() {
   const positions = Array.from({ length: perSheet }, (_, n) => n);
 
   return (
-    <Layout title="Print labels" back="/admin">
-      <div className="no-print">
-        <Alert>{error}</Alert>
-        {labels === null && !error && <Loading label="Preparing labels…" />}
-        {labels?.length === 0 && (
-          <p>
-            {ids
-              ? "Those copies were not found."
-              : "Every copy already has a label. New copies will appear here."}
-          </p>
-        )}
-        {labels && labels.length > 0 && (
-          <div className="stack">
-            <p className="lead">
-              {labels.length} {labels.length === 1 ? "label" : "labels"} on {sheets.length}{" "}
-              {sheets.length === 1 ? "sheet" : "sheets"}.
-              {!ids && " These are the copies that have never had a label."}
+    <Layout title="Print labels" back="/admin" width="wide">
+      <div className="labels-layout">
+        <div className="no-print">
+          <Alert>{error}</Alert>
+          {labels === null && !error && <Loading label="Preparing labels…" />}
+          {labels?.length === 0 && (
+            <p>
+              {ids
+                ? "Those copies were not found."
+                : "Every copy already has a label. New copies will appear here."}
             </p>
-            {isTouchDevice() && (
-              <Alert kind="info">
-                Phones often shrink pages when printing. For labels that line up, print from a
-                computer, or choose "Actual size" in your phone's print options.
-              </Alert>
-            )}
-            <div className="field">
-              <label htmlFor="template">Label paper</label>
-              <p className="field__hint" id="template-hint">
-                Check the label size on the packet.
+          )}
+          {labels && labels.length > 0 && (
+            <div className="stack">
+              <p className="lead">
+                {labels.length} {labels.length === 1 ? "label" : "labels"} on {sheets.length}{" "}
+                {sheets.length === 1 ? "sheet" : "sheets"}.
+                {!ids && " These are the copies that have never had a label."}
               </p>
-              <select
-                id="template"
-                aria-describedby="template-hint"
-                value={template.id}
-                onChange={(e) => chooseTemplate(e.target.value)}
-              >
-                {LABEL_TEMPLATES.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="skip">Start at label</label>
-              <p className="field__hint" id="skip-hint">
-                Using a sheet with some labels already peeled off? Start at the first unused one,
-                counting across each row from the top left.
-              </p>
-              <select
-                id="skip"
-                aria-describedby="skip-hint"
-                value={skip}
-                onChange={(e) => setSkip(Number(e.target.value))}
-              >
-                {positions.map((position) => (
-                  <option key={position} value={position}>
-                    {position === 0
-                      ? "1 (a fresh sheet)"
-                      : `${position + 1} (row ${Math.floor(position / template.columns) + 1}, column ${(position % template.columns) + 1})`}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="card">
-              <p>
-                <strong>In the print window, choose:</strong>
-              </p>
-              <ul>
-                <li>Scale: Actual size (100%), not "Fit to page"</li>
-                <li>Margins: None</li>
-                <li>Headers and footers: off</li>
-              </ul>
-              <p className="muted">
-                Not sure it will line up? Print one sheet on plain paper first and hold it against a
-                label sheet.
-              </p>
-            </div>
-            <Button className="btn--block" onClick={print}>
-              Print
-            </Button>
-            {printed === "asked" && (
-              <div className="alert alert--info" ref={confirmBox} tabIndex={-1}>
-                <p style={{ margin: "0 0 0.75rem" }}>Did the labels print and line up?</p>
-                <div className="row">
-                  <Button onClick={markPrinted}>Yes, mark them as printed</Button>
-                  <Button variant="secondary" onClick={print}>
-                    No, print again
-                  </Button>
-                </div>
-              </div>
-            )}
-            {printed === "marking" && <Loading label="Saving…" />}
-            {printed === "done" && (
-              <div className="alert alert--success" ref={confirmBox} tabIndex={-1}>
-                <p style={{ margin: "0 0 0.75rem" }}>
-                  Marked as printed. Stick each label inside the front cover of its book.
+              {isTouchDevice() && (
+                <Alert kind="info">
+                  Phones often shrink pages when printing. For labels that line up, print from a
+                  computer, or choose "Actual size" in your phone's print options.
+                </Alert>
+              )}
+              <div className="field">
+                <label htmlFor="template">Label paper</label>
+                <p className="field__hint" id="template-hint">
+                  Check the label size on the packet.
                 </p>
-                <div className="row">
-                  <Link href="/admin/add" className="btn btn--primary">
-                    Add more books
-                  </Link>
-                  <Link href="/admin" className="btn btn--secondary">
-                    Back to admin
-                  </Link>
-                </div>
+                <select
+                  id="template"
+                  aria-describedby="template-hint"
+                  value={template.id}
+                  onChange={(e) => chooseTemplate(e.target.value)}
+                >
+                  {LABEL_TEMPLATES.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
               </div>
-            )}
-            <h2>Preview</h2>
+              <div className="field">
+                <label htmlFor="skip">Start at label</label>
+                <p className="field__hint" id="skip-hint">
+                  Using a sheet with some labels already peeled off? Start at the first unused one,
+                  counting across each row from the top left.
+                </p>
+                <select
+                  id="skip"
+                  aria-describedby="skip-hint"
+                  value={skip}
+                  onChange={(e) => setSkip(Number(e.target.value))}
+                >
+                  {positions.map((position) => (
+                    <option key={position} value={position}>
+                      {position === 0
+                        ? "1 (a fresh sheet)"
+                        : `${position + 1} (row ${Math.floor(position / template.columns) + 1}, column ${(position % template.columns) + 1})`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="card">
+                <p>
+                  <strong>In the print window, choose:</strong>
+                </p>
+                <ul>
+                  <li>Scale: Actual size (100%), not "Fit to page"</li>
+                  <li>Margins: None</li>
+                  <li>Headers and footers: off</li>
+                </ul>
+                <p className="muted">
+                  Not sure it will line up? Print one sheet on plain paper first and hold it against
+                  a label sheet.
+                </p>
+              </div>
+              <Button className="btn--block" onClick={print}>
+                Print
+              </Button>
+              {printed === "asked" && (
+                <div className="alert alert--info" ref={confirmBox} tabIndex={-1}>
+                  <Icon name="info" className="alert__icon" />
+                  <div className="alert__body">
+                    <p>Did the labels print and line up?</p>
+                    <div className="row">
+                      <Button onClick={markPrinted}>Yes, mark them as printed</Button>
+                      <Button variant="secondary" onClick={print}>
+                        No, print again
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {printed === "marking" && <Loading label="Saving…" />}
+              {printed === "done" && (
+                <div className="alert alert--success" ref={confirmBox} tabIndex={-1}>
+                  <Icon name="check" className="alert__icon" />
+                  <div className="alert__body">
+                    <p>Marked as printed. Stick each label inside the front cover of its book.</p>
+                    <div className="row">
+                      <Link href="/admin/add" className="btn btn--primary">
+                        Add more books
+                      </Link>
+                      <Link href="/admin" className="btn btn--secondary">
+                        Back to admin
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <h2 className="labels-preview-heading">Preview</h2>
+            </div>
+          )}
+        </div>
+        {labels && labels.length > 0 && (
+          // A picture of the sheets; the same details are in the text above.
+          <div
+            className="label-sheets"
+            ref={preview}
+            aria-hidden="true"
+            style={
+              {
+                "--page-w": `${template.page.width}mm`,
+                "--page-h": `${template.page.height}mm`,
+                "--preview-zoom": zoom,
+              } as CSSProperties
+            }
+          >
+            <style>{`@page { size: ${template.page.width}mm ${template.page.height}mm; margin: 0; }`}</style>
+            {sheets.map((cells, page) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: sheets have no identity besides their order
+              <div className="label-sheet" key={page}>
+                {cells.map((cell, i) => {
+                  const col = i % template.columns;
+                  const row = Math.floor(i / template.columns);
+                  const style: CSSProperties = {
+                    left: `${template.margin.left + col * template.pitch.x}mm`,
+                    top: `${template.margin.top + row * template.pitch.y}mm`,
+                    width: `${template.label.width}mm`,
+                    height: `${template.label.height}mm`,
+                  };
+                  if (!cell) {
+                    // biome-ignore lint/suspicious/noArrayIndexKey: skipped spaces have no identity
+                    return <div className="label label--skipped" style={style} key={`skip-${i}`} />;
+                  }
+                  return (
+                    <div className="label" style={style} key={cell.id}>
+                      <div
+                        className="label__qr"
+                        // The SVG is generated locally by the qrcode library from our own URL.
+                        // biome-ignore lint/security/noDangerouslySetInnerHtml: trusted, locally generated SVG
+                        dangerouslySetInnerHTML={{ __html: qr[cell.id] ?? "" }}
+                      />
+                      <div className="label__text">
+                        <span className="label__code">{cell.shortCode}</span>
+                        <span className="label__title">{cell.title}</span>
+                        <span className="label__library">{libraryName}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         )}
       </div>
-      {labels && labels.length > 0 && (
-        // A picture of the sheets; the same details are in the text above.
-        <div
-          className="label-sheets"
-          ref={preview}
-          aria-hidden="true"
-          style={
-            {
-              "--page-w": `${template.page.width}mm`,
-              "--page-h": `${template.page.height}mm`,
-              "--preview-zoom": zoom,
-            } as CSSProperties
-          }
-        >
-          <style>{`@page { size: ${template.page.width}mm ${template.page.height}mm; margin: 0; }`}</style>
-          {sheets.map((cells, page) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: sheets have no identity besides their order
-            <div className="label-sheet" key={page}>
-              {cells.map((cell, i) => {
-                const col = i % template.columns;
-                const row = Math.floor(i / template.columns);
-                const style: CSSProperties = {
-                  left: `${template.margin.left + col * template.pitch.x}mm`,
-                  top: `${template.margin.top + row * template.pitch.y}mm`,
-                  width: `${template.label.width}mm`,
-                  height: `${template.label.height}mm`,
-                };
-                if (!cell) {
-                  // biome-ignore lint/suspicious/noArrayIndexKey: skipped spaces have no identity
-                  return <div className="label label--skipped" style={style} key={`skip-${i}`} />;
-                }
-                return (
-                  <div className="label" style={style} key={cell.id}>
-                    <div
-                      className="label__qr"
-                      // The SVG is generated locally by the qrcode library from our own URL.
-                      // biome-ignore lint/security/noDangerouslySetInnerHtml: trusted, locally generated SVG
-                      dangerouslySetInnerHTML={{ __html: qr[cell.id] ?? "" }}
-                    />
-                    <div className="label__text">
-                      <span className="label__code">{cell.shortCode}</span>
-                      <span className="label__title">{cell.title}</span>
-                      <span className="label__library">{libraryName}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      )}
     </Layout>
   );
 }

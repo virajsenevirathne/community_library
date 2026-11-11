@@ -98,7 +98,7 @@ export function AdminHomePage() {
               <Alert kind="warning">
                 Reminder emails have paused, so families aren't getting due-date emails right now.{" "}
                 {isAdmin
-                  ? "This usually means the site's hourly job isn't set up yet."
+                  ? "Please ask whoever set up this site to check its scheduled reminders."
                   : "Please let the library admin know."}
                 {isAdmin && (
                   <details>

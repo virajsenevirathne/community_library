@@ -29,7 +29,7 @@ export interface CopyView {
  * such as https://library.example.org/c/K7R2, or just the code.
  */
 export function parseCopyCode(value: string): string | null {
-  const fromLink = value.match(/\/c\/([A-Za-z0-9-]{4,6})\/?$/)?.[1];
+  const fromLink = value.trim().match(/\/c\/([A-Za-z0-9-]{4,6})\/?$/i)?.[1];
   return normalizeShortCode(fromLink ?? value);
 }
 

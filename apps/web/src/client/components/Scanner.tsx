@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "../icons.tsx";
 
 type Detector = { detect(source: HTMLVideoElement): Promise<{ rawValue: string }[]> };
 
@@ -82,7 +83,7 @@ export function signal(kind: "ok" | "error") {
 function cameraError(error: unknown, typeWhat: string): string {
   const name = error instanceof Error ? error.name : "";
   if (name === "NotAllowedError") {
-    return `The camera is blocked. Allow camera access for this site (on iPhone: Settings › Safari › Camera), then try again, or type the ${typeWhat} instead.`;
+    return `The camera is blocked. Allow camera access for this site in your browser (on iPhone: Settings › Safari › Camera; on Android: tap the icon next to the address, then Permissions), then try again, or type the ${typeWhat} instead.`;
   }
   if (name === "NotFoundError") return `No camera was found. Type the ${typeWhat} instead.`;
   if (!window.isSecureContext) {
@@ -204,17 +205,20 @@ export function Scanner({
     <div className="scanner">
       {error ? (
         <div className="alert alert--error" role="alert">
-          <p style={{ margin: "0 0 0.5rem" }}>{error}</p>
-          <button
-            type="button"
-            className="btn btn--secondary"
-            onClick={() => {
-              setError("");
-              setAttempt((a) => a + 1);
-            }}
-          >
-            Try the camera again
-          </button>
+          <Icon name="error" className="alert__icon" />
+          <div className="alert__body">
+            <p>{error}</p>
+            <button
+              type="button"
+              className="btn btn--secondary"
+              onClick={() => {
+                setError("");
+                setAttempt((a) => a + 1);
+              }}
+            >
+              Try the camera again
+            </button>
+          </div>
         </div>
       ) : (
         <div className={`scanner__frame${paused ? " scanner__frame--paused" : ""}`}>

@@ -155,9 +155,6 @@ a {
   justify-content: space-between;
   gap: var(--s-4);
 }
-.site-header--narrow .site-header__inner {
-  max-width: var(--w-narrow);
-}
 .brand {
   display: flex;
   align-items: center;
@@ -443,7 +440,10 @@ h1 + h2 {
 }
 .btn:disabled,
 .btn[aria-disabled="true"] {
-  opacity: 0.6;
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--muted);
+  filter: none;
   cursor: not-allowed;
 }
 .btn--primary {
@@ -484,11 +484,6 @@ h1 + h2 {
   min-height: 4rem;
   font-size: 1.25rem;
   border-radius: var(--r-lg);
-}
-.btn--sm {
-  min-height: 2.25rem;
-  padding: 0 var(--s-3);
-  font-size: 0.9375rem;
 }
 @media (prefers-reduced-motion: reduce) {
   .btn {
@@ -574,9 +569,9 @@ fieldset.field {
 }
 .check input {
   flex: none;
-  width: 1.25rem;
-  height: 1.25rem;
-  margin: 0.125rem 0 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin: 0;
   accent-color: var(--accent);
 }
 .inline-select select {
@@ -847,7 +842,7 @@ fieldset.field {
   padding: 0;
   display: grid;
   gap: var(--s-3);
-  grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
+  grid-template-columns: 1fr;
   grid-auto-rows: 1fr;
 }
 .tiles > li {
@@ -1102,7 +1097,7 @@ fieldset.field {
   gap: var(--s-1);
   padding: 0.125rem 0.625rem;
   border-radius: 999px;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   font-weight: 600;
   line-height: 1.5;
   white-space: nowrap;
@@ -1174,14 +1169,6 @@ fieldset.field {
   justify-content: flex-end;
   align-items: center;
 }
-@media (max-width: 30rem) {
-  .copy-row {
-    grid-template-columns: 1fr;
-  }
-  .copy-row__actions {
-    justify-content: flex-start;
-  }
-}
 
 /* -------------------------------------------------- filters and loans */
 .segmented {
@@ -1236,49 +1223,6 @@ fieldset.field {
 }
 .loan-head {
   display: none;
-}
-/* On a computer, loans become compact rows with column headings. */
-@media (min-width: 56rem) {
-  .loan-list--table {
-    gap: 0;
-    border: 1px solid var(--border);
-    border-radius: var(--r-lg);
-    background: var(--surface);
-    overflow: hidden;
-  }
-  .loan-list--table > .card {
-    display: grid;
-    grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.2fr) minmax(0, 1.4fr) auto;
-    gap: var(--s-2) var(--s-4);
-    align-items: center;
-    border: none;
-    border-bottom: 1px solid var(--border);
-    border-radius: 0;
-    box-shadow: none;
-    padding: var(--s-3) var(--s-4);
-  }
-  .loan-list--table > .card:hover {
-    background: var(--surface-2);
-  }
-  .loan-list--table > .card:last-child {
-    border-bottom: none;
-  }
-  .loan-list--table .card p {
-    margin: 0;
-  }
-  .loan-list--table .loan-actions {
-    grid-column: 1 / -1;
-  }
-  .loan-head {
-    display: grid;
-    grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.2fr) minmax(0, 1.4fr) auto;
-    gap: var(--s-4);
-    padding: var(--s-2) var(--s-4);
-    color: var(--muted);
-    font-size: 0.875rem;
-    font-weight: 600;
-    border-bottom: 1px solid var(--border);
-  }
 }
 .more summary {
   cursor: pointer;
@@ -1568,25 +1512,6 @@ kbd {
 }
 
 /* Loans on a computer: compact buttons inside the table rows. */
-@media (min-width: 56rem) {
-  .loan-list--table .btn {
-    min-height: 2.25rem;
-    padding: 0 var(--s-3);
-    font-size: 0.9375rem;
-  }
-  .loan-list--table .loan-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--s-2) var(--s-4);
-  }
-  .loan-list--table .loan-actions > div:first-child:empty {
-    display: none;
-  }
-  .loan-list--table .more summary {
-    min-height: 2.25rem;
-  }
-}
 .loan-family {
   font-weight: 600;
 }
@@ -1632,4 +1557,224 @@ kbd {
 }
 .loan-list .card p {
   margin: 0 0 var(--s-2);
+}
+
+/* Loan rows: cards on phones, a compact table on computers. */
+.loan-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+.loan-message:empty {
+  display: none;
+}
+.loan-message .alert {
+  margin: var(--s-3) 0 0;
+}
+.loan-more {
+  margin-top: var(--s-3);
+  padding: var(--s-3);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.row--center {
+  justify-content: center;
+}
+@media (min-width: 56rem) {
+  .loan-table {
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .loan-head,
+  .loan-list--table > .card {
+    display: grid;
+    grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.2fr) minmax(0, 1.4fr) 14rem;
+    gap: var(--s-2) var(--s-4);
+    align-items: center;
+    padding: var(--s-2) var(--s-4);
+  }
+  .loan-head {
+    color: var(--muted);
+    font-size: 0.875rem;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .loan-list--table {
+    gap: 0;
+  }
+  .loan-list--table > .card {
+    margin: 0;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .loan-list--table > .card:hover {
+    background: var(--surface-2);
+  }
+  .loan-list--table > .card:last-child {
+    border-bottom: none;
+  }
+  .loan-list--table .card p {
+    margin: 0;
+  }
+  .loan-list--table .loan-buttons {
+    margin: 0;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+  }
+  .loan-list--table .loan-buttons .btn {
+    min-height: 2.5rem;
+    padding: 0 var(--s-3);
+    font-size: 0.9375rem;
+  }
+  .loan-list--table .loan-message,
+  .loan-list--table .loan-more {
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+  .loan-list--table .loan-message .alert {
+    margin: 0;
+  }
+  .loan-list--table > .card:hover .loan-more {
+    background: var(--surface);
+  }
+}
+@media (min-width: 40.0625rem) {
+  .back--hub {
+    display: none;
+  }
+}
+/* Staff forms keep a readable column but line up with the staff menu's left
+   edge, so the page doesn't jump sideways between tabs. */
+.subnav ~ .page--narrow {
+  max-width: var(--w-wide);
+}
+.subnav ~ .page--narrow > * {
+  max-width: 40rem;
+}
+
+/* --- review fixes --- */
+.brand {
+  min-height: var(--header-h);
+}
+.alert summary,
+.count-list a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
+  cursor: pointer;
+}
+/* Both dashboard tile groups share one three-column grid. */
+@media (min-width: 40rem) {
+  .tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .tiles > li:has(.tile--primary) {
+    grid-column: span 2;
+  }
+}
+/* A side panel taller than the screen scrolls on its own. */
+@media (min-width: 64rem) {
+  .split > aside {
+    max-height: calc(100vh - var(--header-h) - 4.5rem);
+    overflow: auto;
+  }
+}
+/* Families: the sign-up link comes first until there's room beside the list. */
+@media (max-width: 63.99rem) {
+  .split--aside-first > aside {
+    order: -1;
+  }
+  .split--aside-first {
+    display: flex;
+    flex-direction: column;
+  }
+}
+.settings-form .sticky-actions {
+  justify-content: flex-start;
+}
+@media (max-width: 40rem) {
+  .sticky-actions {
+    padding-block: var(--s-2);
+  }
+  .sticky-actions .btn {
+    flex: 1;
+  }
+  .page-header > .row {
+    width: 100%;
+  }
+  .page-header > .row > .btn {
+    flex: 1;
+  }
+  /* Filter chips scroll sideways instead of stacking three rows deep. */
+  .segmented {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin-inline: calc(var(--gutter) * -1);
+    padding-inline: var(--gutter);
+    scrollbar-width: none;
+  }
+  .segmented a {
+    flex: none;
+    white-space: nowrap;
+  }
+}
+@media (pointer: fine) {
+  .btn--big {
+    max-width: 22rem;
+  }
+}
+.page--wide .field input[type="search"] {
+  max-width: 32rem;
+}
+.table-wrap th {
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+.table-wrap tbody tr:hover {
+  background: var(--surface-2);
+}
+@media (min-width: 40.0625rem) {
+  .sticky-actions {
+    margin-inline: 0;
+    padding-inline: 0;
+  }
+  .settings-form .sticky-actions > .muted {
+    order: 1;
+  }
+}
+.staff-card {
+  margin-top: var(--s-6);
+}
+/* Labels: settings and Print beside the sheet preview on wide screens. */
+@media screen and (min-width: 64rem) {
+  .labels-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 26rem) minmax(0, 1fr);
+    gap: var(--s-6);
+    align-items: start;
+  }
+  .labels-layout > .label-sheets {
+    position: sticky;
+    top: calc(var(--header-h) + 3.5rem);
+    max-height: calc(100vh - var(--header-h) - 4.5rem);
+    overflow-y: auto;
+  }
+  .labels-preview-heading {
+    display: none;
+  }
+}
+/* The main button takes the whole first row, so no button is left alone below. */
+@media (max-width: 40rem) {
+  .btn-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .btn-grid > .btn--primary:first-child {
+    grid-column: 1 / -1;
+  }
 }

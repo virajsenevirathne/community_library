@@ -104,7 +104,7 @@ export function FamiliesPage() {
       width="wide"
       actions={
         <Link href="/admin/families/import" className="btn btn--secondary">
-          Import a list (CSV)
+          Import from a spreadsheet
         </Link>
       }
     >
@@ -113,7 +113,7 @@ export function FamiliesPage() {
         <Alert kind="success">{notice}</Alert>
       </div>
 
-      <div className="split">
+      <div className="split split--aside-first">
         <div>
           <h2 className="section-title">
             {data.families.length} {data.families.length === 1 ? "family" : "families"}
@@ -612,8 +612,10 @@ function StaffSection(props: {
     }
   };
   return (
-    <section>
-      <h2>Staff</h2>
+    <section className="card staff-card" aria-labelledby="staff-heading">
+      <h2 id="staff-heading" className="section-title">
+        Staff
+      </h2>
       <ul className="plain">
         {props.staff.map((s) => (
           <li key={s.email}>

@@ -89,7 +89,7 @@ export function Layout({
       <button type="button" className="skip-link" onClick={skip}>
         Skip to content
       </button>
-      <header className={`site-header${width === "narrow" ? " site-header--narrow" : ""}`}>
+      <header className="site-header">
         <div className="site-header__inner">
           <Link href="/" className="brand" aria-label={`${libraryName}: home`}>
             <span className="brand__mark">
@@ -140,7 +140,8 @@ export function Layout({
       )}
       <main id="main" className={`page page--${width}`}>
         {back && (
-          <p className="back">
+          // "Back" to the staff dashboard repeats the staff menu on computers, so it hides there.
+          <p className={`back${back === "/admin" ? " back--hub" : ""}`}>
             <Link href={back}>← Back</Link>
           </p>
         )}
@@ -169,7 +170,7 @@ export function Layout({
             </li>
             <li>
               <Link href="/c" aria-current={current("/c", true)}>
-                <Icon name="scan" />
+                <Icon name="keyboard" />
                 Type a code
               </Link>
             </li>

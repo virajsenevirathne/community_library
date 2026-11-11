@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Button, Layout, Loading } from "../../components.tsx";
+import { Alert, Button, Field, Layout, Loading } from "../../components.tsx";
 import { api, errorMessage } from "../../lib/api.ts";
 import { formatDate, lateText } from "../../lib/copies.ts";
 import { Link, useLocation } from "../../lib/router.tsx";
+import { useSlashFocus } from "../../lib/useSlashFocus.ts";
 
 interface Loan {
   id: string;
@@ -52,6 +53,9 @@ export function LoansPage() {
   const [cardMessage, setCardMessage] = useState<{ loanId: string } & Message>();
   const [topMessage, setTopMessage] = useState<Message>();
   const topRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [search, setSearch] = useState("");
+  useSlashFocus(searchRef);
 
   const load = useCallback(async () => {
     try {
@@ -94,6 +98,14 @@ export function LoansPage() {
     }
   };
 
+  const q = search.trim().toLowerCase();
+  const shown =
+    loans && q
+      ? loans.filter((l) =>
+          [l.title, l.familyName, l.code].some((v) => v.toLowerCase().includes(q)),
+        )
+      : loans;
+
   return (
     <Layout title="Loans" width="wide">
       <nav aria-label="Filter loans" className="segmented">
@@ -113,22 +125,37 @@ export function LoansPage() {
           </Link>
         ))}
       </nav>
+      <Field
+        ref={searchRef}
+        label="Find a loan"
+        type="search"
+        hint="Book title, family name or book code"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
+      <p className="kbd-hint desktop-only">
+        Press <kbd>/</kbd> to search from anywhere on this page.
+      </p>
       <Alert>{error}</Alert>
       <div ref={topRef} tabIndex={-1}>
         {topMessage && <Alert kind={topMessage.kind}>{topMessage.text}</Alert>}
       </div>
-      {loans === null ? (
+      {shown === null ? (
         !error && <Loading label="Loading loans…" />
-      ) : loans.length === 0 ? (
+      ) : shown.length === 0 ? (
         <div className="empty">
-          <p className="empty__title">{EMPTY[filter]}</p>
-          <p>
-            <Link href="/admin/returns">Check in returns</Link> ·{" "}
-            <Link href="/admin/add">Add books</Link>
-          </p>
+          <p className="empty__title">{q ? "No loans match that search." : EMPTY[filter]}</p>
+          <div className="row row--center">
+            <Link href="/admin/returns" className="btn btn--secondary">
+              Check in returns
+            </Link>
+            <Link href="/admin/add" className="btn btn--secondary">
+              Add books
+            </Link>
+          </div>
         </div>
       ) : (
-        <>
+        <div className="loan-table">
           <div className="loan-head" aria-hidden="true">
             <span>Book</span>
             <span>Family</span>
@@ -136,7 +163,7 @@ export function LoansPage() {
             <span />
           </div>
           <ul className="loan-list loan-list--table">
-            {loans.map((loan) => (
+            {shown.map((loan) => (
               <LoanCard
                 key={loan.id}
                 loan={loan}
@@ -145,10 +172,10 @@ export function LoansPage() {
               />
             ))}
           </ul>
-        </>
+        </div>
       )}
-      <p>
-        <Link href="/admin/returns">Checking in a basket of books? Use the scanner</Link>
+      <p className="hint-card">
+        Checking in a basket of books? <Link href="/admin/returns">Scan them in one go</Link>
       </p>
     </Layout>
   );
@@ -165,6 +192,7 @@ function LoanCard({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<"lost" | "damaged" | null>(null);
+  const [open, setOpen] = useState(false);
   const messageRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (message) messageRef.current?.focus();
@@ -205,58 +233,35 @@ function LoanCard({
           </span>
         )}
       </p>
-      <div className="loan-actions">
-        <div ref={messageRef} tabIndex={-1}>
-          {message && <Alert kind={message.kind}>{message.text}</Alert>}
-        </div>
-        <div className="row">
-          <Button
-            variant="secondary"
-            onClick={() => close("returned", `“${loan.title}” is checked in.`)}
-            busy={busy === "returned"}
-            busyLabel="Checking in…"
-            disabled={locked && busy !== "returned"}
-            aria-label={`${loan.handedBack ? "Check in" : "Mark returned"}: ${loan.title}`}
-          >
-            {loan.handedBack ? "Check in" : "Mark returned"}
-          </Button>
-          {loan.canExtend && (
-            <Button
-              variant="secondary"
-              onClick={() =>
-                act(
-                  "extend",
-                  () => api(`/loans/${loan.id}/extend`, { body: {} }),
-                  `“${loan.title}” has a new due date.`,
-                )
-              }
-              busy={busy === "extend"}
-              busyLabel="Extending…"
-              disabled={locked && busy !== "extend"}
-              aria-label={`Extend: ${loan.title}`}
-            >
-              Extend
-            </Button>
-          )}
-          <Button
-            variant="secondary"
-            onClick={() =>
-              act(
-                "remind",
-                () => api(`/admin/loans/${loan.id}/remind`, { body: {} }),
-                `Reminder sent to the ${loan.familyName} family.`,
-              )
-            }
-            busy={busy === "remind"}
-            busyLabel="Sending…"
-            disabled={locked && busy !== "remind"}
-            aria-label={`Send reminder: ${loan.title}`}
-          >
-            Send reminder
-          </Button>
-        </div>
-        <details className="more">
-          <summary>More</summary>
+      <div className="loan-buttons">
+        <Button
+          variant="secondary"
+          onClick={() => close("returned", `“${loan.title}” is checked in.`)}
+          busy={busy === "returned"}
+          busyLabel="Checking in…"
+          disabled={locked && busy !== "returned"}
+          aria-label={`${loan.handedBack ? "Check in" : "Mark returned"}: ${loan.title}`}
+        >
+          {loan.handedBack ? "Check in" : "Mark returned"}
+        </Button>
+        <Button
+          variant="secondary"
+          aria-expanded={open}
+          aria-controls={`more-${loan.id}`}
+          aria-label={`More actions: ${loan.title}`}
+          onClick={() => {
+            setOpen(!open);
+            setConfirming(null);
+          }}
+        >
+          More <span aria-hidden="true">{open ? "▴" : "▾"}</span>
+        </Button>
+      </div>
+      <div ref={messageRef} tabIndex={-1} className="loan-message">
+        {message && <Alert kind={message.kind}>{message.text}</Alert>}
+      </div>
+      {open && (
+        <div className="loan-more" id={`more-${loan.id}`}>
           {confirming ? (
             <div className="confirm">
               <p className="confirm__text">
@@ -281,6 +286,40 @@ function LoanCard({
           ) : (
             <div className="row">
               <Button
+                variant="secondary"
+                onClick={() =>
+                  act(
+                    "remind",
+                    () => api(`/admin/loans/${loan.id}/remind`, { body: {} }),
+                    `Reminder sent to the ${loan.familyName} family.`,
+                  )
+                }
+                busy={busy === "remind"}
+                busyLabel="Sending…"
+                disabled={locked && busy !== "remind"}
+                aria-label={`Send reminder: ${loan.title}`}
+              >
+                Send reminder
+              </Button>
+              {loan.canExtend && (
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    act(
+                      "extend",
+                      () => api(`/loans/${loan.id}/extend`, { body: {} }),
+                      `“${loan.title}” has a new due date.`,
+                    )
+                  }
+                  busy={busy === "extend"}
+                  busyLabel="Extending…"
+                  disabled={locked && busy !== "extend"}
+                  aria-label={`Extend: ${loan.title}`}
+                >
+                  Extend
+                </Button>
+              )}
+              <Button
                 variant="link"
                 onClick={() => setConfirming("lost")}
                 aria-label={`Mark lost: ${loan.title}`}
@@ -296,8 +335,8 @@ function LoanCard({
               </Button>
             </div>
           )}
-        </details>
-      </div>
+        </div>
+      )}
     </li>
   );
 }

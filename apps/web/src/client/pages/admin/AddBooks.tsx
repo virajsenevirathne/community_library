@@ -2,6 +2,7 @@ import { normalizeIsbn } from "@community-library/core";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Scanner } from "../../components/Scanner.tsx";
 import { Alert, Button, Field, Layout, Loading } from "../../components.tsx";
+import { Icon } from "../../icons.tsx";
 import { api, errorMessage } from "../../lib/api.ts";
 import { Link, navigate } from "../../lib/router.tsx";
 import { Cover } from "./Cover.tsx";
@@ -172,45 +173,66 @@ function StartStep({
     onIsbn(isbn);
   };
 
+  // At a desk (mouse, often a USB barcode scanner that types), typing comes first.
+  const [desk] = useState(() => window.matchMedia?.("(pointer: fine)").matches ?? false);
+  const cameraPart = camera ? (
+    <>
+      <Scanner
+        label="Camera view for scanning a book barcode"
+        hint="Point the camera at the barcode on the back cover"
+        typeWhat="ISBN"
+        formats={["ean_13"]}
+        accept={(value) => normalizeIsbn(value)}
+        onScan={onIsbn}
+      />
+      <Button variant="secondary" className="btn--block" onClick={() => setCamera(false)}>
+        Stop the camera
+      </Button>
+    </>
+  ) : (
+    <Button
+      variant={desk ? "secondary" : "primary"}
+      className={desk ? undefined : "btn--block btn--big"}
+      onClick={() => setCamera(true)}
+    >
+      {desk ? "Use the camera" : "Scan a barcode"}
+    </Button>
+  );
+  const isbnForm = (
+    <form onSubmit={submit} noValidate>
+      <Field
+        label={desk ? "Scan or type the ISBN" : "Or type the ISBN"}
+        hint={
+          desk
+            ? "A USB barcode scanner types it here for you. It's the number under the barcode."
+            : "The 10 or 13-digit number printed under the barcode"
+        }
+        autoFocus={desk}
+        inputMode="numeric"
+        autoComplete="off"
+        enterKeyHint="search"
+        error={error}
+        value={typed}
+        onChange={(e) => {
+          setTyped(e.target.value);
+          if (error) setError("");
+        }}
+      />
+      <Button
+        type="submit"
+        variant={desk || typed.trim() ? "primary" : "secondary"}
+        className="btn--block"
+      >
+        Look it up
+      </Button>
+    </form>
+  );
+
   return (
     <div className="stack">
       <p className="lead">Scan the barcode on the back cover, or type the ISBN printed under it.</p>
-      {camera ? (
-        <>
-          <Scanner
-            label="Camera view for scanning a book barcode"
-            hint="Point the camera at the barcode on the back cover"
-            typeWhat="ISBN"
-            formats={["ean_13"]}
-            accept={(value) => normalizeIsbn(value)}
-            onScan={onIsbn}
-          />
-          <Button variant="secondary" className="btn--block" onClick={() => setCamera(false)}>
-            Stop the camera
-          </Button>
-        </>
-      ) : (
-        <Button className="btn--block btn--big" onClick={() => setCamera(true)}>
-          Scan a barcode
-        </Button>
-      )}
-      <form onSubmit={submit} noValidate>
-        <Field
-          label="Or type the ISBN"
-          inputMode="numeric"
-          autoComplete="off"
-          enterKeyHint="search"
-          error={error}
-          value={typed}
-          onChange={(e) => {
-            setTyped(e.target.value);
-            if (error) setError("");
-          }}
-        />
-        <Button type="submit" variant="secondary" className="btn--block">
-          Look it up
-        </Button>
-      </form>
+      {desk ? isbnForm : cameraPart}
+      {desk ? cameraPart : isbnForm}
       <div className="card">
         <p>
           <strong>No barcode or ISBN?</strong> Handmade books, some board books and older books have
@@ -362,22 +384,25 @@ function SimilarTitles({ query }: { query: string }) {
   if (matches.length === 0) return null;
   return (
     <div className="alert alert--info">
-      <p style={{ margin: "0 0 0.5rem" }} aria-live="polite">
-        Already in the catalog? Add copies to it instead of adding it twice:
-      </p>
-      <ul className="list">
-        {matches.map((m) => (
-          <li key={m.id}>
-            <span>
-              {m.title}{" "}
-              <span className="muted">
-                · {m.copies} {m.copies === 1 ? "copy" : "copies"}
+      <Icon name="info" className="alert__icon" />
+      <div className="alert__body">
+        <p aria-live="polite">
+          Already in the catalog? Add copies to it instead of adding it twice:
+        </p>
+        <ul className="list">
+          {matches.map((m) => (
+            <li key={m.id}>
+              <span>
+                {m.title}{" "}
+                <span className="muted">
+                  · {m.copies} {m.copies === 1 ? "copy" : "copies"}
+                </span>
               </span>
-            </span>
-            <Link href={`/admin/catalog/${m.id}?add=1`}>Add copies to this one</Link>
-          </li>
-        ))}
-      </ul>
+              <Link href={`/admin/catalog/${m.id}?add=1`}>Add copies to this one</Link>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
