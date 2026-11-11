@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Button, Layout, Loading } from "../components.tsx";
+import { BookIllustration } from "../icons.tsx";
 import { api, errorMessage } from "../lib/api.ts";
 import { formatDate, lateText } from "../lib/copies.ts";
 import { Link } from "../lib/router.tsx";
@@ -154,16 +155,29 @@ function MyBooks() {
       {data === null && !error && <Loading label="Loading your books…" />}
       {data && (
         <>
-          <h2>
-            {data.loans.length === 0
-              ? "No books out right now"
-              : `${data.loans.length} of ${data.maxLoans} books out`}
-          </h2>
+          {data.loans.length === 0 ? (
+            <div className="empty">
+              <BookIllustration className="empty__icon" />
+              <p className="empty__title">Nothing borrowed yet</p>
+              <ol className="steps">
+                <li>Pick a book from the library shelf</li>
+                <li>Open your phone camera and point it at the QR sticker inside the cover</li>
+                <li>Tap the link, then tap Borrow</li>
+              </ol>
+              <Link href="/c" className="btn btn--secondary">
+                Camera won't scan? Type the code
+              </Link>
+            </div>
+          ) : (
+            <h2>
+              {data.loans.length} of {data.maxLoans} books out
+            </h2>
+          )}
           {overdue > 0 && (
-            <p className="late">
+            <Alert kind="warning">
               {overdue === 1 ? "1 book is" : `${overdue} books are`} overdue. Please bring{" "}
               {overdue === 1 ? "it" : "them"} back soon.
-            </p>
+            </Alert>
           )}
           <ul className="book-list">
             {[...data.loans]
@@ -205,12 +219,14 @@ function MyBooks() {
           </ul>
         </>
       )}
-      <p className="lead" style={{ marginTop: "1.5rem" }}>
-        To borrow or return a book, scan the QR sticker inside its cover with your phone camera.
-      </p>
-      <p>
-        <Link href="/c">Camera won't scan? Type the code instead</Link>
-      </p>
+      {data && data.loans.length > 0 && (
+        <div className="hint-card">
+          <p>
+            To borrow or return a book, scan the QR sticker inside its cover with your phone camera.
+          </p>
+          <Link href="/c">Camera won't scan? Type the code instead</Link>
+        </div>
+      )}
     </>
   );
 }

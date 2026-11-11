@@ -123,13 +123,7 @@ export function TitleDetailPage({ id }: { id: string }) {
               <p className="muted">{title.isbn ? `ISBN ${title.isbn}` : "No ISBN"}</p>
             </div>
           </div>
-          <div className="row">
-            <Button variant="secondary" onClick={() => setMode("edit")}>
-              Edit details
-            </Button>
-            <Button variant="secondary" onClick={() => setMode("add")}>
-              Add copies
-            </Button>
+          <div className="btn-grid">
             {unlabelled.length > 0 && (
               <Button
                 onClick={() =>
@@ -139,9 +133,17 @@ export function TitleDetailPage({ id }: { id: string }) {
                 Print {unlabelled.length} {unlabelled.length === 1 ? "label" : "labels"}
               </Button>
             )}
+            <Button variant="secondary" onClick={() => setMode("edit")}>
+              Edit details
+            </Button>
+            <Button variant="secondary" onClick={() => setMode("add")}>
+              Add copies
+            </Button>
           </div>
-          <h2>Copies</h2>
-          <ul className="list">
+          <h2>
+            Copies <span className="muted">({title.copies.length})</span>
+          </h2>
+          <ul className="copy-list">
             {title.copies.map((copy) => (
               <CopyRow
                 key={copy.id}
@@ -215,58 +217,68 @@ function CopyRow({
   const onLoan = copy.status === "on_loan";
   return (
     <li className="copy-row">
-      <span>
-        <strong className="code">{copy.shortCode}</strong>{" "}
-        <span className={`badge badge--${copy.status}`}>{STATUS_LABELS[copy.status]}</span>
-        {onLoan && copy.dueOn && <span className="muted"> · due {formatDue(copy.dueOn)}</span>}
-        {copy.found && <span className="badge badge--found">Reported found</span>}
-        {!copy.labelPrinted && copy.status !== "retired" && (
-          <span className="muted"> · needs a label</span>
-        )}
-        {copy.note && <span className="muted"> · {copy.note}</span>}
+      <div className="copy-row__main">
+        <span className="row row--tight">
+          <strong className="code">{copy.shortCode}</strong>
+          {/* Copies off loan show their status in the dropdown instead. */}
+          {onLoan && <span className="badge badge--on_loan">{STATUS_LABELS.on_loan}</span>}
+          {copy.found && <span className="badge badge--found">Reported found</span>}
+          {!copy.labelPrinted && copy.status !== "retired" && (
+            <span className="badge badge--warn">Needs a label</span>
+          )}
+        </span>
+        {(onLoan && copy.dueOn) || copy.note ? (
+          <span className="muted">
+            {onLoan && copy.dueOn && `Due ${formatDue(copy.dueOn)}`}
+            {onLoan && copy.dueOn && copy.note && " · "}
+            {copy.note}
+          </span>
+        ) : null}
         {onLoan && (
-          <span className="muted copy-row__hint">
+          <span className="copy-row__hint">
             To change its status, return it first (or mark the loan lost from Loans).
           </span>
         )}
-      </span>
-      {copy.labelPrinted && copy.status !== "retired" && (
-        <Button
-          variant="secondary"
-          onClick={reprint}
-          busy={busy}
-          aria-label={`Copy ${copy.shortCode} needs a new label`}
-        >
-          Needs a new label
-        </Button>
-      )}
-      {!onLoan && (
-        <span className="row">
-          <label className="inline-select">
-            <span className="visually-hidden">New status for copy {copy.shortCode}</span>
-            <select
-              value={choice}
-              disabled={busy}
-              onChange={(e) => setChoice(e.target.value as Copy["status"])}
-            >
-              <option value="available">On the shelf</option>
-              <option value="damaged">Damaged</option>
-              <option value="lost">Lost</option>
-              <option value="retired">Retired</option>
-            </select>
-          </label>
-          {choice !== copy.status && (
-            <Button
-              onClick={save}
-              busy={busy}
-              busyLabel="Saving…"
-              aria-label={`Save status of copy ${copy.shortCode}`}
-            >
-              Save
-            </Button>
-          )}
-        </span>
-      )}
+      </div>
+      <div className="copy-row__actions">
+        {copy.labelPrinted && copy.status !== "retired" && (
+          <Button
+            variant="secondary"
+            onClick={reprint}
+            busy={busy}
+            aria-label={`Copy ${copy.shortCode} needs a new label`}
+          >
+            Needs a new label
+          </Button>
+        )}
+        {!onLoan && (
+          <>
+            <label className="inline-select">
+              <span className="visually-hidden">New status for copy {copy.shortCode}</span>
+              <select
+                value={choice}
+                disabled={busy}
+                onChange={(e) => setChoice(e.target.value as Copy["status"])}
+              >
+                <option value="available">On the shelf</option>
+                <option value="damaged">Damaged</option>
+                <option value="lost">Lost</option>
+                <option value="retired">Retired</option>
+              </select>
+            </label>
+            {choice !== copy.status && (
+              <Button
+                onClick={save}
+                busy={busy}
+                busyLabel="Saving…"
+                aria-label={`Save status of copy ${copy.shortCode}`}
+              >
+                Save
+              </Button>
+            )}
+          </>
+        )}
+      </div>
     </li>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Alert, Layout, Loading } from "../../components.tsx";
+import { Icon, type IconName } from "../../icons.tsx";
 import { api, errorMessage } from "../../lib/api.ts";
 import { Link } from "../../lib/router.tsx";
 import { useSession } from "../../lib/session.tsx";
@@ -24,27 +25,42 @@ interface Dashboard {
   email: { leftToday: number | null; dailyLimit: number };
 }
 
-function Stat({
-  value,
-  label,
-  href,
-  alert,
-}: {
-  value: number;
-  label: string;
-  href?: string;
-  alert?: boolean;
-}) {
-  const body = (
-    <>
-      <span className={`stat__value${alert && value > 0 ? " late" : ""}`}>{value}</span>
-      <span className="stat__label">{label}</span>
-    </>
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+function Stat(props: { value: number; label: string; href: string; alert?: boolean }) {
+  return (
+    <li className={`stat${props.alert && props.value > 0 ? " stat--alert" : ""}`}>
+      <Link href={props.href}>
+        <span className="stat__value">{props.value}</span>
+        <span className="stat__label">{props.label}</span>
+      </Link>
+    </li>
   );
-  return <li className="stat">{href ? <Link href={href}>{body}</Link> : body}</li>;
 }
 
-/** Staff home: who has what, what is late, and anything that needs attention. */
+function Tile(props: {
+  href: string;
+  icon: IconName;
+  title: string;
+  detail: string;
+  primary?: boolean;
+}) {
+  return (
+    <li>
+      <Link href={props.href} className={`tile${props.primary ? " tile--primary" : ""}`}>
+        <span className="tile__icon">
+          <Icon name={props.icon} />
+        </span>
+        <span className="tile__text">
+          <strong>{props.title}</strong>
+          <span>{props.detail}</span>
+        </span>
+      </Link>
+    </li>
+  );
+}
+
+/** Staff home: what needs attention first, the day's jobs, then the rest of the library. */
 export function AdminHomePage() {
   const { state } = useSession();
   const isAdmin = state.status === "ready" && state.me.membership?.role === "admin";
@@ -62,141 +78,161 @@ export function AdminHomePage() {
     return () => controller.abort();
   }, []);
 
+  const counts = data?.counts;
+  const showCheckIn = data && (data.returnsNeedCheckIn || (data.waitingForCheckIn ?? 0) > 0);
+
   return (
-    <Layout title="Library dashboard">
+    <Layout title="Library dashboard" width="wide">
       <Alert>{error}</Alert>
       {!data && !error && <Loading label="Loading the dashboard…" />}
       {data && (
-        <>
-          {data.counts && data.counts.pendingFamilies > 0 && (
-            <Alert kind="info">
-              {data.counts.pendingFamilies}{" "}
-              {data.counts.pendingFamilies === 1 ? "family is" : "families are"} waiting for
-              approval. <Link href="/admin/families">Review them</Link>
-            </Alert>
-          )}
-          {data.reminders.stale && (
-            <Alert>
-              Reminder emails have stopped, so families aren't being reminded about due books.{" "}
-              {isAdmin
-                ? "Check that the site's scheduled job (Cron Trigger) is set up."
-                : "Please let the library admin know."}
-              {isAdmin && data.reminders.error && (
-                <details>
-                  <summary>Technical details</summary>
-                  {data.reminders.error}
-                </details>
+        <div className="split">
+          <div>
+            {counts && counts.pendingFamilies > 0 && (
+              <Alert kind="info">
+                {plural(counts.pendingFamilies, "family is", "families are")} waiting for approval.{" "}
+                <Link href="/admin/families">Review them</Link>
+              </Alert>
+            )}
+            {data.reminders.stale && (
+              <Alert kind="warning">
+                Reminder emails have paused, so families aren't getting due-date emails right now.{" "}
+                {isAdmin
+                  ? "This usually means the site's hourly job isn't set up yet."
+                  : "Please let the library admin know."}
+                {isAdmin && (
+                  <details>
+                    <summary>Technical details</summary>
+                    Check the Worker's Cron Trigger (hourly) in the Cloudflare dashboard.
+                    {data.reminders.error && ` Last error: ${data.reminders.error}`}
+                  </details>
+                )}
+              </Alert>
+            )}
+            {data.email.leftToday !== null && data.email.leftToday < 20 && (
+              <Alert kind="warning">
+                Only {data.email.leftToday} emails can still be sent today. Reminder emails will go
+                out tomorrow; sign-in codes still work.
+              </Alert>
+            )}
+
+            <ul className="stats" aria-label="Library summary">
+              {data.reportedFound > 0 && (
+                <Stat
+                  value={data.reportedFound}
+                  label="reported found"
+                  href="/admin/loans?filter=found"
+                />
               )}
-            </Alert>
-          )}
-          {data.email.leftToday !== null && data.email.leftToday < 20 && (
-            <Alert kind="info">
-              Only {data.email.leftToday} emails can still be sent today. Reminder emails will go
-              out tomorrow; sign-in codes still work.
-            </Alert>
-          )}
-          <ul className="stats" aria-label="Library summary">
-            {data.reportedFound > 0 && (
+              <Stat value={data.overdue} label="overdue" href="/admin/loans?filter=overdue" alert />
               <Stat
-                value={data.reportedFound}
-                label="reported found"
-                href="/admin/loans?filter=found"
+                value={data.needsStaff}
+                label="to follow up"
+                href="/admin/loans?filter=follow-up"
+                alert
               />
-            )}
-            {(data.returnsNeedCheckIn || (data.waitingForCheckIn ?? 0) > 0) && (
+              {showCheckIn && (
+                <Stat
+                  value={data.waitingForCheckIn ?? 0}
+                  label="to check in"
+                  href="/admin/loans?filter=check-in"
+                />
+              )}
               <Stat
-                value={data.waitingForCheckIn ?? 0}
-                label="waiting for check-in"
-                href="/admin/loans?filter=check-in"
+                value={data.dueThisWeek}
+                label="due this week"
+                href="/admin/loans?filter=due-soon"
               />
+              <Stat value={data.booksOut} label="books out" href="/admin/loans" />
+            </ul>
+
+            <section className="tile-group" aria-labelledby="daily-heading">
+              <h2 id="daily-heading">Every day</h2>
+              <ul className="tiles">
+                <Tile
+                  href="/admin/returns"
+                  icon="return"
+                  title="Check in returns"
+                  detail="Scan the books in the returns basket"
+                  primary
+                />
+                <Tile
+                  href="/admin/loans"
+                  icon="list"
+                  title="Loans"
+                  detail="Who has what, and late books"
+                />
+              </ul>
+            </section>
+
+            <section className="tile-group" aria-labelledby="library-heading">
+              <h2 id="library-heading">Library</h2>
+              <ul className="tiles">
+                <Tile
+                  href="/admin/add"
+                  icon="plus"
+                  title="Add books"
+                  detail="Scan a barcode or type it in"
+                />
+                <Tile
+                  href="/admin/catalog"
+                  icon="library"
+                  title="Catalog"
+                  detail={
+                    counts
+                      ? `${plural(counts.titles, "book", "books")}, ${plural(counts.copies, "copy", "copies")}`
+                      : "Every book and copy"
+                  }
+                />
+                <Tile
+                  href="/admin/labels"
+                  icon="tag"
+                  title="Print labels"
+                  detail={
+                    counts?.needLabels
+                      ? `${plural(counts.needLabels, "copy needs", "copies need")} a label`
+                      : "QR stickers for new copies"
+                  }
+                />
+                <Tile
+                  href="/admin/families"
+                  icon="family"
+                  title="Families"
+                  detail={
+                    counts ? plural(counts.families, "family", "families") : "Invite and approve"
+                  }
+                />
+                {isAdmin && (
+                  <Tile
+                    href="/admin/settings"
+                    icon="settings"
+                    title="Settings"
+                    detail="Loan length, limits, closed days"
+                  />
+                )}
+              </ul>
+            </section>
+          </div>
+
+          <aside className="card" aria-labelledby="popular-heading">
+            <h2 id="popular-heading" className="section-title">
+              Most borrowed
+            </h2>
+            <p className="muted">Last 90 days</p>
+            {data.mostBorrowed.length === 0 ? (
+              <p className="muted">Nothing borrowed yet. The favourites will show up here.</p>
+            ) : (
+              <ol className="count-list">
+                {data.mostBorrowed.map((t) => (
+                  <li key={t.id}>
+                    <Link href={`/admin/catalog/${t.id}`}>{t.title}</Link>
+                    <span className="muted">{plural(t.times, "time", "times")}</span>
+                  </li>
+                ))}
+              </ol>
             )}
-            <Stat value={data.overdue} label="overdue" href="/admin/loans?filter=overdue" alert />
-            <Stat
-              value={data.needsStaff}
-              label="need following up"
-              href="/admin/loans?filter=follow-up"
-              alert
-            />
-            <Stat value={data.dueThisWeek} label="due this week" />
-            <Stat value={data.booksOut} label="books out" href="/admin/loans" />
-          </ul>
-        </>
-      )}
-
-      <h2>What do you want to do?</h2>
-      <ul className="tiles">
-        <li>
-          <Link href="/admin/returns" className="tile">
-            <strong>Check in returns</strong>
-            <span>Scan the books in the returns basket</span>
-          </Link>
-        </li>
-        <li>
-          <Link href="/admin/loans" className="tile">
-            <strong>Loans</strong>
-            <span>Every book that's out, late books, reminders</span>
-          </Link>
-        </li>
-        <li>
-          <Link href="/admin/add" className="tile">
-            <strong>Add books</strong>
-            <span>Scan a barcode or type the details</span>
-          </Link>
-        </li>
-        <li>
-          <Link href="/admin/catalog" className="tile">
-            <strong>Catalog</strong>
-            <span>
-              {data?.counts
-                ? `${data.counts.titles} ${data.counts.titles === 1 ? "book" : "books"}, ${data.counts.copies} ${data.counts.copies === 1 ? "copy" : "copies"}`
-                : "Every book and copy"}
-            </span>
-          </Link>
-        </li>
-        <li>
-          <Link href="/admin/labels" className="tile">
-            <strong>Print labels</strong>
-            <span>
-              {data?.counts?.needLabels
-                ? `${data.counts.needLabels} ${data.counts.needLabels === 1 ? "copy needs" : "copies need"} a label`
-                : "QR stickers for new copies"}
-            </span>
-          </Link>
-        </li>
-        <li>
-          <Link href="/admin/families" className="tile">
-            <strong>Families</strong>
-            <span>
-              {data?.counts
-                ? `${data.counts.families} ${data.counts.families === 1 ? "family" : "families"}`
-                : "Invite, approve, remove"}
-            </span>
-          </Link>
-        </li>
-        {isAdmin && (
-          <li>
-            <Link href="/admin/settings" className="tile">
-              <strong>Settings</strong>
-              <span>Loan length, limits, reminders, closed days</span>
-            </Link>
-          </li>
-        )}
-      </ul>
-
-      {data && data.mostBorrowed.length > 0 && (
-        <>
-          <h2>Most borrowed (last 90 days)</h2>
-          <ol>
-            {data.mostBorrowed.map((t) => (
-              <li key={t.id}>
-                <Link href={`/admin/catalog/${t.id}`}>{t.title}</Link>{" "}
-                <span className="muted">
-                  · {t.times} {t.times === 1 ? "time" : "times"}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </>
+          </aside>
+        </div>
       )}
     </Layout>
   );

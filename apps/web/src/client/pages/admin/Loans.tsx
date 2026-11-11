@@ -22,6 +22,7 @@ interface Loan {
 const FILTERS = [
   { id: "all", label: "All out" },
   { id: "overdue", label: "Overdue" },
+  { id: "due-soon", label: "Due this week" },
   { id: "follow-up", label: "Follow up" },
   { id: "found", label: "Reported found" },
   { id: "check-in", label: "Waiting for check-in" },
@@ -30,6 +31,7 @@ const FILTERS = [
 const EMPTY: Record<string, string> = {
   all: "No books are out right now.",
   overdue: "Nothing is overdue.",
+  "due-soon": "Nothing is due back this week.",
   "follow-up": "No books need following up.",
   found: "No books have been reported found.",
   "check-in": "No books are waiting to be checked in.",
@@ -44,6 +46,7 @@ export function LoansPage() {
     ? (query.get("filter") as string)
     : "all";
   const [loans, setLoans] = useState<Loan[] | null>(null);
+  const [counts, setCounts] = useState<Record<string, number>>({});
   const [error, setError] = useState("");
   // A message shown on the card that was acted on, or at the top if the card left the list.
   const [cardMessage, setCardMessage] = useState<{ loanId: string } & Message>();
@@ -52,8 +55,11 @@ export function LoansPage() {
 
   const load = useCallback(async () => {
     try {
-      const res = await api<{ loans: Loan[] }>(`/admin/loans?filter=${filter}`);
+      const res = await api<{ loans: Loan[]; counts: Record<string, number> }>(
+        `/admin/loans?filter=${filter}`,
+      );
       setLoans(res.loans);
+      setCounts(res.counts ?? {});
       setError("");
       return res.loans;
     } catch (e) {
@@ -89,7 +95,7 @@ export function LoansPage() {
   };
 
   return (
-    <Layout title="Loans" back="/admin">
+    <Layout title="Loans" width="wide">
       <nav aria-label="Filter loans" className="segmented">
         {FILTERS.map((f) => (
           <Link
@@ -98,6 +104,12 @@ export function LoansPage() {
             aria-current={filter === f.id ? "page" : undefined}
           >
             {f.label}
+            {counts[f.id] !== undefined && (
+              <span className="segmented__count">
+                <span className="visually-hidden">: </span>
+                {counts[f.id]}
+              </span>
+            )}
           </Link>
         ))}
       </nav>
@@ -108,18 +120,32 @@ export function LoansPage() {
       {loans === null ? (
         !error && <Loading label="Loading loans…" />
       ) : loans.length === 0 ? (
-        <p>{EMPTY[filter]}</p>
+        <div className="empty">
+          <p className="empty__title">{EMPTY[filter]}</p>
+          <p>
+            <Link href="/admin/returns">Check in returns</Link> ·{" "}
+            <Link href="/admin/add">Add books</Link>
+          </p>
+        </div>
       ) : (
-        <ul className="loan-list">
-          {loans.map((loan) => (
-            <LoanCard
-              key={loan.id}
-              loan={loan}
-              message={cardMessage?.loanId === loan.id ? cardMessage : undefined}
-              onRun={run}
-            />
-          ))}
-        </ul>
+        <>
+          <div className="loan-head" aria-hidden="true">
+            <span>Book</span>
+            <span>Family</span>
+            <span>Due</span>
+            <span />
+          </div>
+          <ul className="loan-list loan-list--table">
+            {loans.map((loan) => (
+              <LoanCard
+                key={loan.id}
+                loan={loan}
+                message={cardMessage?.loanId === loan.id ? cardMessage : undefined}
+                onRun={run}
+              />
+            ))}
+          </ul>
+        </>
       )}
       <p>
         <Link href="/admin/returns">Checking in a basket of books? Use the scanner</Link>
@@ -163,8 +189,8 @@ function LoanCard({
         </Link>{" "}
         <span className="muted code">{loan.code}</span>
       </p>
+      <p className="loan-family">{loan.familyName}</p>
       <p className="meta-row">
-        <span>{loan.familyName}</span>
         <span className={late ? "late" : ""}>
           {late ? `${late} (due ${formatDate(loan.dueOn)})` : `Due ${formatDate(loan.dueOn)}`}
         </span>
@@ -179,97 +205,99 @@ function LoanCard({
           </span>
         )}
       </p>
-      <div ref={messageRef} tabIndex={-1}>
-        {message && <Alert kind={message.kind}>{message.text}</Alert>}
-      </div>
-      <div className="row">
-        <Button
-          variant="secondary"
-          onClick={() => close("returned", `“${loan.title}” is checked in.`)}
-          busy={busy === "returned"}
-          busyLabel="Checking in…"
-          disabled={locked && busy !== "returned"}
-          aria-label={`${loan.handedBack ? "Check in" : "Mark returned"}: ${loan.title}`}
-        >
-          {loan.handedBack ? "Check in" : "Mark returned"}
-        </Button>
-        {loan.canExtend && (
+      <div className="loan-actions">
+        <div ref={messageRef} tabIndex={-1}>
+          {message && <Alert kind={message.kind}>{message.text}</Alert>}
+        </div>
+        <div className="row">
+          <Button
+            variant="secondary"
+            onClick={() => close("returned", `“${loan.title}” is checked in.`)}
+            busy={busy === "returned"}
+            busyLabel="Checking in…"
+            disabled={locked && busy !== "returned"}
+            aria-label={`${loan.handedBack ? "Check in" : "Mark returned"}: ${loan.title}`}
+          >
+            {loan.handedBack ? "Check in" : "Mark returned"}
+          </Button>
+          {loan.canExtend && (
+            <Button
+              variant="secondary"
+              onClick={() =>
+                act(
+                  "extend",
+                  () => api(`/loans/${loan.id}/extend`, { body: {} }),
+                  `“${loan.title}” has a new due date.`,
+                )
+              }
+              busy={busy === "extend"}
+              busyLabel="Extending…"
+              disabled={locked && busy !== "extend"}
+              aria-label={`Extend: ${loan.title}`}
+            >
+              Extend
+            </Button>
+          )}
           <Button
             variant="secondary"
             onClick={() =>
               act(
-                "extend",
-                () => api(`/loans/${loan.id}/extend`, { body: {} }),
-                `“${loan.title}” has a new due date.`,
+                "remind",
+                () => api(`/admin/loans/${loan.id}/remind`, { body: {} }),
+                `Reminder sent to the ${loan.familyName} family.`,
               )
             }
-            busy={busy === "extend"}
-            busyLabel="Extending…"
-            disabled={locked && busy !== "extend"}
-            aria-label={`Extend: ${loan.title}`}
+            busy={busy === "remind"}
+            busyLabel="Sending…"
+            disabled={locked && busy !== "remind"}
+            aria-label={`Send reminder: ${loan.title}`}
           >
-            Extend
+            Send reminder
           </Button>
-        )}
-        <Button
-          variant="secondary"
-          onClick={() =>
-            act(
-              "remind",
-              () => api(`/admin/loans/${loan.id}/remind`, { body: {} }),
-              `Reminder sent to the ${loan.familyName} family.`,
-            )
-          }
-          busy={busy === "remind"}
-          busyLabel="Sending…"
-          disabled={locked && busy !== "remind"}
-          aria-label={`Send reminder: ${loan.title}`}
-        >
-          Send reminder
-        </Button>
-      </div>
-      <details className="more">
-        <summary>More</summary>
-        {confirming ? (
-          <div className="confirm">
-            <p className="confirm__text">
-              Mark “{loan.title}” as{" "}
-              {confirming === "lost" ? "lost (it can't be found)" : "damaged"}? This closes the
-              loan.
-            </p>
+        </div>
+        <details className="more">
+          <summary>More</summary>
+          {confirming ? (
+            <div className="confirm">
+              <p className="confirm__text">
+                Mark “{loan.title}” as{" "}
+                {confirming === "lost" ? "lost (it can't be found)" : "damaged"}? This closes the
+                loan.
+              </p>
+              <div className="row">
+                <Button variant="secondary" onClick={() => setConfirming(null)} autoFocus>
+                  Cancel
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => close(confirming, `“${loan.title}” is marked ${confirming}.`)}
+                  busy={busy === confirming}
+                  busyLabel="Saving…"
+                >
+                  Yes, mark {confirming}
+                </Button>
+              </div>
+            </div>
+          ) : (
             <div className="row">
-              <Button variant="secondary" onClick={() => setConfirming(null)} autoFocus>
-                Cancel
+              <Button
+                variant="link"
+                onClick={() => setConfirming("lost")}
+                aria-label={`Mark lost: ${loan.title}`}
+              >
+                Mark lost (can't be found)
               </Button>
               <Button
-                variant="danger"
-                onClick={() => close(confirming, `“${loan.title}” is marked ${confirming}.`)}
-                busy={busy === confirming}
-                busyLabel="Saving…"
+                variant="link"
+                onClick={() => setConfirming("damaged")}
+                aria-label={`Mark damaged: ${loan.title}`}
               >
-                Yes, mark {confirming}
+                Mark damaged
               </Button>
             </div>
-          </div>
-        ) : (
-          <div className="row">
-            <Button
-              variant="link"
-              onClick={() => setConfirming("lost")}
-              aria-label={`Mark lost: ${loan.title}`}
-            >
-              Mark lost (can't be found)
-            </Button>
-            <Button
-              variant="link"
-              onClick={() => setConfirming("damaged")}
-              aria-label={`Mark damaged: ${loan.title}`}
-            >
-              Mark damaged
-            </Button>
-          </div>
-        )}
-      </details>
+          )}
+        </details>
+      </div>
     </li>
   );
 }

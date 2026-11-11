@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, Field, Layout, Loading } from "../../components.tsx";
 import { api, errorMessage } from "../../lib/api.ts";
 import { Link } from "../../lib/router.tsx";
+import { useSlashFocus } from "../../lib/useSlashFocus.ts";
 import { Cover } from "./Cover.tsx";
 
 interface TitleRow {
@@ -18,6 +19,8 @@ export function CatalogPage() {
   const [query, setQuery] = useState("");
   const [titles, setTitles] = useState<TitleRow[] | null>(null);
   const [error, setError] = useState("");
+  const search = useRef<HTMLInputElement>(null);
+  useSlashFocus(search);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -44,13 +47,17 @@ export function CatalogPage() {
   }, [query]);
 
   return (
-    <Layout title="Catalog" back="/admin">
-      <p>
+    <Layout
+      title="Catalog"
+      width="wide"
+      actions={
         <Link href="/admin/add" className="btn btn--primary">
           Add books
         </Link>
-      </p>
+      }
+    >
       <Field
+        ref={search}
         label="Search"
         type="search"
         hint="Title, author or ISBN"
@@ -58,11 +65,18 @@ export function CatalogPage() {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
+      <p className="kbd-hint desktop-only">
+        Press <kbd>/</kbd> to search from anywhere on this page.
+      </p>
       <Alert>{error}</Alert>
       {titles === null ? (
         <Loading label="Loading the catalog…" />
       ) : titles.length === 0 ? (
-        <p>{query ? "No books match that search." : "No books yet. Add your first one above."}</p>
+        <p>
+          {query
+            ? "No books match that search."
+            : "No books yet. Use Add books to scan your first one."}
+        </p>
       ) : (
         <>
           <p className="muted" role="status">
@@ -70,7 +84,7 @@ export function CatalogPage() {
               ? "Showing the newest 200 books. Search to find others."
               : `${titles.length} ${titles.length === 1 ? "book" : "books"}`}
           </p>
-          <ul className="book-list">
+          <ul className="book-list book-list--grid">
             {titles.map((t) => (
               <li key={t.id}>
                 <Link href={`/admin/catalog/${t.id}`} className="book-row">

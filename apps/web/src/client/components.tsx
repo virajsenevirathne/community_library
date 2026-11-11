@@ -7,11 +7,24 @@ import {
   useId,
   useRef,
 } from "react";
+import { Icon } from "./icons.tsx";
 import { hasNavigated, Link, useLocation } from "./lib/router.tsx";
 import { isStaff, useSession } from "./lib/session.tsx";
 
+/** True when `path` is `href` or a page inside it (so /admin/loans is inside /admin). */
+function isCurrent(path: string, href: string, exact = false) {
+  if (exact || href === "/") return path === href;
+  return path === href || path.startsWith(`${href}/`);
+}
+
 /**
- * Page frame: header, skip link and a main area with the page title.
+ * Page frame: header, navigation, skip link and a main area with the title.
+ *
+ * - `width`: "narrow" for reading and forms, "wide" for staff screens on a computer.
+ * - `actions`: the page's main buttons, shown beside the title on wide screens.
+ *
+ * On phones the navigation moves to a bottom tab bar within thumb reach; on
+ * computers, staff pages also get a row of tabs for moving between them.
  * When the page or step changes (`title` or `focusKey`), the title gets focus
  * and the tab title updates, so screen readers announce where you are.
  */
@@ -20,22 +33,34 @@ export function Layout({
   children,
   back,
   focusKey,
+  width = "narrow",
+  actions,
 }: {
   title: string;
   children: ReactNode;
   back?: string;
   focusKey?: string;
+  width?: "narrow" | "wide";
+  actions?: ReactNode;
 }) {
   const { state } = useSession();
   const { path } = useLocation();
   const me = state.status === "ready" ? state.me : null;
   const libraryName = me?.library?.name ?? "Community Library";
+  const staff = me ? isStaff(me) : false;
+  const admin = me?.membership?.role === "admin";
+  const signedIn = Boolean(me?.user);
   const heading = useRef<HTMLHeadingElement>(null);
   const mounted = useRef(false);
 
   useEffect(() => {
     document.title = `${title} · ${libraryName}`;
   }, [title, libraryName]);
+
+  // The bottom tab bar needs room at the end of every page.
+  useEffect(() => {
+    document.body.classList.toggle("has-tabbar", signedIn);
+  }, [signedIn]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: title and focusKey are deliberate triggers
   useEffect(() => {
@@ -45,46 +70,126 @@ export function Layout({
   }, [title, focusKey]);
 
   const skip = () => heading.current?.focus();
+  const current = (href: string, exact = false) =>
+    isCurrent(path, href, exact) ? ("page" as const) : undefined;
 
-  const navItem = (href: string, label: string) => (
-    <li>
-      <Link href={href} aria-current={path.startsWith(href) ? "page" : undefined}>
-        {label}
-      </Link>
-    </li>
-  );
+  const staffTabs: { href: string; label: string; exact?: boolean }[] = [
+    { href: "/admin", label: "Dashboard", exact: true },
+    { href: "/admin/loans", label: "Loans" },
+    { href: "/admin/returns", label: "Check in returns" },
+    { href: "/admin/catalog", label: "Catalog" },
+    { href: "/admin/add", label: "Add books" },
+    { href: "/admin/labels", label: "Labels" },
+    { href: "/admin/families", label: "Families" },
+    ...(admin ? [{ href: "/admin/settings", label: "Settings" }] : []),
+  ];
 
   return (
     <>
       <button type="button" className="skip-link" onClick={skip}>
         Skip to content
       </button>
-      <header className="site-header">
+      <header className={`site-header${width === "narrow" ? " site-header--narrow" : ""}`}>
         <div className="site-header__inner">
-          <Link href="/" className="brand">
-            {libraryName}
+          <Link href="/" className="brand" aria-label={`${libraryName}: home`}>
+            <span className="brand__mark">
+              <Icon name="book" className="brand__icon" />
+            </span>
+            <span className="brand__name">{libraryName}</span>
           </Link>
-          {me?.user && (
+          {signedIn && (
             <nav aria-label="Main">
               <ul className="nav">
-                {isStaff(me) && navItem("/admin", "Admin")}
-                {navItem("/account", "Account")}
+                <li>
+                  <Link href="/" aria-current={current("/")}>
+                    Your books
+                  </Link>
+                </li>
+                {staff && (
+                  <li>
+                    <Link
+                      href="/admin"
+                      aria-current={path.startsWith("/admin") ? "page" : undefined}
+                    >
+                      Staff
+                    </Link>
+                  </li>
+                )}
+                <li>
+                  <Link href="/account" aria-current={current("/account")}>
+                    Account
+                  </Link>
+                </li>
               </ul>
             </nav>
           )}
         </div>
       </header>
-      <main id="main" className="page">
+      {staff && path.startsWith("/admin") && (
+        <nav className="subnav" aria-label="Staff">
+          <ul className="subnav__inner">
+            {staffTabs.map((tab) => (
+              <li key={tab.href}>
+                <Link href={tab.href} aria-current={current(tab.href, tab.exact)}>
+                  {tab.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      )}
+      <main id="main" className={`page page--${width}`}>
         {back && (
           <p className="back">
             <Link href={back}>← Back</Link>
           </p>
         )}
-        <h1 ref={heading} tabIndex={-1}>
-          {title}
-        </h1>
+        {actions ? (
+          <div className="page-header">
+            <h1 ref={heading} tabIndex={-1}>
+              {title}
+            </h1>
+            <div className="row">{actions}</div>
+          </div>
+        ) : (
+          <h1 ref={heading} tabIndex={-1}>
+            {title}
+          </h1>
+        )}
         {children}
       </main>
+      {signedIn && (
+        <nav aria-label="Main (phone)" className="tabbar-nav">
+          <ul className="tabbar">
+            <li>
+              <Link href="/" aria-current={current("/")}>
+                <Icon name="book" />
+                Books
+              </Link>
+            </li>
+            <li>
+              <Link href="/c" aria-current={current("/c", true)}>
+                <Icon name="scan" />
+                Type a code
+              </Link>
+            </li>
+            {staff && (
+              <li>
+                <Link href="/admin" aria-current={path.startsWith("/admin") ? "page" : undefined}>
+                  <Icon name="grid" />
+                  Staff
+                </Link>
+              </li>
+            )}
+            <li>
+              <Link href="/account" aria-current={current("/account")}>
+                <Icon name="user" />
+                Account
+              </Link>
+            </li>
+          </ul>
+        </nav>
+      )}
     </>
   );
 }
@@ -177,17 +282,29 @@ export function Field({
   );
 }
 
+const ALERT_ICONS = {
+  error: "error",
+  warning: "warning",
+  info: "info",
+  success: "check",
+} as const;
+
+/**
+ * A message box. "error" is for something that failed; "warning" for
+ * something that needs attention soon; "info" and "success" are calm.
+ */
 export function Alert({
   kind = "error",
   children,
 }: {
-  kind?: "error" | "info" | "success";
+  kind?: "error" | "warning" | "info" | "success";
   children: ReactNode;
 }) {
   if (!children) return null;
   return (
     <div className={`alert alert--${kind}`} role={kind === "error" ? "alert" : "status"}>
-      {children}
+      <Icon name={ALERT_ICONS[kind]} className="alert__icon" />
+      <div className="alert__body">{children}</div>
     </div>
   );
 }

@@ -98,61 +98,77 @@ export function FamiliesPage() {
   );
 
   return (
-    <Layout title="Families" back="/admin">
+    <Layout
+      title="Families"
+      back="/admin"
+      width="wide"
+      actions={
+        <Link href="/admin/families/import" className="btn btn--secondary">
+          Import a list (CSV)
+        </Link>
+      }
+    >
       <div ref={messageRef} tabIndex={-1}>
         <Alert>{error}</Alert>
         <Alert kind="success">{notice}</Alert>
       </div>
 
-      <JoinLinkCard url={data.joinUrl} canChange={data.canManageStaff} notify={notify} />
+      <div className="split">
+        <div>
+          <h2 className="section-title">
+            {data.families.length} {data.families.length === 1 ? "family" : "families"}
+            {pending > 0 && (
+              <span className="badge badge--found">
+                <span className="visually-hidden">, </span>
+                {pending} waiting
+              </span>
+            )}
+          </h2>
+          {pending > 0 && (
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={onlyWaiting}
+                onChange={(e) => setOnlyWaiting(e.target.checked)}
+              />
+              Show only families waiting for approval
+            </label>
+          )}
+          {data.families.length > 5 && (
+            <Field
+              label="Find a family"
+              type="search"
+              hint="Family name or parent email"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          )}
+          {shown.length === 0 && (
+            <div className="empty">
+              <p className="empty__title">
+                {q || onlyWaiting ? "No families match" : "No families yet"}
+              </p>
+              <p>
+                {q || onlyWaiting
+                  ? "Try a different name or email."
+                  : "Print or share the sign-up link so parents can join."}
+              </p>
+            </div>
+          )}
+          <ul className="loan-list">
+            {shown.map((family) => (
+              <FamilyCard key={family.id} family={family} notify={notify} />
+            ))}
+          </ul>
 
-      <h2>
-        {data.families.length} {data.families.length === 1 ? "family" : "families"}
-        {pending > 0 && (
-          <span className="badge badge--found">
-            <span className="visually-hidden">, </span>
-            {pending} waiting
-          </span>
-        )}
-      </h2>
-      <p>
-        <Link href="/admin/families/import">Import a list of families (CSV)</Link>
-      </p>
-      {pending > 0 && (
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={onlyWaiting}
-            onChange={(e) => setOnlyWaiting(e.target.checked)}
-          />
-          Show only families waiting for approval
-        </label>
-      )}
-      {data.families.length > 5 && (
-        <Field
-          label="Find a family"
-          type="search"
-          hint="Family name or parent email"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      )}
-      {shown.length === 0 && (
-        <p>
-          {q || onlyWaiting
-            ? "No families match."
-            : "No families yet. Share the sign-up link above."}
-        </p>
-      )}
-      <ul className="loan-list">
-        {shown.map((family) => (
-          <FamilyCard key={family.id} family={family} notify={notify} />
-        ))}
-      </ul>
-
-      {data.canManageStaff && (
-        <StaffSection staff={data.staff} invites={data.staffInvites} notify={notify} />
-      )}
+          {data.canManageStaff && (
+            <StaffSection staff={data.staff} invites={data.staffInvites} notify={notify} />
+          )}
+        </div>
+        <aside>
+          <JoinLinkCard url={data.joinUrl} canChange={data.canManageStaff} notify={notify} />
+        </aside>
+      </div>
     </Layout>
   );
 }
@@ -220,7 +236,7 @@ function JoinLinkCard({
 
   return (
     <section className="card" id="join-card" aria-labelledby="join-heading">
-      <h2 id="join-heading" style={{ marginTop: 0 }}>
+      <h2 id="join-heading" className="section-title">
         Sign-up link
       </h2>
       {url ? (

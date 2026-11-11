@@ -73,79 +73,83 @@ export function AccountPage() {
 
   return (
     <Layout title="Your account">
-      <div className="card">
-        <p>
-          Signed in as <strong>{me.user?.email}</strong>
-        </p>
-        {me.membership?.family && <p className="muted">Family: {me.membership.family.name}</p>}
-      </div>
+      <section className="card account-card" aria-label="Signed in">
+        <div>
+          <p>
+            Signed in as <strong>{me.user?.email}</strong>
+          </p>
+          {me.membership?.family && <p className="muted">Family: {me.membership.family.name}</p>}
+        </div>
+        <Button
+          variant="secondary"
+          onClick={signOut}
+          busy={busy === "signout"}
+          busyLabel="Signing out…"
+        >
+          Sign out
+        </Button>
+      </section>
 
-      <h2>Passkeys</h2>
-      <p className="muted">
-        Sign in with Face ID, a fingerprint or your screen lock instead of an email code.
-      </p>
-      <Alert>{error}</Alert>
-      <Alert kind="success">{notice}</Alert>
-      {loadFailed && (
-        <Alert>
-          Could not load your passkeys.{" "}
-          <Button variant="link" onClick={() => void load()}>
-            Try again
-          </Button>
-        </Alert>
-      )}
-      {passkeys === null ? (
-        <Loading label="Loading passkeys…" />
-      ) : loadFailed ? null : passkeys.length === 0 ? (
-        <p>No passkeys saved yet.</p>
-      ) : (
-        <ul className="list">
-          {passkeys.map((p) => (
-            <li key={p.id}>
-              <span>{describe(p)}</span>
-              <Button
-                variant="secondary"
-                onClick={() => remove(p)}
-                busy={busy === p.id}
-                busyLabel="Removing…"
-                aria-label={`Remove passkey ${describe(p)}`}
-              >
-                Remove
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {passkeysSupported() ? (
-        <p>
-          <Button
-            variant="secondary"
-            onClick={add}
-            busy={busy === "add"}
-            busyLabel="Waiting for your device…"
-          >
-            Add a passkey on this device
-          </Button>
-        </p>
-      ) : (
+      <section className="card" aria-labelledby="passkeys-heading">
+        <h2 id="passkeys-heading" className="section-title">
+          Passkeys
+        </h2>
         <p className="muted">
-          This browser cannot save passkeys. You can keep signing in with an email code.
+          Sign in with Face ID, a fingerprint or your screen lock instead of an email code.
         </p>
-      )}
+        <Alert>{error}</Alert>
+        <Alert kind="success">{notice}</Alert>
+        {loadFailed && (
+          <Alert>
+            Could not load your passkeys.{" "}
+            <Button variant="link" onClick={() => void load()}>
+              Try again
+            </Button>
+          </Alert>
+        )}
+        {passkeys === null ? (
+          <Loading label="Loading passkeys…" />
+        ) : loadFailed ? null : passkeys.length === 0 ? (
+          <p>No passkeys saved yet.</p>
+        ) : (
+          <ul className="list">
+            {passkeys.map((p) => (
+              <li key={p.id}>
+                <span>{describe(p)}</span>
+                <Button
+                  variant="secondary"
+                  onClick={() => remove(p)}
+                  busy={busy === p.id}
+                  busyLabel="Removing…"
+                  aria-label={`Remove passkey ${describe(p)}`}
+                >
+                  Remove
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {passkeysSupported() ? (
+          <p>
+            <Button
+              variant="secondary"
+              onClick={add}
+              busy={busy === "add"}
+              busyLabel="Waiting for your device…"
+            >
+              Add a passkey on this device
+            </Button>
+          </p>
+        ) : (
+          <p className="muted">
+            This browser cannot save passkeys. You can keep signing in with an email code.
+          </p>
+        )}
+      </section>
 
       {me.membership?.family && <ReminderSetting />}
 
       <DeleteAccount />
-
-      <h2>Sign out</h2>
-      <Button
-        variant="secondary"
-        onClick={signOut}
-        busy={busy === "signout"}
-        busyLabel="Signing out…"
-      >
-        Sign out on this device
-      </Button>
     </Layout>
   );
 }
@@ -186,8 +190,10 @@ function ReminderSetting() {
     }
   };
   return (
-    <>
-      <h2>Reminder emails</h2>
+    <section className="card" aria-labelledby="reminders-heading">
+      <h2 id="reminders-heading" className="section-title">
+        Reminder emails
+      </h2>
       <label className="check">
         <input
           type="checkbox"
@@ -200,7 +206,7 @@ function ReminderSetting() {
       <p className="muted" role="status">
         {message || "You'll always get an email when you borrow, whatever you choose here."}
       </p>
-    </>
+    </section>
   );
 }
 
@@ -254,8 +260,10 @@ function DeleteAccount() {
   };
 
   return (
-    <>
-      <h2>Delete my account</h2>
+    <section className="card card--danger" aria-labelledby="delete-heading">
+      <h2 id="delete-heading" className="section-title">
+        Delete my account
+      </h2>
       <Alert>{error}</Alert>
       {step === "idle" && (
         <>
@@ -329,6 +337,6 @@ function DeleteAccount() {
           </Button>
         </div>
       )}
-    </>
+    </section>
   );
 }

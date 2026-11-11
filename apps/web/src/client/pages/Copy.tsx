@@ -151,87 +151,114 @@ export function CopyPage({ code }: { code: string }) {
       title={done ? DONE_TITLES[done.kind] : copy.title.title}
       focusKey={done?.kind ?? "copy"}
     >
-      <div className="book-preview">
-        <Cover url={copy.title.coverUrl} title={copy.title.title} />
+      <div className="book-layout">
+        <div className="book-hero">
+          <Cover url={copy.title.coverUrl} title={copy.title.title} size="lg" />
+        </div>
         <div>
-          {done && (
-            <p>
-              <strong>{copy.title.title}</strong>
+          <div className="book-hero__text">
+            {done && (
+              <p>
+                <strong>{copy.title.title}</strong>
+              </p>
+            )}
+            {copy.title.authors && <p>{copy.title.authors}</p>}
+            <p className="row row--tight">
+              {!done && <StatusPill copy={copy} />}
+              <span className="muted">
+                Copy <span className="code">{copy.code}</span>
+              </span>
             </p>
+          </div>
+          {error && <Alert>{error.message}</Alert>}
+
+          {done?.kind === "borrowed" && (
+            <div className="stack">
+              <Alert kind="success">
+                Due back <strong>{formatDate(done.dueOn)}</strong>
+                {done.movedForClosure && " (moved to a day the centre is open)"}.
+                {family && ` That's ${family.booksOut} of ${family.maxLoans} books out.`} A
+                confirmation email is on its way.
+              </Alert>
+              <p className="lead">Borrowing another? Scan the next sticker with your camera.</p>
+              <div className="row">
+                <Link href="/" className="btn btn--secondary">
+                  See your books
+                </Link>
+                <Button
+                  variant="link"
+                  onClick={() => act("return")}
+                  busy={busy === "return"}
+                  busyLabel="Undoing…"
+                >
+                  Tapped by mistake? Undo
+                </Button>
+              </div>
+            </div>
           )}
-          {copy.title.authors && <p>{copy.title.authors}</p>}
-          <p className="muted">
-            Copy <span className="code">{copy.code}</span>
-          </p>
+          {done?.kind === "returned" && (
+            <div className="stack">
+              <Alert kind="success">
+                {done.pendingCheckIn
+                  ? "Handed back. Please put it in the returns basket. It stays on your list until staff check it in."
+                  : `${done.checkedInForOthers ? "Checked in." : "Returned."} Please put the book back on the shelf.`}
+              </Alert>
+              <p className="lead">Returning another? Scan the next sticker.</p>
+              {!done.checkedInForOthers && (
+                <Button
+                  variant="link"
+                  onClick={() => act("borrow")}
+                  busy={busy === "borrow"}
+                  busyLabel="Undoing…"
+                >
+                  Tapped by mistake? Undo
+                </Button>
+              )}
+            </div>
+          )}
+          {done?.kind === "found" && (
+            <Alert kind="success">
+              We've let its family know. Please put the book in the returns basket so staff can
+              check it in.
+            </Alert>
+          )}
+          {done?.kind === "extended" && (
+            <div className="stack">
+              <Alert kind="success">
+                Now due back <strong>{formatDate(done.dueOn)}</strong>.
+              </Alert>
+              <Link href="/" className="btn btn--secondary">
+                See your books
+              </Link>
+            </div>
+          )}
+
+          {!done && (
+            <CopyActions copy={copy} staff={staff} busy={busy} onAct={act} onExtend={extend} />
+          )}
         </div>
       </div>
-
-      {error && <Alert>{error.message}</Alert>}
-
-      {done?.kind === "borrowed" && (
-        <div className="stack">
-          <Alert kind="success">
-            Due back <strong>{formatDate(done.dueOn)}</strong>
-            {done.movedForClosure && " (moved to a day the centre is open)"}.
-            {family && ` That's ${family.booksOut} of ${family.maxLoans} books out.`} A confirmation
-            email is on its way.
-          </Alert>
-          <p className="lead">Borrowing another? Scan the next sticker with your camera.</p>
-          <div className="row">
-            <Link href="/" className="btn btn--secondary">
-              See your books
-            </Link>
-            <Button
-              variant="link"
-              onClick={() => act("return")}
-              busy={busy === "return"}
-              busyLabel="Undoing…"
-            >
-              Tapped by mistake? Undo
-            </Button>
-          </div>
-        </div>
-      )}
-      {done?.kind === "returned" && (
-        <div className="stack">
-          <Alert kind="success">
-            {done.pendingCheckIn
-              ? "Handed back. Please put it in the returns basket. It stays on your list until staff check it in."
-              : `${done.checkedInForOthers ? "Checked in." : "Returned."} Please put the book back on the shelf.`}
-          </Alert>
-          <p className="lead">Returning another? Scan the next sticker.</p>
-          {!done.checkedInForOthers && (
-            <Button
-              variant="link"
-              onClick={() => act("borrow")}
-              busy={busy === "borrow"}
-              busyLabel="Undoing…"
-            >
-              Tapped by mistake? Undo
-            </Button>
-          )}
-        </div>
-      )}
-      {done?.kind === "found" && (
-        <Alert kind="success">
-          We've let its family know. Please put the book in the returns basket so staff can check it
-          in.
-        </Alert>
-      )}
-      {done?.kind === "extended" && (
-        <div className="stack">
-          <Alert kind="success">
-            Now due back <strong>{formatDate(done.dueOn)}</strong>.
-          </Alert>
-          <Link href="/" className="btn btn--secondary">
-            See your books
-          </Link>
-        </div>
-      )}
-
-      {!done && <CopyActions copy={copy} staff={staff} busy={busy} onAct={act} onExtend={extend} />}
     </Layout>
   );
+}
+
+/** One glanceable word or two on where the book is, before any longer text. */
+function StatusPill({ copy }: { copy: CopyView }) {
+  const [text, tone] =
+    copy.state === "available" && copy.can.borrow
+      ? ["Ready to borrow", "ok"]
+      : copy.state === "available"
+        ? ["On the shelf", "ok"]
+        : copy.state === "mine"
+          ? copy.loan?.handedBack
+            ? ["Handed back", ""]
+            : (copy.loan?.overdueDays ?? 0) > 0
+              ? ["Late", "warn"]
+              : ["With your family", ""]
+          : copy.state === "out"
+            ? ["Borrowed", ""]
+            : ["Not for borrowing", "warn"];
+  return <span className={`status-pill${tone ? ` status-pill--${tone}` : ""}`}>{text}</span>;
 }
 
 function CopyActions(props: {
@@ -250,20 +277,22 @@ function CopyActions(props: {
     if (copy.can.borrow) {
       return (
         <div className="stack">
-          <Button
-            className="btn--block btn--big"
-            onClick={() => onAct("borrow")}
-            busy={busy === "borrow"}
-            busyLabel="Borrowing…"
-            disabled={locked && busy !== "borrow"}
-          >
-            Borrow this book
-          </Button>
           {family && (
             <p className="muted">
               Your family has {family.booksOut} of {family.maxLoans} books out.
             </p>
           )}
+          <div className="action-dock">
+            <Button
+              className="btn--block btn--big"
+              onClick={() => onAct("borrow")}
+              busy={busy === "borrow"}
+              busyLabel="Borrowing…"
+              disabled={locked && busy !== "borrow"}
+            >
+              Borrow this book
+            </Button>
+          </div>
         </div>
       );
     }
@@ -310,32 +339,34 @@ function CopyActions(props: {
           Your family has this book. Due back <strong>{formatDate(copy.loan.dueOn)}</strong>
           {late && <span className="badge badge--lost"> {late}</span>}.
         </p>
-        <Button
-          className="btn--block btn--big btn--return"
-          onClick={() => onAct("return")}
-          busy={busy === "return"}
-          busyLabel="Returning…"
-          disabled={locked && busy !== "return"}
-        >
-          Return this book
-        </Button>
         {!copy.loan.canExtend && (copy.loan.extensionsLeft ?? 0) === 0 && (
           <p className="muted">
             You've already kept this book longer, so please bring it back by then.
           </p>
         )}
-        {copy.loan.canExtend && (
+        <div className="action-dock">
           <Button
-            variant="secondary"
-            className="btn--block"
-            onClick={onExtend}
-            busy={busy === "extend"}
-            busyLabel="Extending…"
-            disabled={locked && busy !== "extend"}
+            className="btn--block btn--big btn--return"
+            onClick={() => onAct("return")}
+            busy={busy === "return"}
+            busyLabel="Returning…"
+            disabled={locked && busy !== "return"}
           >
-            Keep it longer
+            Return this book
           </Button>
-        )}
+          {copy.loan.canExtend && (
+            <Button
+              variant="secondary"
+              className="btn--block"
+              onClick={onExtend}
+              busy={busy === "extend"}
+              busyLabel="Extending…"
+              disabled={locked && busy !== "extend"}
+            >
+              Keep it longer
+            </Button>
+          )}
+        </div>
         {copy.loan.canExtend && (
           <p className="muted">
             {left === 1
@@ -364,14 +395,16 @@ function CopyActions(props: {
               A parent reported finding this book. Check it in now that it's back.
             </Alert>
           )}
-          <Button
-            className="btn--block btn--big"
-            onClick={() => onAct("return")}
-            busy={busy === "return"}
-            busyLabel="Checking in…"
-          >
-            Check it in
-          </Button>
+          <div className="action-dock">
+            <Button
+              className="btn--block btn--big"
+              onClick={() => onAct("return")}
+              busy={busy === "return"}
+              busyLabel="Checking in…"
+            >
+              Check it in
+            </Button>
+          </div>
         </div>
       );
     }

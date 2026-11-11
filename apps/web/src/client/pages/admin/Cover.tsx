@@ -12,7 +12,7 @@ export function Cover({
 }: {
   url: string | null;
   title: string;
-  size?: "sm" | "md";
+  size?: "sm" | "md" | "lg";
 }) {
   // Remember a failed image per URL, so a new cover gets its own chance to load.
   const [failedUrl, setFailedUrl] = useState<string | null>(null);

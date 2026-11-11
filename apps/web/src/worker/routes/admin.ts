@@ -173,21 +173,30 @@ export const adminRoutes = new Hono<AppEnv>()
     const filter = c.req.query("filter") ?? "all";
     const now = today(actor);
     const loans = (await openLoans(c, actor)).map((l) => loanView(actor, l, now));
-    const filtered =
-      filter === "overdue"
-        ? loans.filter((l) => l.overdueDays > 0 && !l.recentlyHandedBack)
-        : filter === "follow-up"
-          ? loans.filter((l) => (l.needsStaff || l.handedBack) && !l.recentlyHandedBack)
-          : filter === "found"
-            ? loans.filter((l) => l.reportedFound)
-            : filter === "check-in"
-              ? loans.filter((l) => l.handedBack)
-              : loans;
+    const weekEnd = new Date(`${now}T00:00:00Z`);
+    weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
+    const dueBy = weekEnd.toISOString().slice(0, 10);
+    // One rule per filter, so the list and the counts on the filter buttons agree.
+    const rules: Record<string, (l: (typeof loans)[number]) => boolean> = {
+      all: () => true,
+      overdue: (l) => l.overdueDays > 0 && !l.recentlyHandedBack,
+      "due-soon": (l) => l.overdueDays === 0 && l.dueOn <= dueBy && !l.handedBack,
+      "follow-up": (l) => (l.needsStaff || l.handedBack) && !l.recentlyHandedBack,
+      found: (l) => l.reportedFound,
+      "check-in": (l) => l.handedBack,
+    };
+    const rule = rules[filter] ?? rules.all ?? (() => true);
+    const filtered = loans.filter(rule);
+    const counts = Object.fromEntries(
+      Object.entries(rules).map(([name, test]) => [name, loans.filter(test).length]),
+    );
     // Waiting longest first for check-in; most overdue first for late books.
     if (filter === "check-in") {
       filtered.sort((a, b) => (b.handedBackDaysAgo ?? 0) - (a.handedBackDaysAgo ?? 0));
+    } else if (filter === "due-soon") {
+      filtered.sort((a, b) => a.dueOn.localeCompare(b.dueOn));
     } else if (filter !== "all") filtered.sort((a, b) => b.overdueDays - a.overdueDays);
-    return c.json({ loans: filtered });
+    return c.json({ loans: filtered, counts });
   })
 
   /** Close a loan as returned, lost or damaged (the copy's status follows). */
