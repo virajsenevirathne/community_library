@@ -4,6 +4,7 @@ import {
   type MetadataProvider,
   OpenLibraryProvider,
 } from "@community-library/adapters";
+import { isEmail } from "@community-library/core";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { isPlatformOwner } from "./access.ts";
@@ -11,9 +12,9 @@ import { type Auth, createAuth } from "./auth.ts";
 import { authSecret, secrets } from "./config.ts";
 import { type AppEnv, fail } from "./context.ts";
 import { createDb } from "./db/client.ts";
-import { configuredSenders, emailStatus } from "./email.ts";
+import { configuredSenders } from "./email.ts";
 import { LIBRARY_HEADER, libraryForRequest } from "./library.ts";
-import { consume } from "./limiter.ts";
+import { clientIp, consume } from "./limiter.ts";
 import { QuotaMailer } from "./mailer.ts";
 import { accountRoutes } from "./routes/account.ts";
 import { adminRoutes, nudgeRoutes } from "./routes/admin.ts";
@@ -56,6 +57,20 @@ export function createApp(options: AppOptions = {}) {
 
   // Health check: confirms the Worker runs and D1 answers a query. Runs before
   // the session middleware so it works even when the database does not.
+  // Every API answer: never cached (some carry personal details), never
+  // framed, and the same security headers the pages get (public/_headers).
+  app.use(async (c, next) => {
+    await next();
+    const h = c.res.headers;
+    if (!h.has("Cache-Control")) h.set("Cache-Control", "no-store");
+    h.set("X-Content-Type-Options", "nosniff");
+    h.set("X-Frame-Options", "DENY");
+    h.set("Referrer-Policy", "strict-origin-when-cross-origin");
+    h.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    h.set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+  });
+
+  /** Public liveness check: says only whether the site and its database answer. */
   app.get("/health", async (c) => {
     let database: "ok" | "error" = "ok";
     try {
@@ -64,10 +79,7 @@ export function createApp(options: AppOptions = {}) {
       database = "error";
     }
     const ok = database === "ok";
-    return c.json(
-      { ok, library: c.env.LIBRARY_NAME, database, email: emailStatus(c.env) },
-      ok ? 200 : 503,
-    );
+    return c.json({ ok, database }, ok ? 200 : 503);
   });
 
   // Per-request services: database, email, auth, and the signed-in user.
@@ -138,11 +150,13 @@ export function createApp(options: AppOptions = {}) {
         .clone()
         .json()
         .catch(() => null)) as { email?: unknown } | null;
-      if (typeof body?.email === "string") {
+      // Per address and network: a stranger can't lock someone out by failing
+      // on purpose, and nonsense addresses don't fill the limits table.
+      if (typeof body?.email === "string" && isEmail(body.email)) {
         const limit = await consume(
           c.env.DB,
           authSecret(c.env),
-          `otp-verify:${body.email.trim().toLowerCase()}`,
+          `otp-verify:${body.email.trim().toLowerCase()}:${clientIp(c.req.raw.headers)}`,
           { window: 900, max: 10 },
         );
         if (!limit.allowed) {

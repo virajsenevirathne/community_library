@@ -177,18 +177,19 @@ describe("hardening", () => {
     expect(codes.filter(Boolean)).toHaveLength(2);
   });
 
-  it("limits code guesses per address, even from many networks", async () => {
+  it("limits code guesses per address and network, so strangers can't lock someone out", async () => {
     await setUpLibrary();
     const admin = new TestClient(ctx, "admin@example.com");
-    const statuses = [];
-    for (let i = 0; i < 12; i++) {
-      const res = await admin.request("/api/auth/sign-in/email-otp", {
+    const guess = (ip: string) =>
+      admin.request("/api/auth/sign-in/email-otp", {
         body: { email: admin.email, otp: "000000" },
-        headers: { "cf-connecting-ip": `203.0.113.${i}` },
+        headers: { "cf-connecting-ip": ip },
       });
-      statuses.push(res.status);
-    }
-    expect(statuses.slice(-1)).toEqual([429]);
+    const fromOne = [];
+    for (let i = 0; i < 12; i++) fromOne.push((await guess("203.0.113.9")).status);
+    expect(fromOne.slice(-1)).toEqual([429]);
+    // Someone else's network is unaffected by those failures.
+    expect((await guess("198.51.100.7")).status).not.toBe(429);
   });
 
   it("lets someone with the sign-up link get a code", async () => {
@@ -236,8 +237,16 @@ describe("a real deployment", () => {
     expect(configuredSenders(env, "L", "localhost").map((s) => s.name)).toEqual(["console"]);
   });
 
-  it("reports missing email setup in the health check", async () => {
+  it("keeps email setup out of the public health check", async () => {
     const res = await ctx.app.request("/api/health", {}, env);
-    expect(await res.json()).toMatchObject({ email: "no_provider" });
+    expect(await res.json()).toEqual({ ok: true, database: "ok" });
+  });
+
+  it("sends security headers, and never lets API answers be cached", async () => {
+    const res = await ctx.app.request("/api/me", {}, env);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(res.headers.get("X-Frame-Options")).toBe("DENY");
+    expect(res.headers.get("Strict-Transport-Security")).toContain("max-age=");
+    expect(res.headers.get("Content-Security-Policy")).toContain("frame-ancestors 'none'");
   });
 });

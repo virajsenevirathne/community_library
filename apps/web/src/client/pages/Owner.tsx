@@ -27,12 +27,15 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 /** The site owner's page: every library, and a form to start a new one. */
 export function OwnerPage() {
   const [libraries, setLibraries] = useState<OwnedLibrary[] | null>(null);
+  const [emailState, setEmailState] = useState<string>("ok");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState<Notice>(null);
 
   const load = useCallback(async () => {
     try {
-      setLibraries((await api<{ libraries: OwnedLibrary[] }>("/owner/libraries")).libraries);
+      const res = await api<{ libraries: OwnedLibrary[]; email?: string }>("/owner/libraries");
+      setLibraries(res.libraries);
+      setEmailState(res.email ?? "ok");
       setError("");
     } catch (e) {
       setError(errorMessage(e));
@@ -59,6 +62,13 @@ export function OwnerPage() {
         Create a library for each group and invite its admin. They set it up and run it from there.
       </p>
       <Alert>{error}</Alert>
+      {emailState !== "ok" && (
+        <Alert kind="warning">
+          {emailState === "no_provider"
+            ? "This site can't send email yet, so nobody can get a sign-in code or an invite. Set the RESEND_API_KEY secret (see the README)."
+            : "Emails are sent from a placeholder address. Set EMAIL_FROM to an address on your own domain."}
+        </Alert>
+      )}
       <div ref={noticeRef} tabIndex={-1}>
         {notice && <Alert kind={notice.kind}>{notice.text}</Alert>}
       </div>

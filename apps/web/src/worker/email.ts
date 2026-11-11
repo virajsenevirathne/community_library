@@ -26,7 +26,8 @@ class NotConfiguredSender implements EmailSender {
  */
 export function configuredSenders(env: Env, fromName: string, hostname: string): EmailSender[] {
   const s = secrets(env);
-  const from = { email: env.EMAIL_FROM, name: cleanHeader(fromName) };
+  // Quotes and angle brackets in a library's name could fake sender text.
+  const from = { email: env.EMAIL_FROM, name: cleanHeader(fromName).replace(/[<>"]/g, "") };
   const senders: EmailSender[] = [];
   if (s.RESEND_API_KEY) senders.push(new ResendSender(s.RESEND_API_KEY, from));
   if (s.MAILJET_API_KEY && s.MAILJET_API_SECRET) {

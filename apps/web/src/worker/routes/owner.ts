@@ -10,10 +10,11 @@ import { z } from "zod";
 import { requireOwner } from "../access.ts";
 import { type AppContext, type AppEnv, fail, readBody } from "../context.ts";
 import { newId } from "../db/client.ts";
+import { emailStatus } from "../email.ts";
 import { libraryById } from "../library.ts";
 import type { QuotaMailer } from "../mailer.ts";
 import { name } from "./account.ts";
-import { emailField, event, sendInvite } from "./families.ts";
+import { assertInviteBudget, emailField, event, sendInvite } from "./families.ts";
 
 /*
  * The owner area: the person who runs the site creates libraries, invites
@@ -57,6 +58,7 @@ async function freeSlug(c: AppContext, wanted: string | undefined, libraryName: 
 async function inviteAdmin(c: AppContext, libraryId: string, email: string, ownerId: string) {
   const library = await libraryById(c.get("db"), libraryId);
   if (!library) fail(404, "not_found", "That library was not found.");
+  await assertInviteBudget(c, library.id, ownerId);
   const DB = c.env.DB;
   const id = newId();
   await DB.batch([
@@ -106,6 +108,8 @@ export const ownerRoutes = new Hono<AppEnv>()
     }>();
     return c.json({
       libraries: results.map((l) => ({ ...l, setUp: l.setUp === 1 })),
+      // Shown to the owner only: whether the site can send email at all.
+      email: emailStatus(c.env),
     });
   })
 

@@ -271,7 +271,8 @@ function removeFamilyStatements(DB: D1Database, libraryId: string, familyId: str
       `delete from users where id in (
          select m.user_id from memberships m
          where m.library_id = ? and m.family_id = ? and m.role = 'member'
-           and (select count(*) from memberships m2 where m2.user_id = m.user_id) = 1)`,
+           and (select count(*) from memberships m2 where m2.user_id = m.user_id) = 1
+           and m.user_id not in (select user_id from platform_admins))`,
     ).bind(libraryId, familyId),
     DB.prepare(
       "delete from memberships where library_id = ? and family_id = ? and role = 'member'",
@@ -481,11 +482,11 @@ export const familyRoutes = new Hono<AppEnv>()
           expiresAt: number;
         }>(),
       DB.prepare(
-        `select u.email as email, m.role as role from memberships m join users u on u.id = m.user_id
+        `select u.id as userId, u.email as email, m.role as role from memberships m join users u on u.id = m.user_id
          where m.library_id = ? and m.role in ('staff', 'admin') order by m.role, u.email`,
       )
         .bind(lib)
-        .all<{ email: string; role: string }>(),
+        .all<{ userId: string; email: string; role: string }>(),
     ]);
     const now = Date.now();
     const inviteView = (i: (typeof invites.results)[number]) => ({
@@ -534,10 +535,16 @@ export const familyRoutes = new Hono<AppEnv>()
         id,
         actor.library.id,
       ),
-      event(DB, actor.library.id, actor.userId, "family_status_changed", {
-        familyId: id,
-        status: body.status,
-      }),
+      // Logged only when the family exists here (changes() is the update's).
+      DB.prepare(
+        `insert into events (id, library_id, actor_user_id, type, payload)
+         select ?, ?, ?, 'family_status_changed', ? where changes() = 1`,
+      ).bind(
+        newId(),
+        actor.library.id,
+        actor.userId,
+        JSON.stringify({ familyId: id, status: body.status }),
+      ),
     ]);
     if (result?.meta.changes !== 1) fail(404, "not_found", "That family was not found.");
     // Let a family that was waiting know they can borrow now.
@@ -576,6 +583,7 @@ export const familyRoutes = new Hono<AppEnv>()
       .first<{ id: string; name: string }>();
     if (!family) fail(404, "not_found", "That family was not found.");
     await assertNotMember(c, actor, body.email);
+    await assertInviteBudget(c, actor.library.id, actor.userId);
     const id = newId();
     await DB.batch([
       DB.prepare(
@@ -595,6 +603,64 @@ export const familyRoutes = new Hono<AppEnv>()
     return c.json({ sent }, 201);
   })
 
+  /**
+   * Change a staff member's role, or take them off the staff (admins only).
+   * Someone who also borrows for a family stays a member of it. A library
+   * always keeps at least one admin. Access changes on their next request.
+   */
+  .post("/admin/staff/:userId/role", async (c) => {
+    const actor = await requirePermission(c, "library:admin");
+    const body = await readBody(
+      c,
+      z.object({
+        role: z.enum(["admin", "staff", "none"], { error: "Choose admin, staff or none." }),
+      }),
+    );
+    const DB = c.env.DB;
+    const userId = c.req.param("userId");
+    const target = await DB.prepare(
+      "select role, family_id as familyId from memberships where library_id = ? and user_id = ?",
+    )
+      .bind(actor.library.id, userId)
+      .first<{ role: string; familyId: string | null }>();
+    if (!target || target.role === "member") {
+      fail(404, "not_found", "That person isn't on this library's staff.");
+    }
+    const newRole = body.role === "none" ? "member" : body.role;
+    const statements: D1PreparedStatement[] =
+      newRole === "member" && !target.familyId
+        ? // Not borrowing for a family either: they leave the library.
+          [
+            DB.prepare(
+              `delete from memberships where library_id = ?1 and user_id = ?2
+                 and (role != 'admin'
+                      or (select count(*) from memberships where library_id = ?1 and role = 'admin') > 1)`,
+            ).bind(actor.library.id, userId),
+          ]
+        : [
+            DB.prepare(
+              `update memberships set role = ?3 where library_id = ?1 and user_id = ?2
+                 and (role != 'admin' or ?3 = 'admin'
+                      or (select count(*) from memberships where library_id = ?1 and role = 'admin') > 1)`,
+            ).bind(actor.library.id, userId, newRole),
+          ];
+    statements.push(
+      DB.prepare(
+        `insert into events (id, library_id, actor_user_id, type, payload)
+         select ?, ?, ?, 'staff_role_changed', ? where changes() = 1`,
+      ).bind(newId(), actor.library.id, actor.userId, JSON.stringify({ role: body.role })),
+    );
+    const [changed] = await DB.batch(statements);
+    if (changed?.meta.changes !== 1) {
+      fail(
+        409,
+        "last_admin",
+        "The library needs at least one admin. Make someone else admin first.",
+      );
+    }
+    return c.json({ ok: true });
+  })
+
   /** Invite someone to help run the library (admins only). */
   .post("/admin/staff/invite", async (c) => {
     const actor = await requirePermission(c, "library:admin");
@@ -608,6 +674,7 @@ export const familyRoutes = new Hono<AppEnv>()
     if (!canGrantRole(actor, body.role))
       fail(403, "forbidden", "Only the library admin can do that.");
     await assertNotMember(c, actor, body.email);
+    await assertInviteBudget(c, actor.library.id, actor.userId);
     const DB = c.env.DB;
     const id = newId();
     await DB.batch([
@@ -643,6 +710,7 @@ export const familyRoutes = new Hono<AppEnv>()
     if (!invite) fail(404, "not_found", "That invitation was not found, or has been accepted.");
     if (!canGrantRole(actor, invite.role))
       fail(403, "forbidden", "Only the library admin can do that.");
+    await assertInviteBudget(c, actor.library.id, actor.userId);
     const sent = await sendInvite(
       { env: c.env, email: c.get("email") as QuotaMailer, origin: c.get("origin") },
       invite,
@@ -946,7 +1014,10 @@ export const familyRoutes = new Hono<AppEnv>()
     const statements: D1PreparedStatement[] = [
       DB.prepare("delete from verifications where identifier = ?").bind(identifier),
       // Pending sign-in codes and invitations for this address go too.
-      DB.prepare("delete from verifications where identifier like ?").bind(`%${email}`),
+      // Codes for exactly this address: escaped, and anchored on the "-" before it.
+      DB.prepare("delete from verifications where identifier like ? escape '\\'").bind(
+        `%-${email.replace(/[\\%_]/g, (ch) => `\\${ch}`)}`,
+      ),
       DB.prepare("delete from invitations where lower(email) = ?").bind(email),
     ];
     // In each library where they were their family's last parent, the family goes too.
@@ -995,6 +1066,35 @@ async function assertNotMember(c: AppContext, actor: Actor, email: string) {
     .bind(actor.library.id, email)
     .first();
   if (member) fail(409, "already_member", `${email} is already a member of this library.`);
+  // One open invite per address: use "Resend" rather than stacking new ones.
+  const open = await c.env.DB.prepare(
+    "select 1 from invitations where library_id = ? and lower(email) = ? and accepted_at is null and (sent_at is null or expires_at > ?)",
+  )
+    .bind(actor.library.id, email, Date.now())
+    .first();
+  if (open) {
+    fail(
+      409,
+      "already_invited",
+      `${email} already has an invitation. Use Resend to send it again.`,
+    );
+  }
+}
+
+/**
+ * Invites go out from the site's shared email allowance, so each library and
+ * each person can send only so many: enough for real use, not for spam.
+ */
+export async function assertInviteBudget(c: AppContext, libraryId: string, userId: string) {
+  const secret = authSecret(c.env);
+  for (const [key, rule] of [
+    [`invites-library:${libraryId}`, { window: 86_400, max: 60 }],
+    [`invites-user:${userId}`, { window: 3600, max: 20 }],
+  ] as const) {
+    if (!(await consume(c.env.DB, secret, key, rule)).allowed) {
+      fail(429, "too_many_invites", "That's a lot of invitations for now. Please try again later.");
+    }
+  }
 }
 
 /** Reads a CSV and marks rows that are already members or already invited. */
