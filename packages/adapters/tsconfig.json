@@ -1,4 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Adapters run in Workers, which provide fetch, btoa and crypto like a browser.
+    "lib": ["ES2023", "DOM"]
+  },
   "include": ["src"]
 }

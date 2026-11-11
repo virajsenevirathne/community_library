@@ -31,6 +31,13 @@
   },
 
   "vars": {
-    "LIBRARY_NAME": "Community Library"
+    // Shown before the library is set up, and used as the passkey name.
+    "LIBRARY_NAME": "Community Library",
+    // Sender for all email. Must be on a domain verified with Resend and Mailjet.
+    "EMAIL_FROM": "library@example.com",
+    // The site's public address, such as https://library.example.org. Set it in
+    // production: passkeys only work on the address they were saved on. Empty
+    // means "whatever address the request used", which suits local development.
+    "APP_URL": ""
   }
 }

@@ -122,6 +122,14 @@ export const passkeys = sqliteTable(
   ],
 );
 
+/** Sign-in rate limits, kept in D1 so they hold across Worker instances. */
+export const rateLimits = sqliteTable("rate_limits", {
+  id: text("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  count: integer("count").notNull(),
+  lastRequest: integer("last_request").notNull(),
+});
+
 // ---------------------------------------------------------------- library
 
 const LOCAL_DATE_GLOB = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]";

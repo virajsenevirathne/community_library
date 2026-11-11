@@ -60,6 +60,7 @@ describe("migrations", () => {
       "memberships",
       "notifications",
       "passkeys",
+      "rate_limits",
       "sessions",
       "titles",
       "users",
