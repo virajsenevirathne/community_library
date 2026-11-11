@@ -165,7 +165,7 @@ function EmailStep(props: {
       )}
       {setupNeeded ? (
         <Alert kind="info">
-          This library is not set up yet. Sign in with your email, then you can set it up.
+          This site is not set up yet. If you run it, sign in with your email to set it up.
         </Alert>
       ) : (
         <p className="lead">Sign in to borrow and return books.</p>
