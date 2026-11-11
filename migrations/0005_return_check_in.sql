@@ -1,0 +1,1 @@
+ALTER TABLE `loans` ADD `return_requested_at` integer;

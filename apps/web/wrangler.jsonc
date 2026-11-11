@@ -5,6 +5,15 @@
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  // One public address only: passkeys work only on the address they were saved
+  // on, so the free *.workers.dev address is off once a domain is attached.
+  // Per-version preview URLs stay off: they would all share the live database.
+  "workers_dev": false,
+  "preview_urls": false,
+
+  // The library's public address. Cloudflare creates the DNS record and
+  // certificate. Anyone reusing this project puts their own domain here.
+  "routes": [{ "pattern": "readingjoey.com", "custom_domain": true }],
 
   // The React app is served as static assets. Only /api/* runs the Worker first;
   // every other path falls back to index.html so client-side routes work.
@@ -17,20 +26,27 @@
     {
       "binding": "DB",
       "database_name": "community-library",
-      // Replace with the id printed by `npx wrangler d1 create community-library`.
-      // Local development does not need a real id.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      // From `npx wrangler d1 create community-library`. Anyone reusing this
+      // project creates their own database and puts its id here.
+      "database_id": "deba61e5-3d47-43d9-bb2f-e6b9a9a790f0",
       "migrations_dir": "../../migrations"
     }
   ],
 
-  // Daily reminder job. Cron runs in UTC: 20:00 UTC is 07:00 in Sydney during
-  // daylight saving. Per-library local times are handled in VIR-23.
+  // Hourly job: each library's reminders go out once a day at its own local
+  // reminder hour (Settings), plus the Monday staff digest and privacy tidy-up.
   "triggers": {
-    "crons": ["0 20 * * *"]
+    "crons": ["0 * * * *"]
   },
 
   "vars": {
-    "LIBRARY_NAME": "Community Library"
+    // Shown before the library is set up, and used as the passkey name.
+    "LIBRARY_NAME": "Community Library",
+    // Sender for all email. Must be on a domain verified with Resend and Mailjet.
+    "EMAIL_FROM": "library@readingjoey.com",
+    // The site's public address, such as https://library.example.org. Set it in
+    // production: passkeys only work on the address they were saved on. Empty
+    // means "whatever address the request used", which suits local development.
+    "APP_URL": "https://readingjoey.com"
   }
 }
