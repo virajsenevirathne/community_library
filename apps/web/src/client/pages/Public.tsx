@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Layout } from "../components.tsx";
 import { BookStack } from "../icons.tsx";
 import { Link } from "../lib/router.tsx";
 import { useSession } from "../lib/session.tsx";
+import { SignInFlow, type SignInStep, signInTitle } from "./SignIn.tsx";
 
 const KINDS = [
   "Daycares",
@@ -17,31 +19,34 @@ export function FrontPage() {
   const { state } = useSession();
   const me = state.status === "ready" ? state.me : null;
   const signedIn = Boolean(me?.user);
+  const [step, setStep] = useState<SignInStep>("email");
   const contact = me?.contactEmail;
 
   return (
     <Layout title="Borrow a book. Scan. Read together." siteWide>
-      <div className="hero">
+      <div className={`hero${signedIn ? "" : " hero--signin"}`}>
         <BookStack className="hero__art" />
         <p className="hero__lead">
           Reading Joey is a free home for little lending libraries. Scan the sticker inside a book's
           cover to borrow it, and scan again to bring it back.
         </p>
-        <div className="row hero__actions">
-          {signedIn ? (
+        {signedIn ? (
+          <div className="row hero__actions">
             <Link href="/" absolute className="btn btn--primary hero__cta">
               Open my library
             </Link>
-          ) : (
-            <Link href="/signin" className="btn btn--primary hero__cta">
-              Sign in with your email
-            </Link>
-          )}
-          <a href="#for-libraries" className="hero__link">
-            Run a library?
-          </a>
-        </div>
-        {!signedIn && <p className="hero__note">No password: we email you a code.</p>}
+            <a href="#for-libraries" className="hero__link">
+              Run a library?
+            </a>
+          </div>
+        ) : (
+          <section className="card signin-card" aria-labelledby="signin-heading">
+            <h2 id="signin-heading" className="section-title">
+              {signInTitle(step)}
+            </h2>
+            <SignInFlow onStep={setStep} />
+          </section>
+        )}
       </div>
 
       <ul className="chips" aria-label="Who it's for">
