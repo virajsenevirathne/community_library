@@ -21,13 +21,15 @@
     "@community-library/adapters": "*",
     "@community-library/core": "*",
     "@simplewebauthn/browser": "^13.3.0",
+    "barcode-detector": "^3.2.3",
     "better-auth": "^1.7.20",
     "drizzle-orm": "^0.45.4",
     "hono": "^4.13.17",
     "qrcode": "^1.5.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "zxing-wasm": "^3.1.6"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.67.0",

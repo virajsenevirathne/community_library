@@ -1,4 +1,4 @@
-import type { EmailSender } from "@community-library/adapters";
+import type { EmailSender, MetadataProvider } from "@community-library/adapters";
 import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { z } from "zod";
@@ -20,6 +20,10 @@ export type AppEnv = {
     auth: () => Auth;
     email: EmailSender;
     user: SessionUser | null;
+    /** The site's public address, such as https://library.example.org. Used in QR links. */
+    origin: string;
+    /** Book lookup services, in the order to ask them. */
+    metadata: MetadataProvider[];
     /** The library this deployment serves, loaded once per request. Null before setup. */
     library: LibraryInfo | null;
   };

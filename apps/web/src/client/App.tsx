@@ -1,8 +1,13 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { Alert, Button, Layout, LoadingPage } from "./components.tsx";
 import { Link, navigate, useLocation } from "./lib/router.tsx";
-import { type Me, SessionProvider, useSession } from "./lib/session.tsx";
+import { isStaff, type Me, SessionProvider, useSession } from "./lib/session.tsx";
 import { AccountPage } from "./pages/Account.tsx";
+import { AddBooksPage } from "./pages/admin/AddBooks.tsx";
+import { AdminHomePage } from "./pages/admin/AdminHome.tsx";
+import { CatalogPage } from "./pages/admin/Catalog.tsx";
+import { LabelsPage } from "./pages/admin/Labels.tsx";
+import { TitleDetailPage } from "./pages/admin/TitleDetail.tsx";
 import { HomePage } from "./pages/Home.tsx";
 import { SetupPage } from "./pages/Setup.tsx";
 import { SignInPage } from "./pages/SignIn.tsx";
@@ -51,6 +56,13 @@ function Routes() {
     return guard(<SetupPage />);
   }
   if (path === "/account") return guard(<AccountPage />);
+  if (path === "/admin") return guard(<AdminHomePage />, isStaff);
+  if (path === "/admin/add") return guard(<AddBooksPage />, isStaff);
+  if (path === "/admin/catalog") return guard(<CatalogPage />, isStaff);
+  if (path === "/admin/labels") return guard(<LabelsPage />, isStaff);
+  const titleMatch = path.match(/^\/admin\/catalog\/([\w-]+)$/);
+  if (titleMatch?.[1])
+    return guard(<TitleDetailPage key={titleMatch[1]} id={titleMatch[1]} />, isStaff);
   if (path === "/") return guard(<HomePage />);
   return <NotFound />;
 }

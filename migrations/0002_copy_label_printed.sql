@@ -1,0 +1,1 @@
+ALTER TABLE `copies` ADD `label_printed_at` integer;

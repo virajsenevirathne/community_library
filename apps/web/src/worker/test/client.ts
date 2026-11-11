@@ -1,4 +1,8 @@
-import { MemorySender } from "@community-library/adapters";
+import {
+  type BookMetadata,
+  MemorySender,
+  type MetadataProvider,
+} from "@community-library/adapters";
 import { createApp } from "../app.ts";
 import { JOIN_TOKEN_HEADER } from "../auth.ts";
 
@@ -8,7 +12,28 @@ export const ORIGIN = "http://localhost:5173";
 export function createTestApp(env: Env) {
   const outbox = new MemorySender();
   const pending: Promise<unknown>[] = [];
-  const app = createApp({ email: () => outbox, waitUntil: (p) => pending.push(p) });
+  const books = new Map<string, BookMetadata>([
+    [
+      "9780140328721",
+      {
+        isbn: "9780140328721",
+        title: "Fantastic Mr Fox",
+        authors: ["Roald Dahl"],
+        coverUrl: "https://covers.openlibrary.org/b/isbn/9780140328721-M.jpg",
+        source: "fake",
+      },
+    ],
+  ]);
+  // A fake book lookup, so tests never call the internet.
+  const metadata: MetadataProvider = {
+    name: "fake",
+    lookup: async (isbn) => books.get(isbn) ?? null,
+  };
+  const app = createApp({
+    email: () => outbox,
+    metadata: [metadata],
+    waitUntil: (p) => pending.push(p),
+  });
   /** Waits for background work (such as sending email) started by earlier requests. */
   const settle = async () => {
     while (pending.length > 0) await Promise.all(pending.splice(0));

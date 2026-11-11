@@ -362,3 +362,267 @@ h2 {
   padding: 0.75rem 0;
   border-bottom: 1px solid var(--border);
 }
+
+/* Admin tiles */
+.tiles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(14rem, 100%), 1fr));
+}
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-height: 5rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+.tile:hover {
+  border-color: var(--accent);
+}
+.tile span {
+  color: var(--muted);
+}
+
+/* Books */
+.cover {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.cover--sm {
+  width: 3rem;
+  height: 4.25rem;
+}
+.cover--md {
+  width: 6rem;
+  height: 8.5rem;
+}
+.cover--placeholder {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 1.5rem;
+}
+.book-preview {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  margin: 0 0 1rem;
+}
+.book-preview p {
+  margin: 0 0 0.25rem;
+}
+.book-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.book-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  text-decoration: none;
+  min-height: var(--tap);
+}
+.book-row:hover strong {
+  color: var(--accent);
+}
+.book-row__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  letter-spacing: 0.08em;
+}
+.badge {
+  display: inline-block;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  background: var(--surface-2);
+  color: var(--text);
+}
+.badge--available {
+  background: var(--success-soft);
+}
+.badge--on_loan,
+.badge--found {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+.badge--lost,
+.badge--damaged {
+  background: var(--danger-soft);
+}
+.inline-select select {
+  min-height: var(--tap);
+  padding: 0 0.5rem;
+  border: 2px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+/* Barcode scanner */
+.scanner__frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: #000;
+  aspect-ratio: 4 / 3;
+}
+.scanner__frame video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.scanner__frame--paused video {
+  opacity: 0.5;
+}
+.scanner__guide {
+  position: absolute;
+  inset: 30% 10%;
+  border: 3px solid rgb(255 255 255 / 0.85);
+  border-radius: 8px;
+  box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.35);
+}
+.scanner__status {
+  position: absolute;
+  inset: auto 0 0;
+  margin: 0;
+  padding: 0.5rem;
+  color: #fff;
+  text-align: center;
+}
+
+/* QR label sheets: positioned in millimetres to match the sticker paper */
+.label-sheets {
+  overflow: hidden;
+}
+@media screen {
+  /* Shrinks the full-size sheet to fit the screen; printing ignores this. */
+  .label-sheets .label-sheet {
+    zoom: var(--preview-zoom, 1);
+  }
+}
+.label-sheet {
+  position: relative;
+  width: var(--page-w);
+  height: var(--page-h);
+  margin: 0 auto 1rem;
+  background: #fff;
+  color: #000;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
+}
+.label {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 2mm;
+  padding: 2mm 3mm;
+  overflow: hidden;
+  outline: 1px dashed #ccc;
+}
+.label--skipped {
+  background: repeating-linear-gradient(45deg, #f2f2f2 0 4px, #fff 4px 8px);
+}
+.label__qr {
+  flex: none;
+  height: 100%;
+  aspect-ratio: 1;
+}
+.label__qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.label__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+.label__code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 5mm;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.label__title {
+  font-size: 3mm;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.label__library {
+  font-size: 2.6mm;
+  color: #000;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media print {
+  body {
+    background: #fff;
+  }
+  .site-header,
+  .skip-link,
+  .back,
+  .page > h1,
+  .no-print {
+    display: none;
+  }
+  .page {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+  }
+  .label-sheets {
+    overflow: visible;
+  }
+  .label-sheet {
+    margin: 0;
+    box-shadow: none;
+    break-after: page;
+  }
+  .label-sheet:last-child {
+    break-after: auto;
+  }
+  .label {
+    outline: none;
+  }
+  .label--skipped {
+    background: none;
+  }
+}
+.card > :first-child {
+  margin-top: 0;
+}
+.card > :last-child {
+  margin-bottom: 0;
+}
+.copy-row__hint {
+  display: block;
+  font-size: 0.875rem;
+}

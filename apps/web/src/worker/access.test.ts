@@ -169,6 +169,42 @@ export const ROUTES: {
   { route: "GET /api/auth/*", rule: "public", request: "/api/auth/get-session" },
   { route: "POST /api/auth/*", rule: "public", request: "/api/auth/sign-out", body: {} },
   { route: "POST /api/setup", rule: "user", body: { libraryName: "X", timezone: "UTC" } },
+  {
+    route: "GET /api/catalog/lookup/:isbn",
+    rule: "catalog:edit",
+    request: "/api/catalog/lookup/9780140328721",
+  },
+  { route: "GET /api/catalog/titles", rule: "catalog:edit" },
+  { route: "POST /api/catalog/titles", rule: "catalog:edit", body: { title: "A book" } },
+  {
+    route: "GET /api/catalog/titles/:id",
+    rule: "catalog:edit",
+    request: "/api/catalog/titles/missing",
+  },
+  {
+    route: "PATCH /api/catalog/titles/:id",
+    rule: "catalog:edit",
+    request: "/api/catalog/titles/missing",
+    body: {},
+  },
+  {
+    route: "POST /api/catalog/titles/:id/copies",
+    rule: "catalog:edit",
+    request: "/api/catalog/titles/missing/copies",
+    body: { count: 1 },
+  },
+  {
+    route: "PATCH /api/catalog/copies/:id",
+    rule: "catalog:edit",
+    request: "/api/catalog/copies/missing",
+    body: {},
+  },
+  { route: "GET /api/catalog/labels", rule: "catalog:edit" },
+  {
+    route: "POST /api/catalog/labels/printed",
+    rule: "catalog:edit",
+    body: { copyIds: ["missing"] },
+  },
 ];
 
 type Who = "signedOut" | "nonMember" | "pendingMember" | "member" | "staff" | "admin";

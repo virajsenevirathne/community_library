@@ -15,6 +15,13 @@
       "when": 1794375178660,
       "tag": "0001_sign_in_rate_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794376318320,
+      "tag": "0002_copy_label_printed",
+      "breakpoints": true
     }
   ]
 }

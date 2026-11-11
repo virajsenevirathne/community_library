@@ -254,6 +254,8 @@ export const copies = sqliteTable(
     shelf: text("shelf"),
     /** Staff note about this copy, such as "torn cover". */
     note: text("note"),
+    /** When its QR label was last printed. Null means "needs a label". */
+    labelPrintedAt: integer("label_printed_at", { mode: "timestamp_ms" }),
     /** Someone tapped "Found it" on a copy that was on loan. Staff confirm it. */
     foundAt: integer("found_at", { mode: "timestamp_ms" }),
     foundBy: text("found_by").references(() => users.id, { onDelete: "set null" }),

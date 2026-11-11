@@ -1,4 +1,9 @@
-import type { EmailSender } from "@community-library/adapters";
+import {
+  type EmailSender,
+  GoogleBooksProvider,
+  type MetadataProvider,
+  OpenLibraryProvider,
+} from "@community-library/adapters";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { type Auth, createAuth } from "./auth.ts";
@@ -9,12 +14,15 @@ import { configuredSenders, emailStatus, FallbackSender } from "./email.ts";
 import { currentLibrary } from "./library.ts";
 import { consume } from "./limiter.ts";
 import { accountRoutes } from "./routes/account.ts";
+import { catalogRoutes } from "./routes/catalog.ts";
 
 export type { AppEnv } from "./context.ts";
 
 export interface AppOptions {
   /** Replaces the configured email providers, for tests. */
   email?: (env: Env) => EmailSender;
+  /** Replaces the book lookup services, for tests. */
+  metadata?: MetadataProvider[];
   /** Replaces ExecutionContext.waitUntil, so tests can wait for background work. */
   waitUntil?: (promise: Promise<unknown>) => void;
 }
@@ -66,10 +74,12 @@ export function createApp(options: AppOptions = {}) {
     // APP_URL pins the site's address (passkeys are tied to it). Without it, the
     // address the request came in on is used, which suits local development.
     const origin = c.env.APP_URL ? new URL(c.env.APP_URL).origin : new URL(c.req.url).origin;
+    c.set("origin", origin);
     const email =
       options.email?.(c.env) ??
       new FallbackSender(configuredSenders(c.env, libraryName, new URL(origin).hostname));
     c.set("email", email);
+    c.set("metadata", options.metadata ?? [new OpenLibraryProvider(), new GoogleBooksProvider()]);
 
     let auth: Auth | undefined;
     const getAuth = () => {
@@ -134,6 +144,7 @@ export function createApp(options: AppOptions = {}) {
     return c.get("auth")().handler(c.req.raw);
   });
   app.route("/", accountRoutes);
+  app.route("/catalog", catalogRoutes);
 
   app.notFound((c) => c.json({ error: "not_found", message: "Not found." }, 404));
   app.onError((err, c) => {
