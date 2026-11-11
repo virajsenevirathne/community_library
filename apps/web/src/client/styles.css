@@ -924,3 +924,7 @@ fieldset.field {
   justify-content: space-between;
   gap: 0.25rem 1rem;
 }
+.badge--info {
+  background: var(--accent-soft);
+  color: var(--text);
+}

@@ -300,6 +300,11 @@ export const loans = sqliteTable(
     returnedAt: integer("returned_at", { mode: "timestamp_ms" }),
     returnedBy: text("returned_by").references(() => users.id, { onDelete: "set null" }),
     outcome: text("outcome", { enum: LOAN_OUTCOMES }),
+    /**
+     * When the library has staff check returns in: the family tapped Return and
+     * handed the book back, and the loan closes when staff check it in.
+     */
+    returnRequestedAt: integer("return_requested_at", { mode: "timestamp_ms" }),
     extendedCount: integer("extended_count").notNull().default(0),
   },
   (t) => [

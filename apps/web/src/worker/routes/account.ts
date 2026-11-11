@@ -28,6 +28,8 @@ const setupBody = z.object({
   libraryName: name("Library name", 80),
   timezone: z.string().refine(isValidTimezone, "Choose a timezone from the list."),
   familyName: name("Family name", 60).optional(),
+  /** Asked at setup: should staff check returned books in? */
+  returnsNeedCheckIn: z.boolean().optional(),
 });
 
 export const accountRoutes = new Hono<AppEnv>()
@@ -96,7 +98,12 @@ export const accountRoutes = new Hono<AppEnv>()
       );
     }
 
-    const merged = mergeSettings(defaultSettings(), { timezone: body.timezone });
+    const merged = mergeSettings(defaultSettings(), {
+      timezone: body.timezone,
+      ...(body.returnsNeedCheckIn === undefined
+        ? {}
+        : { returnsNeedCheckIn: body.returnsNeedCheckIn }),
+    });
     if (!merged.ok) fail(422, "invalid_input", merged.errors[0]?.message ?? "Invalid timezone.");
 
     const libraryId = newId();

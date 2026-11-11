@@ -16,6 +16,7 @@ interface Settings {
   closedWeekdays: number[];
   closedDates: string[];
   requireApproval: boolean;
+  returnsNeedCheckIn: boolean;
   historyMonths: number;
 }
 
@@ -238,6 +239,20 @@ export function SettingsPage() {
           />
           Staff approve new families before they can borrow
         </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={form.returnsNeedCheckIn}
+            onChange={(e) => set("returnsNeedCheckIn", e.target.checked)}
+            aria-describedby="check-in-hint"
+          />
+          Staff check returned books in
+        </label>
+        <p className="field__hint" id="check-in-hint" aria-live="polite">
+          {form.returnsNeedCheckIn
+            ? "When a parent taps Return, the book shows as handed back. It counts as returned once staff scan it from the returns basket. Scan the basket every day or two: after 3 days an unchecked book counts against the family again."
+            : "When a parent taps Return, the book is returned straight away. Books already handed back can then be returned by their family, or checked in by staff."}
+        </p>
 
         <h2>Opening days</h2>
         <fieldset className="field" aria-describedby="open-days">

@@ -30,6 +30,7 @@ export function SetupPage() {
     libraryName: "",
     timezone: deviceZone,
     familyName: "",
+    returnsNeedCheckIn: false,
   });
   const [errors, setErrors] = useState<Errors>({});
   const [error, setError] = useState("");
@@ -57,6 +58,7 @@ export function SetupPage() {
           libraryName: form.libraryName,
           timezone: form.timezone,
           familyName: form.familyName.trim() || undefined,
+          returnsNeedCheckIn: form.returnsNeedCheckIn,
         },
       });
       await refresh();
@@ -121,6 +123,30 @@ export function SetupPage() {
             ))}
           </select>
         </div>
+        <fieldset className="field">
+          <legend>When a parent returns a book</legend>
+          <p className="field__hint">You can change this later in Settings.</p>
+          <label className="check">
+            <input
+              type="radio"
+              name="returns"
+              checked={!form.returnsNeedCheckIn}
+              onChange={() => setForm({ ...form, returnsNeedCheckIn: false })}
+            />
+            Returned as soon as they tap Return (self-serve). Less work for staff, but a book can
+            show as returned while still in someone's bag.
+          </label>
+          <label className="check">
+            <input
+              type="radio"
+              name="returns"
+              checked={form.returnsNeedCheckIn}
+              onChange={() => setForm({ ...form, returnsNeedCheckIn: true })}
+            />
+            Staff check it in from the returns basket. More accurate, but staff need to scan the
+            basket every day or two.
+          </label>
+        </fieldset>
         <Field
           label="Your family name (optional)"
           hint="Fill this in if you'll also borrow books as a parent."

@@ -80,6 +80,8 @@ const editCopyBody = z.object({
   status: z.enum(COPY_STATUSES, { error: "Choose a status from the list." }).optional(),
   shelf: z.string().trim().max(60, "Shelf must be 60 characters or fewer.").optional(),
   note: z.string().trim().max(300, "Note must be 300 characters or fewer.").optional(),
+  /** The sticker is damaged or missing: put the copy back on the "needs a label" list. */
+  needsLabel: z.literal(true).optional(),
 });
 
 const idList = z.array(z.string().max(64)).min(1).max(MAX_LABEL_IDS);
@@ -451,6 +453,7 @@ export const catalogRoutes = new Hono<AppEnv>()
       ...(body.status ? { status: body.status } : {}),
       ...(body.shelf !== undefined ? { shelf: body.shelf || null } : {}),
       ...(body.note !== undefined ? { note: body.note || null } : {}),
+      ...(body.needsLabel ? { labelPrintedAt: null } : {}),
     };
     if (Object.keys(changes).length > 0) {
       const [result] = await db.batch([

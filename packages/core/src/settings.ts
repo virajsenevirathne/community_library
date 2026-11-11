@@ -22,6 +22,12 @@ export interface LibrarySettings {
   closedDates: string[];
   /** New families wait for staff approval before they can borrow. */
   requireApproval: boolean;
+  /**
+   * When on, a parent's "Return" marks the book as handed back, and the loan
+   * closes when staff check it in (scan it from the returns basket). When off,
+   * the parent's tap closes the loan straight away.
+   */
+  returnsNeedCheckIn: boolean;
   /** Months after which closed loans forget who borrowed them. */
   historyMonths: number;
 }
@@ -38,6 +44,7 @@ export const DEFAULT_SETTINGS: Readonly<LibrarySettings> = Object.freeze({
   closedWeekdays: Object.freeze([0, 6]) as number[],
   closedDates: Object.freeze([]) as unknown as string[],
   requireApproval: false,
+  returnsNeedCheckIn: false,
   historyMonths: 12,
 });
 
@@ -59,6 +66,7 @@ export const SETTING_LABELS: Record<keyof LibrarySettings, string> = {
   closedWeekdays: "Closed days",
   closedDates: "Closed dates",
   requireApproval: "Staff approve new families",
+  returnsNeedCheckIn: "Staff check returned books in",
   historyMonths: "Forget who borrowed a book after (months)",
 };
 
@@ -159,10 +167,11 @@ export function mergeSettings(
       fail("closedDates", "pick each date from the calendar (up to 366 dates).");
     }
   }
-  if ("requireApproval" in patch) {
-    const value = patch.requireApproval;
-    if (typeof value === "boolean") next.requireApproval = value;
-    else fail("requireApproval", "turn this on or off.");
+  for (const field of ["requireApproval", "returnsNeedCheckIn"] as const) {
+    if (!(field in patch)) continue;
+    const value = patch[field];
+    if (typeof value === "boolean") next[field] = value;
+    else fail(field, "turn this on or off.");
   }
   return errors.length > 0 ? { ok: false, errors } : { ok: true, settings: next };
 }
@@ -184,4 +193,17 @@ export function parseSettings(json: string | null | undefined): LibrarySettings 
     if (merged.ok) settings = merged.settings;
   }
   return settings;
+}
+
+/**
+ * When the library checks returns in, a book a family has handed back stops
+ * counting towards their limit and their reminders for this many days. If
+ * staff haven't checked it in by then, it counts again (so tapping Return
+ * while keeping the book can't be used to borrow more).
+ */
+export const HANDBACK_GRACE_DAYS = 3;
+
+/** Hand-backs made after this moment are still within the grace period. */
+export function handBackCutoff(now = Date.now()): number {
+  return now - HANDBACK_GRACE_DAYS * 86_400_000;
 }

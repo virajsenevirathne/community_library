@@ -28,6 +28,7 @@ interface MyLoan {
   dueOn: string;
   overdueDays: number;
   canExtend: boolean;
+  handedBack: boolean;
 }
 
 /** A parent's home: their family's books, soonest due first. */
@@ -87,6 +88,8 @@ export function HomePage() {
 
 /** "Due today", "Due tomorrow" or "Due back Friday 21 November", plus lateness. */
 function dueText(loan: MyLoan): { text: string; urgent: boolean } {
+  if (loan.handedBack)
+    return { text: "Handed back: waiting for staff to check it in", urgent: false };
   if (loan.overdueDays > 0) {
     return {
       text: `${lateText(loan.overdueDays)}. Was due ${formatDate(loan.dueOn)}`,
@@ -136,7 +139,7 @@ function MyBooks() {
     }
   };
 
-  const overdue = data?.loans.filter((l) => l.overdueDays > 0).length ?? 0;
+  const overdue = data?.loans.filter((l) => l.overdueDays > 0 && !l.handedBack).length ?? 0;
 
   return (
     <>
@@ -163,39 +166,42 @@ function MyBooks() {
             </p>
           )}
           <ul className="book-list">
-            {data.loans.map((loan) => {
-              const due = dueText(loan);
-              return (
-                <li key={loan.id} className="book-row book-row--wrap">
-                  <Cover url={loan.coverUrl} title={loan.title} size="sm" />
-                  <span className="book-row__text">
-                    <strong>{loan.title}</strong>
-                    <span className={due.urgent ? "late" : "muted"}>{due.text}</span>
-                    {extended[loan.id] && (
-                      <span className="ok" role="status">
-                        Extended to {formatDate(extended[loan.id] ?? "")}
-                      </span>
+            {[...data.loans]
+              // Books already handed back go last: they're on their way back.
+              .sort((a, b) => Number(a.handedBack) - Number(b.handedBack))
+              .map((loan) => {
+                const due = dueText(loan);
+                return (
+                  <li key={loan.id} className="book-row book-row--wrap">
+                    <Cover url={loan.coverUrl} title={loan.title} size="sm" />
+                    <span className="book-row__text">
+                      <strong>{loan.title}</strong>
+                      <span className={due.urgent ? "late" : "muted"}>{due.text}</span>
+                      {extended[loan.id] && (
+                        <span className="ok" role="status">
+                          Extended to {formatDate(extended[loan.id] ?? "")}
+                        </span>
+                      )}
+                      {rowError[loan.id] && (
+                        <span className="late" role="alert">
+                          {rowError[loan.id]}
+                        </span>
+                      )}
+                    </span>
+                    {loan.canExtend && !extended[loan.id] && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => extend(loan)}
+                        busy={busy === loan.id}
+                        busyLabel="Extending…"
+                        aria-label={`Keep ${loan.title} longer`}
+                      >
+                        Keep longer
+                      </Button>
                     )}
-                    {rowError[loan.id] && (
-                      <span className="late" role="alert">
-                        {rowError[loan.id]}
-                      </span>
-                    )}
-                  </span>
-                  {loan.canExtend && !extended[loan.id] && (
-                    <Button
-                      variant="secondary"
-                      onClick={() => extend(loan)}
-                      busy={busy === loan.id}
-                      busyLabel="Extending…"
-                      aria-label={`Keep ${loan.title} longer`}
-                    >
-                      Keep longer
-                    </Button>
-                  )}
-                </li>
-              );
-            })}
+                  </li>
+                );
+              })}
           </ul>
         </>
       )}

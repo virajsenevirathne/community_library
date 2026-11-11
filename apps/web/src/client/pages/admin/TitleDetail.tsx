@@ -198,6 +198,20 @@ function CopyRow({
       setBusy(false);
     }
   };
+  const reprint = async () => {
+    setBusy(true);
+    try {
+      const res = await api<{ title: Title }>(`/catalog/copies/${copy.id}`, {
+        method: "PATCH",
+        body: { needsLabel: true },
+      });
+      onChanged(res.title, `Copy ${copy.shortCode} is on the list to print a new label.`);
+    } catch (e) {
+      onError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
   const onLoan = copy.status === "on_loan";
   return (
     <li className="copy-row">
@@ -216,6 +230,16 @@ function CopyRow({
           </span>
         )}
       </span>
+      {copy.labelPrinted && copy.status !== "retired" && (
+        <Button
+          variant="secondary"
+          onClick={reprint}
+          busy={busy}
+          aria-label={`Copy ${copy.shortCode} needs a new label`}
+        >
+          Needs a new label
+        </Button>
+      )}
       {!onLoan && (
         <span className="row">
           <label className="inline-select">

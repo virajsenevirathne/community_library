@@ -22,6 +22,8 @@ export { type LoanReminder, needsStaff, type OpenLoan, remindersFor } from "./re
 export {
   DEFAULT_SETTINGS,
   defaultSettings,
+  HANDBACK_GRACE_DAYS,
+  handBackCutoff,
   isRealDate,
   isValidTimezone,
   type LibrarySettings,

@@ -14,6 +14,8 @@ interface Loan {
   overdueDays: number;
   needsStaff: boolean;
   reportedFound: boolean;
+  handedBack: boolean;
+  handedBackDaysAgo: number | null;
   canExtend: boolean;
 }
 
@@ -22,6 +24,7 @@ const FILTERS = [
   { id: "overdue", label: "Overdue" },
   { id: "follow-up", label: "Follow up" },
   { id: "found", label: "Reported found" },
+  { id: "check-in", label: "Waiting for check-in" },
 ] as const;
 
 const EMPTY: Record<string, string> = {
@@ -29,6 +32,7 @@ const EMPTY: Record<string, string> = {
   overdue: "Nothing is overdue.",
   "follow-up": "No books need following up.",
   found: "No books have been reported found.",
+  "check-in": "No books are waiting to be checked in.",
 };
 
 type Message = { kind: "success" | "error"; text: string };
@@ -166,6 +170,14 @@ function LoanCard({
         </span>
         {loan.needsStaff && <span className="badge badge--lost">Follow up</span>}
         {loan.reportedFound && <span className="badge badge--found">Reported found</span>}
+        {loan.handedBack && (
+          <span className="badge badge--info">
+            Handed back
+            {loan.handedBackDaysAgo
+              ? ` ${loan.handedBackDaysAgo} ${loan.handedBackDaysAgo === 1 ? "day" : "days"} ago`
+              : " today"}
+          </span>
+        )}
       </p>
       <div ref={messageRef} tabIndex={-1}>
         {message && <Alert kind={message.kind}>{message.text}</Alert>}
@@ -177,9 +189,9 @@ function LoanCard({
           busy={busy === "returned"}
           busyLabel="Checking in…"
           disabled={locked && busy !== "returned"}
-          aria-label={`Mark returned: ${loan.title}`}
+          aria-label={`${loan.handedBack ? "Check in" : "Mark returned"}: ${loan.title}`}
         >
-          Mark returned
+          {loan.handedBack ? "Check in" : "Mark returned"}
         </Button>
         {loan.canExtend && (
           <Button

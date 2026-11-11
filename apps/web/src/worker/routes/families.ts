@@ -697,13 +697,14 @@ export const familyRoutes = new Hono<AppEnv>()
       .first<{ id: string; name: string }>();
     if (!family) fail(404, "not_found", "That family was not found.");
     const { results: open } = await DB.prepare(
-      `select l.id as id, l.copy_id as copyId, t.title as title from loans l
+      `select l.id as id, l.copy_id as copyId, t.title as title,
+              l.return_requested_at as handedBackAt from loans l
        join copies c on c.id = l.copy_id and c.library_id = l.library_id
        join titles t on t.id = c.title_id and t.library_id = c.library_id
        where l.library_id = ? and l.family_id = ? and l.returned_at is null`,
     )
       .bind(lib, family.id)
-      .all<{ id: string; copyId: string; title: string }>();
+      .all<{ id: string; copyId: string; title: string; handedBackAt: number | null }>();
     if (open.length > 0 && !body.markLost) {
       return c.json(
         {
@@ -717,15 +718,23 @@ export const familyRoutes = new Hono<AppEnv>()
     const now = Date.now();
     try {
       await DB.batch([
-        ...open.flatMap((loan) => [
-          DB.prepare(
-            "update loans set returned_at = ?, returned_by = ?, outcome = 'lost' where id = ? and returned_at is null",
-          ).bind(now, actor.userId, loan.id),
-          DB.prepare("update copies set status = 'lost' where id = ? and library_id = ?").bind(
-            loan.copyId,
-            lib,
-          ),
-        ]),
+        ...open.flatMap((loan) =>
+          // A book the family handed back is treated as returned, not lost.
+          loan.handedBackAt !== null
+            ? [
+                DB.prepare(
+                  "update loans set returned_at = ?, returned_by = ?, outcome = 'returned' where id = ? and returned_at is null",
+                ).bind(now, actor.userId, loan.id),
+              ]
+            : [
+                DB.prepare(
+                  "update loans set returned_at = ?, returned_by = ?, outcome = 'lost' where id = ? and returned_at is null",
+                ).bind(now, actor.userId, loan.id),
+                DB.prepare(
+                  "update copies set status = 'lost' where id = ? and library_id = ?",
+                ).bind(loan.copyId, lib),
+              ],
+        ),
         ...removeFamilyStatements(DB, lib, family.id),
         event(DB, lib, actor.userId, "family_removed", { booksMarkedLost: open.length }),
       ]);

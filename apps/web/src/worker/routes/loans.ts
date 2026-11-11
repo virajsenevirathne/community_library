@@ -3,12 +3,13 @@ import {
   addDays,
   daysOverdue,
   dueDateDetails,
+  handBackCutoff,
   isClosed,
   type LibrarySettings,
   localParts,
   normalizeShortCode,
 } from "@community-library/core";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import {
   type Actor,
@@ -55,6 +56,7 @@ async function findCopy(db: Db, actor: Actor, rawCode: string) {
       loanFamilyId: schema.loans.familyId,
       dueOn: schema.loans.dueOn,
       extendedCount: schema.loans.extendedCount,
+      returnRequestedAt: schema.loans.returnRequestedAt,
       familyName: schema.families.name,
     })
     .from(schema.copies)
@@ -104,7 +106,16 @@ async function openLoanCount(db: Db, actor: Actor) {
   const s = scope(actor);
   return db.$count(
     schema.loans,
-    s.where(schema.loans, s.ownFamily(schema.loans.familyId), isNull(schema.loans.returnedAt)),
+    s.where(
+      schema.loans,
+      s.ownFamily(schema.loans.familyId),
+      isNull(schema.loans.returnedAt),
+      // Books handed back recently (waiting for staff check-in) don't count towards the limit.
+      or(
+        isNull(schema.loans.returnRequestedAt),
+        lt(schema.loans.returnRequestedAt, new Date(handBackCutoff())),
+      ),
+    ),
   );
 }
 
@@ -122,6 +133,8 @@ async function copyView(db: Db, actor: Actor, row: CopyRow) {
   const settings = actor.library.settings;
   const isStaff = allow(actor, "loans:manage");
   const booksOut = await openLoanCount(db, actor);
+  /** The family handed it back; it waits for staff to check it in. */
+  const handedBack = row.returnRequestedAt !== null && row.loanId !== null;
   return {
     code: row.shortCode,
     title: { id: row.titleId, title: row.title, authors: row.authors, coverUrl: row.coverUrl },
@@ -133,7 +146,9 @@ async function copyView(db: Db, actor: Actor, row: CopyRow) {
             id: row.loanId,
             dueOn: row.dueOn,
             overdueDays: daysOverdue(row.dueOn, today(settings)),
-            canExtend: mine && (row.extendedCount ?? 0) < settings.maxExtensions,
+            canExtend: mine && !handedBack && (row.extendedCount ?? 0) < settings.maxExtensions,
+            extensionsLeft: Math.max(0, settings.maxExtensions - (row.extendedCount ?? 0)),
+            handedBack,
             ...(isStaff ? { familyName: row.familyName ?? "Deleted family" } : {}),
           }
         : null,
@@ -144,7 +159,12 @@ async function copyView(db: Db, actor: Actor, row: CopyRow) {
     can: {
       borrow:
         state === "available" && actor.family?.status === "active" && booksOut < settings.maxLoans,
-      return: state === "mine" || (state === "out" && isStaff),
+      // A handed-back book can still be returned by its family if the library
+      // has since switched to self-serve returns.
+      return:
+        (state === "mine" && (!handedBack || !settings.returnsNeedCheckIn)) ||
+        (state === "out" && isStaff) ||
+        (handedBack && isStaff),
       reportFound: state === "out" && !isStaff && row.foundAt === null,
     },
   };
@@ -263,6 +283,41 @@ export const loanRoutes = new Hono<AppEnv>()
     const db = c.get("db");
     const row = await findCopy(db, actor, c.req.param("code"));
     if (row.loanId && row.loanFamilyId === actor.family.id) {
+      if (row.returnRequestedAt !== null) {
+        // "Tapped Return by mistake": keep the book after all. Only while the
+        // family is under its limit, so hand-backs can't be used to borrow more.
+        const DB = c.env.DB;
+        const [undone] = await DB.batch([
+          DB.prepare(
+            `update loans set return_requested_at = null
+             where id = ?1 and library_id = ?2 and returned_at is null and return_requested_at is not null
+               and (select count(*) from loans where library_id = ?2 and family_id = ?3 and returned_at is null
+                    and (return_requested_at is null or return_requested_at < ?4)) < ?5`,
+          ).bind(
+            row.loanId,
+            actor.library.id,
+            actor.family.id,
+            handBackCutoff(),
+            actor.library.settings.maxLoans,
+          ),
+          DB.prepare(
+            `insert into events (id, library_id, actor_user_id, type, payload)
+             select ?, ?, ?, 'loan_handback_undone', ? where changes() = 1`,
+          ).bind(newId(), actor.library.id, actor.userId, JSON.stringify({ loanId: row.loanId })),
+        ]);
+        const now = await findCopy(db, actor, row.shortCode);
+        if (undone?.meta.changes !== 1) {
+          if (now.loanId === null) {
+            return c.json({ copy: await copyView(db, actor, now), alreadyReturned: true });
+          }
+          fail(
+            409,
+            "limit_reached",
+            `Your family already has ${actor.library.settings.maxLoans} books out, the most allowed. Return one first.`,
+          );
+        }
+        return c.json({ copy: await copyView(db, actor, now), alreadyYours: true });
+      }
       return c.json({ copy: await copyView(db, actor, row), alreadyYours: true });
     }
     if (row.status !== "available") {
@@ -289,7 +344,8 @@ export const loanRoutes = new Hono<AppEnv>()
           `insert into loans (id, library_id, copy_id, family_id, borrowed_by, borrowed_at, due_on)
            select ?1, ?2, ?3, ?4, ?5, ?6, ?7
            where (select count(*) from loans
-                  where library_id = ?2 and family_id = ?4 and returned_at is null) < ?8
+                  where library_id = ?2 and family_id = ?4 and returned_at is null
+                    and (return_requested_at is null or return_requested_at < ?9)) < ?8
              and exists (select 1 from copies where id = ?3 and library_id = ?2 and status = 'available')`,
         ).bind(
           loanId,
@@ -300,6 +356,7 @@ export const loanRoutes = new Hono<AppEnv>()
           now.getTime(),
           due,
           settings.maxLoans,
+          handBackCutoff(),
         ),
         eventIf(
           DB,
@@ -361,6 +418,26 @@ export const loanRoutes = new Hono<AppEnv>()
       );
     }
     const DB = c.env.DB;
+    if (actor.library.settings.returnsNeedCheckIn && !allow(actor, "loans:manage")) {
+      // The library checks returns in: record the hand-back; staff close the loan.
+      // A repeat tap changes nothing and writes no second event.
+      await DB.batch([
+        DB.prepare(
+          "update loans set return_requested_at = ? where id = ? and library_id = ? and returned_at is null and return_requested_at is null",
+        ).bind(Date.now(), row.loanId, actor.library.id),
+        DB.prepare(
+          `insert into events (id, library_id, actor_user_id, type, payload)
+           select ?, ?, ?, 'loan_handed_back', ? where changes() = 1`,
+        ).bind(
+          newId(),
+          actor.library.id,
+          actor.userId,
+          JSON.stringify({ loanId: row.loanId, copyId: row.copyId }),
+        ),
+      ]);
+      const handed = await findCopy(db, actor, row.shortCode);
+      return c.json({ copy: await copyView(db, actor, handed), pendingCheckIn: true });
+    }
     const returnedAt = Date.now();
     const wasFound = row.foundAt !== null;
     // "We closed it" = the loan now carries exactly this return's time and person.
@@ -506,6 +583,7 @@ export const loanRoutes = new Hono<AppEnv>()
         id: schema.loans.id,
         dueOn: schema.loans.dueOn,
         extendedCount: schema.loans.extendedCount,
+        returnRequestedAt: schema.loans.returnRequestedAt,
         code: schema.copies.shortCode,
         title: schema.titles.title,
         authors: schema.titles.authors,
@@ -541,7 +619,8 @@ export const loanRoutes = new Hono<AppEnv>()
         coverUrl: r.coverUrl,
         dueOn: r.dueOn,
         overdueDays: daysOverdue(r.dueOn, now),
-        canExtend: r.extendedCount < settings.maxExtensions,
+        canExtend: r.returnRequestedAt === null && r.extendedCount < settings.maxExtensions,
+        handedBack: r.returnRequestedAt !== null,
       })),
       maxLoans: settings.maxLoans,
       loanDays: settings.loanDays,
@@ -555,7 +634,13 @@ export const loanRoutes = new Hono<AppEnv>()
     const s = scope(actor);
     const settings = actor.library.settings;
     const loan = await db.query.loans.findFirst({
-      columns: { id: true, familyId: true, dueOn: true, extendedCount: true },
+      columns: {
+        id: true,
+        familyId: true,
+        dueOn: true,
+        extendedCount: true,
+        returnRequestedAt: true,
+      },
       where: s.where(
         schema.loans,
         eq(schema.loans.id, c.req.param("id")),
@@ -564,6 +649,9 @@ export const loanRoutes = new Hono<AppEnv>()
     });
     if (!loan || !canActOnFamily(actor, loan.familyId)) {
       fail(404, "not_found", "That loan was not found. The book may already be back.");
+    }
+    if (loan.returnRequestedAt !== null) {
+      fail(409, "handed_back", "This book has been handed back, so it can't be extended.");
     }
     if (loan.extendedCount >= settings.maxExtensions) {
       fail(

@@ -1,6 +1,7 @@
 import type { EmailMessage, SendResult } from "@community-library/adapters";
 import {
   daysOverdue,
+  handBackCutoff,
   isClosed,
   type LibrarySettings,
   localParts,
@@ -211,9 +212,11 @@ async function sendFamilyReminders(deps: JobDeps, library: Library, today: strin
      join families f on f.id = l.family_id and f.library_id = l.library_id
      join copies c on c.id = l.copy_id and c.library_id = l.library_id
      join titles t on t.id = c.title_id and t.library_id = c.library_id
-     where l.library_id = ? and l.returned_at is null and f.status = 'active' and f.nudges_off = 0`,
+     where l.library_id = ? and l.returned_at is null
+       and (l.return_requested_at is null or l.return_requested_at < ?)
+       and f.status = 'active' and f.nudges_off = 0`,
   )
-    .bind(library.id)
+    .bind(library.id, handBackCutoff())
     .all<{ loanId: string; familyId: string; dueOn: string; title: string }>();
   const byLoan = new Map(loans.map((l) => [l.loanId, l]));
   const plan = remindersFor(loans, library.settings, today);
@@ -300,9 +303,10 @@ async function sendWeeklyDigest(
      join copies c on c.id = l.copy_id and c.library_id = l.library_id
      join titles t on t.id = c.title_id and t.library_id = c.library_id
      where l.library_id = ? and l.returned_at is null and l.due_on < ?
+       and (l.return_requested_at is null or l.return_requested_at < ?)
      order by l.due_on`,
   )
-    .bind(library.id, today)
+    .bind(library.id, today, handBackCutoff())
     .all<{ title: string; familyName: string; dueOn: string }>();
   const counts = await DB.prepare(
     `select (select count(*) from titles where library_id = ?1 and created_at >= ?2) as newTitles,

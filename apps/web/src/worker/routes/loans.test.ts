@@ -337,3 +337,146 @@ describe("races and repeats", () => {
     expect(html).toContain("&#60;script&#62;");
   });
 });
+
+describe("when staff check returns in", () => {
+  beforeEach(async () => {
+    await env.DB.prepare(
+      "update libraries set settings = json_set(settings, '$.returnsNeedCheckIn', json('true'))",
+    ).run();
+  });
+
+  it("marks a parent's return as handed back until staff check it in", async () => {
+    const [code = ""] = await addBook();
+    await parent.json(`/api/copies/${code}/borrow`, { body: {} });
+    const res = await parent.json<{
+      pendingCheckIn: boolean;
+      copy: CopyView & { loan: { handedBack: boolean } };
+    }>(`/api/copies/${code}/return`, { body: {} });
+    expect(res.body.pendingCheckIn).toBe(true);
+    expect(res.body.copy.loan?.handedBack).toBe(true);
+    expect(res.body.copy.can.return).toBe(false);
+    // Still on loan for everyone else until checked in.
+    expect((await view(otherParent, code)).state).toBe("out");
+    // Staff check it in: now it's back.
+    const back = await staff.json<{ copy: CopyView }>(`/api/copies/${code}/return`, { body: {} });
+    expect(back.body.copy.state).toBe("available");
+  });
+
+  it("does not count handed-back books towards the family's limit", async () => {
+    const codes = await addBook("Owl Babies", 3);
+    await parent.json(`/api/copies/${codes[0]}/borrow`, { body: {} });
+    await parent.json(`/api/copies/${codes[1]}/borrow`, { body: {} });
+    await parent.json(`/api/copies/${codes[0]}/return`, { body: {} });
+    expect((await parent.json(`/api/copies/${codes[2]}/borrow`, { body: {} })).status).toBe(201);
+  });
+
+  it("lets the parent undo a return tapped by mistake", async () => {
+    const [code = ""] = await addBook();
+    await parent.json(`/api/copies/${code}/borrow`, { body: {} });
+    await parent.json(`/api/copies/${code}/return`, { body: {} });
+    const undo = await parent.json<{ copy: CopyView & { loan: { handedBack: boolean } } }>(
+      `/api/copies/${code}/borrow`,
+      { body: {} },
+    );
+    expect(undo.body.copy.loan?.handedBack).toBe(false);
+    expect(undo.body.copy.can.return).toBe(true);
+  });
+
+  it("shows staff what is waiting to be checked in", async () => {
+    const [code = ""] = await addBook();
+    await parent.json(`/api/copies/${code}/borrow`, { body: {} });
+    await parent.json(`/api/copies/${code}/return`, { body: {} });
+    const dash = await staff.json<{ waitingForCheckIn: number }>("/api/admin/dashboard");
+    expect(dash.body.waitingForCheckIn).toBe(1);
+    const list = await staff.json<{ loans: unknown[] }>("/api/admin/loans?filter=check-in");
+    expect(list.body.loans).toHaveLength(1);
+  });
+});
+
+describe("labels that need reprinting", () => {
+  it("puts a copy back on the print list when its sticker is damaged", async () => {
+    const res = await staff.json<{ title: { copies: { id: string }[] } }>("/api/catalog/titles", {
+      body: { title: "Owl Babies" },
+    });
+    const copyId = res.body.title.copies[0]?.id ?? "";
+    await staff.json("/api/catalog/labels/printed", { body: { copyIds: [copyId] } });
+    expect(
+      (await staff.json<{ labels: unknown[] }>("/api/catalog/labels")).body.labels,
+    ).toHaveLength(0);
+    await staff.json(`/api/catalog/copies/${copyId}`, {
+      method: "PATCH",
+      body: { needsLabel: true },
+    });
+    expect(
+      (await staff.json<{ labels: unknown[] }>("/api/catalog/labels")).body.labels,
+    ).toHaveLength(1);
+  });
+});
+
+describe("hand-back safeguards", () => {
+  beforeEach(async () => {
+    await env.DB.prepare(
+      "update libraries set settings = json_set(settings, '$.returnsNeedCheckIn', json('true'))",
+    ).run();
+  });
+
+  it("refuses an undo that would take the family over its limit", async () => {
+    const codes = await addBook("Owl Babies", 4);
+    await parent.json(`/api/copies/${codes[0]}/borrow`, { body: {} });
+    await parent.json(`/api/copies/${codes[1]}/borrow`, { body: {} });
+    await parent.json(`/api/copies/${codes[0]}/return`, { body: {} });
+    await parent.json(`/api/copies/${codes[2]}/borrow`, { body: {} });
+    const undo = await parent.json(`/api/copies/${codes[0]}/borrow`, { body: {} });
+    expect(undo.body).toMatchObject({ error: "limit_reached" });
+  });
+
+  it("counts a hand-back again after the grace period", async () => {
+    const codes = await addBook("Owl Babies", 3);
+    await parent.json(`/api/copies/${codes[0]}/borrow`, { body: {} });
+    await parent.json(`/api/copies/${codes[1]}/borrow`, { body: {} });
+    await parent.json(`/api/copies/${codes[0]}/return`, { body: {} });
+    // Handed back 4 days ago and still not checked in.
+    await env.DB.prepare(
+      "update loans set return_requested_at = ? where return_requested_at is not null",
+    )
+      .bind(Date.now() - 4 * 86_400_000)
+      .run();
+    expect((await parent.json(`/api/copies/${codes[2]}/borrow`, { body: {} })).body).toMatchObject({
+      error: "limit_reached",
+    });
+  });
+
+  it("writes one event for a double-tapped return", async () => {
+    const [code = ""] = await addBook();
+    await parent.json(`/api/copies/${code}/borrow`, { body: {} });
+    await parent.json(`/api/copies/${code}/return`, { body: {} });
+    await parent.json(`/api/copies/${code}/return`, { body: {} });
+    expect(
+      await env.DB.prepare(
+        "select count(*) as n from events where type = 'loan_handed_back'",
+      ).first("n"),
+    ).toBe(1);
+  });
+
+  it("refuses to extend a handed-back book", async () => {
+    const [code = ""] = await addBook();
+    await parent.json(`/api/copies/${code}/borrow`, { body: {} });
+    const loan = (await parent.json<{ loans: { id: string }[] }>("/api/loans/mine")).body.loans[0];
+    await parent.json(`/api/copies/${code}/return`, { body: {} });
+    expect((await parent.json(`/api/loans/${loan?.id}/extend`, { body: {} })).body).toMatchObject({
+      error: "handed_back",
+    });
+  });
+
+  it("lets the family finish the return if the library switches to self-serve", async () => {
+    const [code = ""] = await addBook();
+    await parent.json(`/api/copies/${code}/borrow`, { body: {} });
+    await parent.json(`/api/copies/${code}/return`, { body: {} });
+    await env.DB.prepare(
+      "update libraries set settings = json_set(settings, '$.returnsNeedCheckIn', json('false'))",
+    ).run();
+    expect((await view(parent, code)).can.return).toBe(true);
+    const res = await parent.json<{ copy: CopyView }>(`/api/copies/${code}/return`, { body: {} });
+    expect(res.body.copy.state).toBe("available");
+  });
+});

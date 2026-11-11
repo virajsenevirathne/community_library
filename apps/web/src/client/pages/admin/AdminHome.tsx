@@ -10,6 +10,8 @@ interface Dashboard {
   needsStaff: number;
   dueThisWeek: number;
   reportedFound: number;
+  waitingForCheckIn?: number;
+  returnsNeedCheckIn?: boolean;
   mostBorrowed: { id: string; title: string; times: number }[];
   counts: {
     titles: number;
@@ -99,6 +101,13 @@ export function AdminHomePage() {
                 value={data.reportedFound}
                 label="reported found"
                 href="/admin/loans?filter=found"
+              />
+            )}
+            {(data.returnsNeedCheckIn || (data.waitingForCheckIn ?? 0) > 0) && (
+              <Stat
+                value={data.waitingForCheckIn ?? 0}
+                label="waiting for check-in"
+                href="/admin/loans?filter=check-in"
               />
             )}
             <Stat value={data.overdue} label="overdue" href="/admin/loans?filter=overdue" alert />

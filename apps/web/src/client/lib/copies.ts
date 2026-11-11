@@ -10,6 +10,9 @@ export interface CopyView {
     dueOn: string;
     overdueDays: number;
     canExtend: boolean;
+    extensionsLeft?: number;
+    /** Handed back by the family; waiting for staff to check it in. */
+    handedBack?: boolean;
     familyName?: string;
   } | null;
   reportedFound: boolean;

@@ -10,7 +10,7 @@ type Action = "borrow" | "return" | "found";
 
 type Done =
   | { kind: "borrowed"; dueOn: string; movedForClosure: boolean }
-  | { kind: "returned"; checkedInForOthers: boolean }
+  | { kind: "returned"; checkedInForOthers: boolean; pendingCheckIn: boolean }
   | { kind: "found" }
   | { kind: "extended"; dueOn: string };
 
@@ -63,10 +63,12 @@ export function CopyPage({ code }: { code: string }) {
     setBusy(action);
     setError(null);
     try {
-      const res = await api<{ copy: CopyView; dueOn?: string; movedForClosure?: boolean }>(
-        `/copies/${encodeURIComponent(code)}/${action}`,
-        { body: {} },
-      );
+      const res = await api<{
+        copy: CopyView;
+        dueOn?: string;
+        movedForClosure?: boolean;
+        pendingCheckIn?: boolean;
+      }>(`/copies/${encodeURIComponent(code)}/${action}`, { body: {} });
       setCopy(res.copy);
       if (action === "borrow") {
         setDone({
@@ -76,7 +78,11 @@ export function CopyPage({ code }: { code: string }) {
         });
       } else if (action === "return") {
         // Staff checking in another family's book see "checked in"; everyone else "returned".
-        setDone({ kind: "returned", checkedInForOthers: before?.state === "out" });
+        setDone({
+          kind: "returned",
+          checkedInForOthers: before?.state === "out",
+          pendingCheckIn: res.pendingCheckIn === true,
+        });
       } else setDone({ kind: "found" });
     } catch (e) {
       setError(toPageError(e));
@@ -189,8 +195,9 @@ export function CopyPage({ code }: { code: string }) {
       {done?.kind === "returned" && (
         <div className="stack">
           <Alert kind="success">
-            {done.checkedInForOthers ? "Checked in." : "Returned."} Please put the book back on the
-            shelf.
+            {done.pendingCheckIn
+              ? "Handed back. Please put it in the returns basket. It stays on your list until staff check it in."
+              : `${done.checkedInForOthers ? "Checked in." : "Returned."} Please put the book back on the shelf.`}
           </Alert>
           <p className="lead">Returning another? Scan the next sticker.</p>
           {!done.checkedInForOthers && (
@@ -275,8 +282,28 @@ function CopyActions(props: {
     );
   }
 
+  if (copy.state === "mine" && copy.loan?.handedBack) {
+    return (
+      <div className="stack">
+        <Alert kind="info">
+          <strong>Handed back.</strong> Please put it in the returns basket if you haven't yet. It
+          stays on your list until staff check it in.
+        </Alert>
+        <Button
+          variant="secondary"
+          onClick={() => onAct("borrow")}
+          busy={busy === "borrow"}
+          busyLabel="Undoing…"
+        >
+          I still have it: keep it on my list
+        </Button>
+      </div>
+    );
+  }
+
   if (copy.state === "mine" && copy.loan) {
     const late = lateText(copy.loan.overdueDays);
+    const left = copy.loan.extensionsLeft ?? 0;
     return (
       <div className="stack">
         <p className="lead">
@@ -292,6 +319,11 @@ function CopyActions(props: {
         >
           Return this book
         </Button>
+        {!copy.loan.canExtend && (copy.loan.extensionsLeft ?? 0) === 0 && (
+          <p className="muted">
+            You've already kept this book longer, so please bring it back by then.
+          </p>
+        )}
         {copy.loan.canExtend && (
           <Button
             variant="secondary"
@@ -304,6 +336,13 @@ function CopyActions(props: {
             Keep it longer
           </Button>
         )}
+        {copy.loan.canExtend && (
+          <p className="muted">
+            {left === 1
+              ? "1 extension left for this book."
+              : `${left} extensions left for this book.`}
+          </p>
+        )}
       </div>
     );
   }
@@ -313,6 +352,9 @@ function CopyActions(props: {
       const late = lateText(copy.loan.overdueDays);
       return (
         <div className="stack">
+          {copy.loan.handedBack && (
+            <Alert kind="info">The {copy.loan.familyName} family handed this book back.</Alert>
+          )}
           <p className="lead">
             Out with <strong>{copy.loan.familyName}</strong>, due {formatDate(copy.loan.dueOn)}
             {late && <span className="badge badge--lost"> {late}</span>}.

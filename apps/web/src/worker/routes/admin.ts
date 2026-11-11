@@ -1,5 +1,6 @@
 import {
   daysOverdue,
+  handBackCutoff,
   localParts,
   mergeSettings,
   needsStaff,
@@ -34,6 +35,7 @@ interface LoanRow {
   borrowedAt: number;
   extendedCount: number;
   foundAt: number | null;
+  handedBackAt: number | null;
   code: string;
   copyId: string;
   title: string;
@@ -45,7 +47,7 @@ interface LoanRow {
 async function openLoans(c: AppContext, actor: Actor): Promise<LoanRow[]> {
   const { results } = await c.env.DB.prepare(
     `select l.id as id, l.due_on as dueOn, l.borrowed_at as borrowedAt, l.extended_count as extendedCount,
-            c.found_at as foundAt, c.short_code as code, c.id as copyId, t.title as title, t.id as titleId,
+            c.found_at as foundAt, l.return_requested_at as handedBackAt, c.short_code as code, c.id as copyId, t.title as title, t.id as titleId,
             l.family_id as familyId, f.name as familyName
      from loans l
      join copies c on c.id = l.copy_id and c.library_id = l.library_id
@@ -72,7 +74,14 @@ function loanView(actor: Actor, loan: LoanRow, now: string) {
     overdueDays,
     needsStaff: needsStaff(loan.dueOn, now, actor.library.settings.staffFlagDays),
     reportedFound: loan.foundAt !== null,
-    canExtend: loan.extendedCount < actor.library.settings.maxExtensions,
+    /** The family handed it back; staff still need to check it in. */
+    handedBack: loan.handedBackAt !== null,
+    /** Handed back within the grace period: not counted as overdue yet. */
+    recentlyHandedBack: loan.handedBackAt !== null && loan.handedBackAt >= handBackCutoff(),
+    handedBackDaysAgo:
+      loan.handedBackAt === null ? null : Math.floor((Date.now() - loan.handedBackAt) / 86_400_000),
+    canExtend:
+      loan.handedBackAt === null && loan.extendedCount < actor.library.settings.maxExtensions,
   };
 }
 
@@ -129,10 +138,14 @@ export const adminRoutes = new Hono<AppEnv>()
     return c.json({
       today: now,
       booksOut: loans.length,
-      overdue: loans.filter((l) => l.overdueDays > 0).length,
-      needsStaff: loans.filter((l) => l.needsStaff).length,
+      overdue: loans.filter((l) => l.overdueDays > 0 && !l.recentlyHandedBack).length,
+      needsStaff: loans.filter(
+        (l) => (l.needsStaff && !l.recentlyHandedBack) || (l.handedBack && !l.recentlyHandedBack),
+      ).length,
       dueThisWeek: loans.filter((l) => l.overdueDays === 0 && l.dueOn <= weekEnd).length,
       reportedFound: loans.filter((l) => l.reportedFound).length,
+      waitingForCheckIn: loans.filter((l) => l.handedBack).length,
+      returnsNeedCheckIn: actor.library.settings.returnsNeedCheckIn,
       mostBorrowed: popular.results,
       counts,
       reminders: {
@@ -162,14 +175,18 @@ export const adminRoutes = new Hono<AppEnv>()
     const loans = (await openLoans(c, actor)).map((l) => loanView(actor, l, now));
     const filtered =
       filter === "overdue"
-        ? loans.filter((l) => l.overdueDays > 0)
+        ? loans.filter((l) => l.overdueDays > 0 && !l.recentlyHandedBack)
         : filter === "follow-up"
-          ? loans.filter((l) => l.needsStaff)
+          ? loans.filter((l) => (l.needsStaff || l.handedBack) && !l.recentlyHandedBack)
           : filter === "found"
             ? loans.filter((l) => l.reportedFound)
-            : loans;
-    // Most overdue first when looking at late books.
-    if (filter !== "all") filtered.sort((a, b) => b.overdueDays - a.overdueDays);
+            : filter === "check-in"
+              ? loans.filter((l) => l.handedBack)
+              : loans;
+    // Waiting longest first for check-in; most overdue first for late books.
+    if (filter === "check-in") {
+      filtered.sort((a, b) => (b.handedBackDaysAgo ?? 0) - (a.handedBackDaysAgo ?? 0));
+    } else if (filter !== "all") filtered.sort((a, b) => b.overdueDays - a.overdueDays);
     return c.json({ loans: filtered });
   })
 

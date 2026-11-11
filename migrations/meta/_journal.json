@@ -36,6 +36,13 @@
       "when": 1794378852783,
       "tag": "0004_join_link_and_staff_invites",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794393441098,
+      "tag": "0005_return_check_in",
+      "breakpoints": true
     }
   ]
 }
