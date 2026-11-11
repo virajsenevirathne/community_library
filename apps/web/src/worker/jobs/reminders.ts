@@ -12,6 +12,7 @@ import { authSecret } from "../config.ts";
 import { hmacHex } from "../crypto.ts";
 import { newId } from "../db/client.ts";
 import { digestEmail, type ReminderLine, reminderEmail } from "../email.ts";
+import { libraryHome } from "../library.ts";
 import type { Priority } from "../mailer.ts";
 import { sendInvite, unsentInvites } from "../routes/families.ts";
 
@@ -68,6 +69,7 @@ export function monthsBefore(date: Date, months: number): Date {
 interface Library {
   id: string;
   name: string;
+  slug: string;
   settings: LibrarySettings;
 }
 
@@ -98,9 +100,10 @@ export async function runHourlyJob(
     .run();
   const budget = new Budget();
   const errors: string[] = [];
-  const { results } = await DB.prepare("select id, name, settings from libraries").all<{
+  const { results } = await DB.prepare("select id, name, slug, settings from libraries").all<{
     id: string;
     name: string;
+    slug: string;
     settings: string;
   }>();
   for (const row of results) {
@@ -109,6 +112,7 @@ export async function runHourlyJob(
       await runForLibrary(deps, now, budget, {
         id: row.id,
         name: row.name,
+        slug: row.slug,
         settings: parseSettings(row.settings),
       });
     } catch (error) {
@@ -266,7 +270,7 @@ async function sendFamilyReminders(deps: JobDeps, library: Library, today: strin
           reminderEmail({
             libraryName: library.name,
             to: parent.email,
-            siteUrl: deps.siteUrl,
+            siteUrl: libraryHome(deps.siteUrl, library),
             lines: claimed.map((c) => c.line),
             nudgesOffUrl: offUrl,
           }),
@@ -333,7 +337,7 @@ async function sendWeeklyDigest(
         digestEmail({
           libraryName: library.name,
           to: person.email,
-          siteUrl: deps.siteUrl,
+          siteUrl: libraryHome(deps.siteUrl, library),
           overdue: overdue.map((o) => ({ ...o, overdueDays: daysOverdue(o.dueOn, today) })),
           staffFlagDays: library.settings.staffFlagDays,
           newTitles: counts?.newTitles ?? 0,

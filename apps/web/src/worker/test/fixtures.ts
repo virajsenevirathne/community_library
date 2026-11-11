@@ -64,6 +64,8 @@ export async function person(
   }
 
   const client = new TestClient(ctx, email);
+  // Test libraries use their id as their slug, so the person browses their own library.
+  client.library = libraryId;
   await client.signIn();
   return Object.assign(client, { userId, familyId });
 }

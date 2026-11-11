@@ -13,6 +13,7 @@ import { and, asc, eq, isNull, lt, or } from "drizzle-orm";
 import { Hono } from "hono";
 import {
   type Actor,
+  actorFor,
   allow,
   canActOnFamily,
   requireBorrower,
@@ -24,6 +25,7 @@ import { authSecret } from "../config.ts";
 import { type AppContext, type AppEnv, fail } from "../context.ts";
 import { type Db, newId, schema } from "../db/client.ts";
 import { checkoutEmail, foundEmail } from "../email.ts";
+import { libraryHome } from "../library.ts";
 import { consume } from "../limiter.ts";
 
 /*
@@ -32,15 +34,37 @@ import { consume } from "../limiter.ts";
  * sense: Borrow, Return, or Found it.
  */
 
+const copyNotFound = (): never =>
+  fail(
+    404,
+    "copy_not_found",
+    "We couldn't find a book with that code. Check the code under the sticker, or ask staff.",
+  );
+
+/**
+ * A book's page acts in the book's own library (its code names it). To a
+ * signed-in person outside that library, the book simply doesn't exist: the
+ * answer is the same as for a mistyped code, so codes reveal nothing about
+ * other centres.
+ */
+async function copyLibraryGate(c: AppContext, next: () => Promise<void>) {
+  const user = c.get("user");
+  if (user && (!c.get("library") || !(await actorFor(c)))) {
+    // Someone who hasn't joined any library yet gets the usual "ask for the
+    // sign-up link" answer (from the route); hiding only matters for people
+    // who belong to another library.
+    const member = await c.env.DB.prepare("select 1 from memberships where user_id = ? limit 1")
+      .bind(user.id)
+      .first();
+    if (member) copyNotFound();
+  }
+  await next();
+}
+
 /** Finds a copy by the code on its sticker, in the actor's library, with its open loan. */
 async function findCopy(db: Db, actor: Actor, rawCode: string) {
   const code = normalizeShortCode(rawCode);
-  const notFound = (): never =>
-    fail(
-      404,
-      "copy_not_found",
-      "We couldn't find a book with that code. Check the code under the sticker, or ask staff.",
-    );
+  const notFound = copyNotFound;
   if (!code) notFound();
   const row = await db
     .select({
@@ -138,6 +162,8 @@ async function copyView(db: Db, actor: Actor, row: CopyRow) {
   return {
     code: row.shortCode,
     title: { id: row.titleId, title: row.title, authors: row.authors, coverUrl: row.coverUrl },
+    /** The book's own library, so its page can move to that library's address. */
+    library: { slug: actor.library.slug, name: actor.library.name },
     state,
     status: row.status,
     loan:
@@ -221,7 +247,7 @@ async function sendCheckoutEmails(
       checkoutEmail({
         libraryName: actor.library.name,
         to,
-        siteUrl: c.get("origin"),
+        siteUrl: libraryHome(c.get("origin"), actor.library),
         borrowed,
         booksOut,
       }),
@@ -265,6 +291,8 @@ function eventIf(
 }
 
 export const loanRoutes = new Hono<AppEnv>()
+  .use("/copies/:code", copyLibraryGate)
+  .use("/copies/:code/*", copyLibraryGate)
   .get("/copies/:code", async (c) => {
     const actor = await requireMember(c);
     const db = c.get("db");
@@ -560,7 +588,7 @@ export const loanRoutes = new Hono<AppEnv>()
                   to,
                   title: row.title,
                   dueOn,
-                  siteUrl: c.get("origin"),
+                  siteUrl: libraryHome(c.get("origin"), actor.library),
                 }),
               ),
             ),

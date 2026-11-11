@@ -1,11 +1,21 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from "react";
 import { api, errorMessage } from "./api.ts";
+import { useLocation } from "./router.tsx";
 
 export type Role = "admin" | "staff" | "member";
 
+export interface LibraryLink {
+  slug: string;
+  name: string;
+  role: Role;
+}
+
 export interface Me {
   user: { id: string; email: string; name: string; hasPasskey: boolean } | null;
-  library: { name: string } | null;
+  /** The library this page belongs to, or null on site-wide pages. */
+  library: { name: string; slug: string } | null;
+  /** Every library the signed-in person belongs to. */
+  libraries: LibraryLink[];
   setupNeeded: boolean;
   setupCodeRequired?: boolean;
   membership?: {
@@ -37,9 +47,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return null;
     }
   }, []);
+  // Moving to another library's pages reloads who the person is there.
+  const { base } = useLocation();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: base is the trigger, not an input
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, base]);
   return <SessionContext.Provider value={{ state, refresh }}>{children}</SessionContext.Provider>;
 }
 

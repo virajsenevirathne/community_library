@@ -9,16 +9,17 @@ import { useSession } from "../lib/session.tsx";
 export function JoinPage({ token }: { token: string }) {
   const { state, refresh } = useSession();
   const me = state.status === "ready" ? state.me : null;
-  const [info, setInfo] = useState<{ library: { name: string }; requireApproval: boolean } | null>(
-    null,
-  );
+  const [info, setInfo] = useState<{
+    library: { name: string; slug: string };
+    requireApproval: boolean;
+  } | null>(null);
   const [error, setError] = useState("");
   const [familyName, setFamilyName] = useState("");
   const [fieldError, setFieldError] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api<{ library: { name: string }; requireApproval: boolean }>(
+    api<{ library: { name: string; slug: string }; requireApproval: boolean }>(
       `/join/${encodeURIComponent(token)}`,
     )
       .then((res) => {
@@ -41,7 +42,10 @@ export function JoinPage({ token }: { token: string }) {
       await api("/join", { body: { token, familyName } });
       forgetTokens();
       await refresh();
-      navigate("/?joined=1", { replace: true });
+      navigate(info?.library.slug ? `/${info.library.slug}/?joined=1` : "/?joined=1", {
+        replace: true,
+        absolute: true,
+      });
     } catch (e) {
       setError(errorMessage(e));
       setBusy(false);
@@ -132,7 +136,7 @@ export function InvitePage({ token }: { token: string }) {
   const { state, refresh } = useSession();
   const me = state.status === "ready" ? state.me : null;
   const [info, setInfo] = useState<{
-    library: { name: string };
+    library: { name: string; slug: string };
     email: string;
     familyName: string | null;
     role: string;
@@ -156,7 +160,11 @@ export function InvitePage({ token }: { token: string }) {
       await api("/invites/accept", { body: { token } });
       forgetTokens();
       await refresh();
-      navigate(info?.role === "member" ? "/?joined=1" : "/admin", { replace: true });
+      const home = info?.library.slug ? `/${info.library.slug}` : "";
+      navigate(info?.role === "member" ? `${home}/?joined=1` : `${home}/admin`, {
+        replace: true,
+        absolute: true,
+      });
     } catch (e) {
       setError(errorMessage(e));
       setBusy(false);

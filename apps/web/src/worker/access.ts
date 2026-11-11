@@ -3,7 +3,7 @@ import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { type AppContext, fail, requireUser } from "./context.ts";
 import { schema } from "./db/client.ts";
 import type { FamilyStatus, Role } from "./db/schema.ts";
-import type { LibraryInfo } from "./library.ts";
+import { type LibraryInfo, libraryById } from "./library.ts";
 
 /*
  * The access layer. D1 has no row-level security, so this module is the one
@@ -56,9 +56,35 @@ export function canGrantRole(actor: Pick<Actor, "role">, role: Role): boolean {
 
 /** The signed-in person's membership of this library, or null if they have none. */
 export async function actorFor(c: AppContext): Promise<Actor | null> {
-  const user = c.get("user");
   const library = c.get("library");
-  if (!user || !library) return null;
+  return library ? actorIn(c, library) : null;
+}
+
+/**
+ * The signed-in person as a member of every library they belong to. For
+ * site-wide actions on the person themself, such as deleting their account.
+ */
+export async function actorsForUser(c: AppContext): Promise<Actor[]> {
+  const user = c.get("user");
+  if (!user) return [];
+  const rows = await c
+    .get("db")
+    .select({ libraryId: schema.memberships.libraryId })
+    .from(schema.memberships)
+    .where(eq(schema.memberships.userId, user.id))
+    .all();
+  const actors: Actor[] = [];
+  for (const row of rows) {
+    const library = await libraryById(c.get("db"), row.libraryId);
+    const actor = library ? await actorIn(c, library) : null;
+    if (actor) actors.push(actor);
+  }
+  return actors;
+}
+
+async function actorIn(c: AppContext, library: LibraryInfo): Promise<Actor | null> {
+  const user = c.get("user");
+  if (!user) return null;
   const row = await c
     .get("db")
     .select({

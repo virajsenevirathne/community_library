@@ -205,7 +205,11 @@ export const ROUTES: {
     rule: "catalog:edit",
     body: { copyIds: ["missing"] },
   },
-  { route: "GET /api/copies/:code", rule: "member", request: "/api/copies/ZZZZ" },
+  {
+    route: "GET /api/copies/:code",
+    rule: "member",
+    request: "/api/copies/ZZZZ",
+  },
   {
     route: "POST /api/copies/:code/borrow",
     rule: "borrower",
@@ -305,11 +309,11 @@ export const ROUTES: {
 type Who = "signedOut" | "nonMember" | "pendingMember" | "member" | "staff" | "admin";
 
 /** The status class each kind of person should get for a rule. */
-function expectedFor(rule: RouteRule, who: Who): "allowed" | 401 | 403 {
+function expectedFor(rule: RouteRule, who: Who, hidden = false): "allowed" | 401 | 403 | 404 {
   if (rule === "public") return "allowed";
   if (who === "signedOut") return 401;
   if (rule === "user") return "allowed";
-  if (who === "nonMember") return 403;
+  if (who === "nonMember") return hidden ? 404 : 403;
   if (rule === "member") return "allowed";
   if (rule === "borrower") return who === "member" ? "allowed" : 403;
   const role: Role = who === "pendingMember" ? "member" : who;

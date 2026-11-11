@@ -60,11 +60,22 @@ describe("first-run setup", () => {
       },
     });
     expect(setup.status).toBe(201);
+    // The new library lives at its own address, named after it.
+    expect(setup.body).toMatchObject({ slug: "little-owls" });
 
+    // Site-wide, the person sees the libraries they belong to.
+    admin.library = null;
+    expect((await admin.json("/api/me")).body).toMatchObject({
+      library: null,
+      libraries: [{ slug: "little-owls", name: "Little Owls", role: "admin" }],
+      setupNeeded: false,
+    });
+
+    admin.library = "little-owls";
     const me = await admin.json("/api/me");
     expect(me.body).toMatchObject({
       user: { email: "admin@example.com", hasPasskey: false },
-      library: { name: "Little Owls" },
+      library: { name: "Little Owls", slug: "little-owls" },
       setupNeeded: false,
       membership: { role: "admin", family: { name: "Lee", status: "active" } },
     });

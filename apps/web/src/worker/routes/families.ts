@@ -1,12 +1,13 @@
 import { isEmail, localParts, readInvites } from "@community-library/core";
 import { Hono } from "hono";
 import { z } from "zod";
-import { type Actor, actorFor, canGrantRole, requirePermission } from "../access.ts";
+import { type Actor, actorFor, actorsForUser, canGrantRole, requirePermission } from "../access.ts";
 import { authSecret } from "../config.ts";
 import { type AppContext, type AppEnv, fail, readBody, requireUser } from "../context.ts";
 import { hmacHex, randomToken, sha256Hex, timingSafeEqual } from "../crypto.ts";
 import { newId } from "../db/client.ts";
 import { approvedEmail, deleteCodeEmail, goodbyeEmail, inviteEmail } from "../email.ts";
+import { libraryById, libraryHome } from "../library.ts";
 import { consume } from "../limiter.ts";
 import type { Priority, QuotaMailer } from "../mailer.ts";
 import { name } from "./account.ts";
@@ -40,14 +41,18 @@ async function joinUrl(c: AppContext, nonce: string | null) {
   return nonce ? `${c.get("origin")}/join/${await joinTokenFor(c.env, nonce)}` : null;
 }
 
+/**
+ * The library a sign-up link belongs to: the token's hash is stored on its
+ * library, so a printed poster finds its library on the shared site. The
+ * request then acts for that library.
+ */
 async function libraryForJoinToken(c: AppContext, token: string) {
   if (!/^[0-9a-f]{32}$/.test(token)) return null;
-  const library = c.get("library");
-  if (!library) return null;
-  const row = await c.env.DB.prepare("select join_token_hash as hash from libraries where id = ?")
-    .bind(library.id)
-    .first<{ hash: string | null }>();
-  if (!row?.hash || !timingSafeEqual(row.hash, await sha256Hex(token))) return null;
+  const row = await c.env.DB.prepare("select id from libraries where join_token_hash = ?")
+    .bind(await sha256Hex(token))
+    .first<{ id: string }>();
+  const library = row ? await libraryById(c.get("db"), row.id) : null;
+  if (library) c.set("library", library);
   return library;
 }
 
@@ -123,9 +128,17 @@ export async function unsentInvites(DB: D1Database, libraryId: string, limit: nu
   return results;
 }
 
+/** An invite by its token. The invite names its library, and the request then acts for it. */
 async function inviteByToken(c: AppContext, token: string) {
-  const library = c.get("library");
-  if (!library || token.length < 20 || token.length > 100) return null;
+  if (token.length < 20 || token.length > 100) return null;
+  const found = await c.env.DB.prepare(
+    "select library_id as libraryId from invitations where token_hash = ?",
+  )
+    .bind(await sha256Hex(token))
+    .first<{ libraryId: string }>();
+  const library = found ? await libraryById(c.get("db"), found.libraryId) : null;
+  if (!library) return null;
+  c.set("library", library);
   return c.env.DB.prepare(
     `select i.id as id, i.email as email, i.role as role, i.family_id as familyId, i.expires_at as expiresAt,
             i.accepted_at as acceptedAt, f.name as familyName
@@ -158,7 +171,23 @@ function event(
 
 // --------------------------------------------------------------- deletion
 
-/** Why the actor's account can't be deleted yet (books still out, or they are the only admin). */
+/**
+ * Why the person's account can't be deleted yet, across every library they
+ * belong to: books still out, or being some library's only admin.
+ */
+async function accountBlockers(c: AppContext) {
+  const actors = await actorsForUser(c);
+  const each = await Promise.all(actors.map((actor) => deletionBlockers(c, actor)));
+  return {
+    actors,
+    each,
+    books: each.flatMap((b) => b.books),
+    lastAdmin: each.some((b) => b.lastAdmin),
+    lastParent: each.some((b) => b.lastParent),
+  };
+}
+
+/** Why the actor's account can't be deleted yet in one library. */
 async function deletionBlockers(c: AppContext, actor: Actor | null) {
   if (!actor) return { books: [], lastAdmin: false, lastParent: false };
   const DB = c.env.DB;
@@ -244,7 +273,7 @@ export const familyRoutes = new Hono<AppEnv>()
       );
     }
     return c.json({
-      library: { name: library.name },
+      library: { name: library.name, slug: library.slug },
       requireApproval: library.settings.requireApproval,
     });
   })
@@ -301,7 +330,7 @@ export const familyRoutes = new Hono<AppEnv>()
       );
     }
     return c.json({
-      library: { name: c.get("library")?.name },
+      library: { name: c.get("library")?.name, slug: c.get("library")?.slug },
       email: invite.email,
       familyName: invite.familyName,
       role: invite.role,
@@ -493,7 +522,13 @@ export const familyRoutes = new Hono<AppEnv>()
           for (const parent of results) {
             await c
               .get("email")
-              .send(approvedEmail(actor.library.name, parent.email, c.get("origin")));
+              .send(
+                approvedEmail(
+                  actor.library.name,
+                  parent.email,
+                  libraryHome(c.get("origin"), actor.library),
+                ),
+              );
           }
         })().catch((error) => console.error("Approval email failed:", error)),
       );
@@ -779,8 +814,7 @@ export const familyRoutes = new Hono<AppEnv>()
   /** Step 1: check nothing blocks deletion, then email a confirmation code. */
   .post("/account/delete/start", async (c) => {
     const user = requireUser(c);
-    const actor = await actorFor(c);
-    const blockers = await deletionBlockers(c, actor);
+    const blockers = await accountBlockers(c);
     if (blockers.books.length > 0 || blockers.lastAdmin) {
       return c.json({ blocked: true, books: blockers.books, lastAdmin: blockers.lastAdmin }, 409);
     }
@@ -811,7 +845,15 @@ export const familyRoutes = new Hono<AppEnv>()
     ]);
     const result = await c
       .get("email")
-      .send(deleteCodeEmail(c.get("library")?.name ?? c.env.LIBRARY_NAME, user.email, code));
+      .send(
+        deleteCodeEmail(
+          blockers.actors.length === 1
+            ? (blockers.actors[0]?.library.name ?? c.env.LIBRARY_NAME)
+            : c.env.LIBRARY_NAME,
+          user.email,
+          code,
+        ),
+      );
     if (!result.ok) fail(503, "email_failed", "We couldn't send the code. Please try again later.");
     return c.json({ codeSent: true, familyWillBeRemoved: blockers.lastParent });
   })
@@ -850,12 +892,10 @@ export const familyRoutes = new Hono<AppEnv>()
       fail(400, "wrong_code", "That code didn't work. It may have expired; ask for a new one.");
     }
     // Check again: a book may have been borrowed since the code was sent.
-    const actor = await actorFor(c);
-    const blockers = await deletionBlockers(c, actor);
+    const blockers = await accountBlockers(c);
     if (blockers.books.length > 0 || blockers.lastAdmin) {
       return c.json({ blocked: true, books: blockers.books, lastAdmin: blockers.lastAdmin }, 409);
     }
-    const library = c.get("library");
     const email = user.email.toLowerCase();
     const statements: D1PreparedStatement[] = [
       DB.prepare("delete from verifications where identifier = ?").bind(identifier),
@@ -863,17 +903,22 @@ export const familyRoutes = new Hono<AppEnv>()
       DB.prepare("delete from verifications where identifier like ?").bind(`%${email}`),
       DB.prepare("delete from invitations where lower(email) = ?").bind(email),
     ];
-    if (actor?.family && blockers.lastParent) {
-      statements.push(...removeFamilyStatements(DB, actor.library.id, actor.family.id));
-    }
+    // In each library where they were their family's last parent, the family goes too.
+    blockers.actors.forEach((actor, i) => {
+      if (actor.family && blockers.each[i]?.lastParent) {
+        statements.push(...removeFamilyStatements(DB, actor.library.id, actor.family.id));
+      }
+    });
     // Deleting the user removes their sessions, passkeys and memberships, and
     // clears their id from loans, copies and events.
     statements.push(DB.prepare("delete from users where id = ?").bind(user.id));
-    if (library) {
+    blockers.actors.forEach((actor, i) => {
       statements.push(
-        event(DB, library.id, null, "account_deleted", { familyRemoved: blockers.lastParent }),
+        event(DB, actor.library.id, null, "account_deleted", {
+          familyRemoved: blockers.each[i]?.lastParent ?? false,
+        }),
       );
-    }
+    });
     try {
       await DB.batch(statements);
     } catch (error) {
@@ -883,7 +928,14 @@ export const familyRoutes = new Hono<AppEnv>()
     c.get("waitUntil")(
       c
         .get("email")
-        .send(goodbyeEmail(library?.name ?? c.env.LIBRARY_NAME, user.email))
+        .send(
+          goodbyeEmail(
+            blockers.actors.length === 1
+              ? (blockers.actors[0]?.library.name ?? c.env.LIBRARY_NAME)
+              : c.env.LIBRARY_NAME,
+            user.email,
+          ),
+        )
         .catch((error) => console.error("Goodbye email failed:", error)),
     );
     return c.json({ deleted: true });

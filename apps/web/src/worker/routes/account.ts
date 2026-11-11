@@ -1,4 +1,4 @@
-import { defaultSettings, isValidTimezone, mergeSettings } from "@community-library/core";
+import { defaultSettings, isValidTimezone, mergeSettings, slugify } from "@community-library/core";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -7,7 +7,6 @@ import { authSecret, isLocalHost, secrets } from "../config.ts";
 import { type AppEnv, fail, readBody, requireUser } from "../context.ts";
 import { sha256Hex, timingSafeEqual } from "../crypto.ts";
 import { newId, schema } from "../db/client.ts";
-import { slugify } from "../library.ts";
 import { clientIp, consume } from "../limiter.ts";
 
 /** A short name typed by a person: trimmed, not empty, no line breaks or control characters. */
@@ -33,26 +32,37 @@ const setupBody = z.object({
 });
 
 export const accountRoutes = new Hono<AppEnv>()
-  /** Who is signed in, what they can do, and whether the library still needs setting up. */
+  /**
+   * Who is signed in, the libraries they belong to, their role in the library
+   * this page belongs to (if any), and whether the site still needs setting up.
+   */
   .get("/me", async (c) => {
     const db = c.get("db");
     const library = c.get("library");
     const user = c.get("user");
-    if (!user) {
-      return c.json({
-        user: null,
-        library: library && { name: library.name },
-        setupNeeded: !library,
-      });
-    }
-    const actor = await actorFor(c);
-    const passkeyCount = await db.$count(schema.passkeys, eq(schema.passkeys.userId, user.id));
+    const anyLibrary = await c.env.DB.prepare("select 1 from libraries limit 1").first();
+    const setupNeeded = !anyLibrary;
+    // A library's name is shown only to its members, so addresses can't be
+    // tried one by one to list the centres on the site.
+    if (!user) return c.json({ user: null, library: null, libraries: [], setupNeeded });
+    const [actor, passkeyCount, libraries] = await Promise.all([
+      actorFor(c),
+      db.$count(schema.passkeys, eq(schema.passkeys.userId, user.id)),
+      c.env.DB.prepare(
+        `select l.slug as slug, l.name as name, m.role as role
+         from memberships m join libraries l on l.id = m.library_id
+         where m.user_id = ? order by l.name`,
+      )
+        .bind(user.id)
+        .all<{ slug: string; name: string; role: "admin" | "staff" | "member" }>(),
+    ]);
     return c.json({
       user: { id: user.id, email: user.email, name: user.name, hasPasskey: passkeyCount > 0 },
-      library: library && { name: library.name },
-      setupNeeded: !library,
+      library: actor && library ? { name: library.name, slug: library.slug } : null,
+      libraries: libraries.results,
+      setupNeeded,
       // Only matters before setup: whether the setup form must ask for the code.
-      setupCodeRequired: !library && Boolean(secrets(c.env).SETUP_CODE),
+      setupCodeRequired: setupNeeded && Boolean(secrets(c.env).SETUP_CODE),
       membership: actor ? { role: actor.role, family: actor.family } : null,
     });
   })
@@ -107,18 +117,14 @@ export const accountRoutes = new Hono<AppEnv>()
     if (!merged.ok) fail(422, "invalid_input", merged.errors[0]?.message ?? "Invalid timezone.");
 
     const libraryId = newId();
+    const slug = slugify(body.libraryName);
     const familyId = body.familyName ? newId() : null;
     const DB = c.env.DB;
     const libraryExists = "exists (select 1 from libraries where id = ?)";
     const statements = [
       DB.prepare(
         "insert into libraries (id, name, slug, settings) select ?, ?, ?, ? where not exists (select 1 from libraries)",
-      ).bind(
-        libraryId,
-        body.libraryName,
-        slugify(body.libraryName),
-        JSON.stringify(merged.settings),
-      ),
+      ).bind(libraryId, body.libraryName, slug, JSON.stringify(merged.settings)),
     ];
     if (familyId && body.familyName) {
       statements.push(
@@ -140,5 +146,5 @@ export const accountRoutes = new Hono<AppEnv>()
     if (created?.meta.changes !== 1) {
       fail(409, "already_set_up", "This library has already been set up.");
     }
-    return c.json({ ok: true }, 201);
+    return c.json({ ok: true, slug }, 201);
   });

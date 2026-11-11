@@ -11,6 +11,7 @@ const PATHS = {
   return: "M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3",
   list: "M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01",
   plus: "M12 5v14M5 12h14",
+  chevron: "M9 6l6 6-6 6",
   keyboard:
     "M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Zm4 3h.01M11 10h.01M15 10h.01M8 15h8",
   library: "M4 19V5M9 19V5M14 19l-1-14M19 19 16 5",

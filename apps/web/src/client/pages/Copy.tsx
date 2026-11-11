@@ -2,7 +2,7 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { Alert, Button, Field, Layout, Loading } from "../components.tsx";
 import { ApiError, api, errorMessage } from "../lib/api.ts";
 import { type CopyView, formatDate, lateText, parseCopyCode } from "../lib/copies.ts";
-import { Link, navigate } from "../lib/router.tsx";
+import { Link, libraryBase, navigate } from "../lib/router.tsx";
 import { isStaff, useSession } from "../lib/session.tsx";
 import { Cover } from "./admin/Cover.tsx";
 
@@ -46,7 +46,15 @@ export function CopyPage({ code }: { code: string }) {
   const load = useCallback(
     async (keepError = false) => {
       try {
-        setCopy((await api<{ copy: CopyView }>(`/copies/${encodeURIComponent(code)}`)).copy);
+        const found = (await api<{ copy: CopyView }>(`/copies/${encodeURIComponent(code)}`)).copy;
+        // A sticker's short address (/c/K7R2), or a book opened from another
+        // library's pages, moves to the book's own library, so the page shows
+        // that library and what this person can do there.
+        if (libraryBase() !== found.library.slug) {
+          navigate(`/${found.library.slug}/c/${found.code}`, { replace: true, absolute: true });
+          return;
+        }
+        setCopy(found);
         if (!keepError) setError(null);
       } catch (e) {
         setError(toPageError(e));

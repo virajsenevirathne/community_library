@@ -52,7 +52,7 @@ export function SetupPage() {
     setBusy(true);
     setError("");
     try {
-      await api("/setup", {
+      const created = await api<{ slug: string }>("/setup", {
         body: {
           setupCode: form.setupCode.trim() || undefined,
           libraryName: form.libraryName,
@@ -62,7 +62,7 @@ export function SetupPage() {
         },
       });
       await refresh();
-      navigate("/", { replace: true });
+      navigate(`/${created.slug}/`, { replace: true, absolute: true });
     } catch (e) {
       setError(errorMessage(e));
       // The message is at the top of a long form: bring it into view.

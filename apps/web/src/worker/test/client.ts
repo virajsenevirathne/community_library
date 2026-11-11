@@ -51,6 +51,11 @@ export class TestClient {
   private cookies = new Map<string, string>();
   /** Each test person browses from their own address, like real parents on their own phones. */
   readonly ip = `10.0.${Math.floor(nextIp / 250) % 250}.${nextIp++ % 250}`;
+  /**
+   * The library this person's pages belong to, sent as the browser does
+   * (the X-Library header). Null for site-wide pages only.
+   */
+  library: string | null = "lib-1";
   constructor(
     private readonly ctx: ReturnType<typeof createTestApp>,
     readonly email: string,
@@ -64,6 +69,7 @@ export class TestClient {
     const headers = new Headers(init.headers);
     headers.set("Origin", this.origin);
     if (!headers.has("cf-connecting-ip")) headers.set("cf-connecting-ip", this.ip);
+    if (this.library && !headers.has("X-Library")) headers.set("X-Library", this.library);
     if (init.body !== undefined) headers.set("Content-Type", "application/json");
     if (this.cookies.size > 0) {
       headers.set("Cookie", [...this.cookies].map(([k, v]) => `${k}=${v}`).join("; "));

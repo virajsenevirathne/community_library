@@ -11,7 +11,7 @@ import { authSecret, secrets } from "./config.ts";
 import type { AppEnv } from "./context.ts";
 import { createDb } from "./db/client.ts";
 import { configuredSenders, emailStatus } from "./email.ts";
-import { currentLibrary } from "./library.ts";
+import { LIBRARY_HEADER, libraryForRequest } from "./library.ts";
 import { consume } from "./limiter.ts";
 import { QuotaMailer } from "./mailer.ts";
 import { accountRoutes } from "./routes/account.ts";
@@ -72,7 +72,7 @@ export function createApp(options: AppOptions = {}) {
   app.use(async (c, next) => {
     const db = createDb(c.env.DB);
     c.set("db", db);
-    const library = await currentLibrary(db);
+    const library = await libraryForRequest(db, c.req.path, c.req.header(LIBRARY_HEADER));
     c.set("library", library);
     const libraryName = library?.name ?? c.env.LIBRARY_NAME;
     // APP_URL pins the site's address (passkeys are tied to it). Without it, the

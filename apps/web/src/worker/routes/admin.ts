@@ -15,6 +15,7 @@ import { hmacHex, timingSafeEqual } from "../crypto.ts";
 import { newId } from "../db/client.ts";
 import { reminderEmail } from "../email.ts";
 import { JOB_NAME, nudgesOffUrl, STALE_AFTER_MS } from "../jobs/reminders.ts";
+import { libraryHome } from "../library.ts";
 import { clientIp, consume } from "../limiter.ts";
 import { PROVIDER_LIMITS, type QuotaMailer } from "../mailer.ts";
 import { name } from "./account.ts";
@@ -185,7 +186,7 @@ async function remindFamilies(
           const message = reminderEmail({
             libraryName: actor.library.name,
             to: email,
-            siteUrl: c.get("origin"),
+            siteUrl: libraryHome(c.get("origin"), actor.library),
             nudgesOffUrl: offUrl,
             lines,
           });

@@ -3,6 +3,8 @@ import { normalizeShortCode } from "@community-library/core";
 export interface CopyView {
   code: string;
   title: { id: string; title: string; authors: string; coverUrl: string | null };
+  /** The library the book belongs to. */
+  library: { slug: string; name: string };
   state: "available" | "mine" | "out" | "unavailable";
   status: "available" | "lost" | "damaged" | "retired";
   loan: {

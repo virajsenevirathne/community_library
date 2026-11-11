@@ -1,3 +1,5 @@
+import { libraryBase } from "./router.tsx";
+
 /** An error from our API, with a message that can be shown to people as is. */
 export class ApiError extends Error {
   constructor(
@@ -26,11 +28,14 @@ export async function api<T>(
   } = {},
 ): Promise<T> {
   let res: Response;
+  const base = libraryBase();
   try {
     res = await fetch(`/api${path}`, {
       method: init.method ?? (init.body === undefined ? "GET" : "POST"),
       headers: {
         ...(init.body === undefined ? {} : { "Content-Type": "application/json" }),
+        // The library this page belongs to; the server acts in it.
+        ...(base ? { "X-Library": base } : {}),
         ...init.headers,
       },
       credentials: "same-origin",
