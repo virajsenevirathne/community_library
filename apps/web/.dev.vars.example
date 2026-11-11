@@ -7,6 +7,13 @@ BETTER_AUTH_SECRET=
 # One-time code needed to create the library on first run. Required in production.
 SETUP_CODE=
 
+# Optional: a free Google Books API key, so books Open Library doesn't know
+# (many recent Australian editions) are still found. Without one, Google's
+# shared anonymous quota is usually used up and those lookups fail.
+# Create one at https://console.cloud.google.com/apis/credentials with the
+# "Books API" enabled; restrict it to the Books API.
+GOOGLE_BOOKS_API_KEY=
+
 # Email providers. With neither set, emails (including sign-in codes) are
 # printed in the terminal instead of sent.
 RESEND_API_KEY=

@@ -9,6 +9,9 @@ import { JOIN_TOKEN_HEADER } from "../auth.ts";
 export const ORIGIN = "http://localhost:5173";
 
 /** The app plus an in-memory outbox, sharing one test database. */
+/** The fake lookup answers "unavailable" for this ISBN, like a rate-limited service. */
+export const UNAVAILABLE_ISBN = "9781742990040";
+
 export function createTestApp(env: Env) {
   const outbox = new MemorySender();
   const pending: Promise<unknown>[] = [];
@@ -27,7 +30,7 @@ export function createTestApp(env: Env) {
   // A fake book lookup, so tests never call the internet.
   const metadata: MetadataProvider = {
     name: "fake",
-    lookup: async (isbn) => books.get(isbn) ?? null,
+    lookup: async (isbn) => (isbn === UNAVAILABLE_ISBN ? "unavailable" : (books.get(isbn) ?? null)),
   };
   const app = createApp({
     email: () => outbox,

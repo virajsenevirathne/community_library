@@ -10,6 +10,8 @@ import { Cover } from "./Cover.tsx";
 interface Lookup {
   isbn: string;
   found: boolean;
+  /** The online lookup couldn't answer (a service down or busy), so it's worth trying again. */
+  unavailable?: boolean;
   title?: string;
   authors?: string;
   coverUrl?: string | null;
@@ -36,6 +38,7 @@ type Step =
       isbn: string | null;
       prefill: { title: string; authors: string; coverUrl: string | null };
       found: boolean;
+      unavailable?: boolean;
     }
   | { name: "existing"; isbn: string; existing: NonNullable<Lookup["existing"]> }
   | { name: "saved"; title: SavedTitle; newCopyIds: string[]; added: boolean };
@@ -63,6 +66,7 @@ export function AddBooksPage() {
           name: "details",
           isbn: result.isbn,
           found: result.found,
+          unavailable: result.unavailable === true,
           prefill: {
             title: result.title ?? "",
             authors: result.authors ?? "",
@@ -106,6 +110,8 @@ export function AddBooksPage() {
         <DetailsStep
           isbn={step.isbn}
           found={step.found}
+          unavailable={step.unavailable === true}
+          onExisting={(isbn, existing) => setStep({ name: "existing", isbn, existing })}
           prefill={step.prefill}
           onCancel={() => setStep({ name: "start" })}
           onSaved={(title, added) =>
@@ -249,22 +255,61 @@ function StartStep({
 function DetailsStep(props: {
   isbn: string | null;
   found: boolean;
+  /** The online lookup couldn't answer, so trying again may still find it. */
+  unavailable: boolean;
+  /** A retried lookup found the book already in the catalog. */
+  onExisting: (isbn: string, existing: NonNullable<Lookup["existing"]>) => void;
   prefill: { title: string; authors: string; coverUrl: string | null };
   onCancel: () => void;
   onSaved: (title: SavedTitle, added: boolean) => void;
 }) {
-  const { isbn, found, prefill, onCancel, onSaved } = props;
+  const { isbn, prefill, onCancel, onExisting, onSaved } = props;
   const [form, setForm] = useState({ title: prefill.title, authors: prefill.authors, copies: "1" });
+  // A retried lookup can change these without leaving the page (or losing what was typed).
+  const [found, setFound] = useState(props.found);
+  const [unavailable, setUnavailable] = useState(props.unavailable);
+  const [coverUrl, setCoverUrl] = useState(prefill.coverUrl);
+  const [retrying, setRetrying] = useState(false);
+  const [retries, setRetries] = useState(0);
   const [errors, setErrors] = useState<{ title?: string; copies?: string }>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const titleInput = useRef<HTMLInputElement>(null);
   const copiesInput = useRef<HTMLInputElement>(null);
 
-  // When the details were not found online, start typing the title straight away.
+  // When the details were definitely not found online, start typing the title
+  // straight away. While the lookup is down, staff may prefer to try again first.
+  const autoFocusTitle = !props.found && !props.unavailable;
   useEffect(() => {
-    if (!found) titleInput.current?.focus();
-  }, [found]);
+    if (autoFocusTitle) titleInput.current?.focus();
+  }, [autoFocusTitle]);
+
+  const retry = async () => {
+    if (!isbn || retrying) return;
+    setRetrying(true);
+    setError("");
+    try {
+      const result = await api<Lookup>(`/catalog/lookup/${isbn}`);
+      if (result.existing) return onExisting(result.isbn, result.existing);
+      setFound(result.found);
+      setUnavailable(result.unavailable === true);
+      if (result.found) {
+        // Fill in only what hasn't been typed yet.
+        setForm((f) => ({
+          ...f,
+          title: f.title.trim() ? f.title : (result.title ?? ""),
+          authors: f.authors.trim() ? f.authors : (result.authors ?? ""),
+        }));
+        setCoverUrl(result.coverUrl ?? null);
+      } else {
+        setRetries((n) => n + 1);
+      }
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -284,7 +329,7 @@ function DetailsStep(props: {
           isbn: isbn ?? "",
           title: form.title,
           authors: form.authors,
-          coverUrl: prefill.coverUrl ?? "",
+          coverUrl: coverUrl ?? "",
           copies,
         },
       });
@@ -297,7 +342,23 @@ function DetailsStep(props: {
 
   return (
     <form onSubmit={save} noValidate className="stack">
-      {isbn && !found && (
+      {isbn && !found && unavailable && (
+        <Alert kind="warning">
+          <p id="not-found">
+            {retries > 0
+              ? `Still no answer (tried ${retries + 1} times). `
+              : "We couldn't reach the online book lookup, so "}
+            ISBN {isbn} hasn't been filled in. Try again in a minute, or type the title below and it
+            will be saved with this ISBN.
+          </p>
+          <div className="alert__actions">
+            <Button variant="secondary" onClick={retry} busy={retrying} busyLabel="Trying…">
+              Try the lookup again
+            </Button>
+          </div>
+        </Alert>
+      )}
+      {isbn && !found && !unavailable && (
         <Alert kind="info">
           <span id="not-found">
             We couldn't find ISBN {isbn} online. Type the title (and author, if you like) and it
@@ -307,7 +368,7 @@ function DetailsStep(props: {
       )}
       <Alert>{error}</Alert>
       <div className="book-preview">
-        <Cover url={prefill.coverUrl} title={form.title} />
+        <Cover url={coverUrl} title={form.title} />
         <div>
           {isbn && <p className="muted">ISBN {isbn}</p>}
           {found && <p className="muted">Details found online. Fix anything that's wrong.</p>}

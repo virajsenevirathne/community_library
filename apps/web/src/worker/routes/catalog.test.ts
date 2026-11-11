@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createTestApp } from "../test/client.ts";
+import { createTestApp, UNAVAILABLE_ISBN } from "../test/client.ts";
 import { createTestEnv } from "../test/env.ts";
 import { createLibrary, person } from "../test/fixtures.ts";
 
@@ -36,7 +36,35 @@ describe("looking up an ISBN", () => {
 
   it("says when a book is not found, so staff can type it in", async () => {
     const res = await staff.json("/api/catalog/lookup/9781234567897");
-    expect(res.body).toEqual({ isbn: "9781234567897", found: false });
+    expect(res.body).toEqual({ isbn: "9781234567897", found: false, unavailable: false });
+  });
+
+  it("says when the lookup couldn't answer, so staff can try again", async () => {
+    const res = await staff.json(`/api/catalog/lookup/${UNAVAILABLE_ISBN}`);
+    expect(res.body).toEqual({ isbn: UNAVAILABLE_ISBN, found: false, unavailable: true });
+  });
+
+  it("caches answers, but never a lookup that couldn't answer", async () => {
+    const stored = new Map<string, string | null>();
+    const fake = {
+      match: async () => undefined,
+      put: async (req: Request, res: Response) => {
+        stored.set(new URL(req.url).pathname, res.headers.get("Cache-Control"));
+      },
+    };
+    const g = globalThis as { caches?: unknown };
+    const before = g.caches;
+    g.caches = { default: fake };
+    try {
+      await staff.json(`/api/catalog/lookup/${UNAVAILABLE_ISBN}`);
+      await staff.json("/api/catalog/lookup/9781234567897");
+      await staff.json("/api/catalog/lookup/9780140328721");
+    } finally {
+      g.caches = before;
+    }
+    expect(stored.has(`/v2/${UNAVAILABLE_ISBN}`)).toBe(false);
+    expect(stored.get("/v2/9781234567897")).toBe("max-age=21600");
+    expect(stored.get("/v2/9780140328721")).toBe("max-age=86400");
   });
 
   it("rejects something that is not an ISBN", async () => {

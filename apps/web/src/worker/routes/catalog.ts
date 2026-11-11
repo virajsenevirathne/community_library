@@ -1,4 +1,4 @@
-import { type BookMetadata, isAllowedCoverUrl, lookupIsbn } from "@community-library/adapters";
+import { isAllowedCoverUrl, type LookupResult, lookupIsbn } from "@community-library/adapters";
 import { normalizeIsbn, randomShortCode } from "@community-library/core";
 import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -194,19 +194,17 @@ async function titleWithCopies(db: Db, actor: Actor, titleId: string) {
 }
 
 /**
- * Looks an ISBN up online, at most 60 times a minute per person, and keeps
- * answers (including "not found") for a day so repeat scans are instant.
+ * Looks an ISBN up online, at most 60 times a minute per person. A found book
+ * is kept for a day and a definite "not found" for six hours, so repeat scans
+ * are instant. A lookup that failed (a service down or rate-limited) is never
+ * kept, so the next scan tries again.
  */
-async function lookupOnline(
-  c: AppContext,
-  actor: Actor,
-  isbn: string,
-): Promise<BookMetadata | null> {
-  const cacheKey = new Request(`https://isbn-cache.internal/${isbn}`);
+async function lookupOnline(c: AppContext, actor: Actor, isbn: string): Promise<LookupResult> {
+  const cacheKey = new Request(`https://isbn-cache.internal/v2/${isbn}`);
   const cache =
     typeof caches === "undefined" ? null : (caches as unknown as { default: Cache }).default;
   const cached = await cache?.match(cacheKey).catch(() => undefined);
-  if (cached) return (await cached.json()) as BookMetadata | null;
+  if (cached) return (await cached.json()) as LookupResult;
 
   const limit = await consume(c.env.DB, authSecret(c.env), `isbn-lookup:${actor.userId}`, {
     window: 60,
@@ -215,14 +213,19 @@ async function lookupOnline(
   if (!limit.allowed)
     fail(429, "too_many_lookups", "That's a lot of lookups. Please wait a minute.");
 
-  const book = await lookupIsbn(c.get("metadata"), isbn);
-  await cache
-    ?.put(
-      cacheKey,
-      new Response(JSON.stringify(book), { headers: { "Cache-Control": "max-age=86400" } }),
-    )
-    .catch(() => undefined);
-  return book;
+  const result = await lookupIsbn(c.get("metadata"), isbn);
+  if (!result.unavailable) {
+    const maxAge = result.book ? 86_400 : 6 * 3600;
+    await cache
+      ?.put(
+        cacheKey,
+        new Response(JSON.stringify(result), {
+          headers: { "Cache-Control": `max-age=${maxAge}` },
+        }),
+      )
+      .catch(() => undefined);
+  }
+  return result;
 }
 
 export const catalogRoutes = new Hono<AppEnv>()
@@ -250,8 +253,8 @@ export const catalogRoutes = new Hono<AppEnv>()
       );
       return c.json({ isbn, found: true, existing: { ...existing, copies } });
     }
-    const book = await lookupOnline(c, actor, isbn);
-    if (!book) return c.json({ isbn, found: false });
+    const { book, unavailable } = await lookupOnline(c, actor, isbn);
+    if (!book) return c.json({ isbn, found: false, unavailable });
     return c.json({
       isbn,
       found: true,

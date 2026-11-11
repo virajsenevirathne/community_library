@@ -12,7 +12,11 @@ export {
   COVER_HOSTS,
   GoogleBooksProvider,
   isAllowedCoverUrl,
+  type LookupResult,
   lookupIsbn,
   type MetadataProvider,
   OpenLibraryProvider,
+  type ProviderAnswer,
+  tidyAuthors,
+  tidyTitle,
 } from "./metadata.ts";

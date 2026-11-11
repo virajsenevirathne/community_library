@@ -7,7 +7,7 @@ import {
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { type Auth, createAuth } from "./auth.ts";
-import { authSecret } from "./config.ts";
+import { authSecret, secrets } from "./config.ts";
 import type { AppEnv } from "./context.ts";
 import { createDb } from "./db/client.ts";
 import { configuredSenders, emailStatus } from "./email.ts";
@@ -83,7 +83,13 @@ export function createApp(options: AppOptions = {}) {
       options.email?.(c.env) ??
       new QuotaMailer(c.env.DB, configuredSenders(c.env, libraryName, new URL(origin).hostname));
     c.set("email", email);
-    c.set("metadata", options.metadata ?? [new OpenLibraryProvider(), new GoogleBooksProvider()]);
+    c.set(
+      "metadata",
+      options.metadata ?? [
+        new OpenLibraryProvider(),
+        new GoogleBooksProvider(undefined, secrets(c.env).GOOGLE_BOOKS_API_KEY),
+      ],
+    );
 
     const waitUntil = options.waitUntil ?? ((p: Promise<unknown>) => c.executionCtx.waitUntil(p));
     c.set("waitUntil", waitUntil);

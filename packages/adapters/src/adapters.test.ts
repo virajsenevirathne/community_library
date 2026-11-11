@@ -5,6 +5,8 @@ import {
   isAllowedCoverUrl,
   lookupIsbn,
   OpenLibraryProvider,
+  tidyAuthors,
+  tidyTitle,
 } from "./metadata.ts";
 
 const fakeFetch = (body: unknown, status = 200) =>
@@ -38,7 +40,7 @@ describe("metadata providers", () => {
         ],
       }),
     );
-    expect((await provider.lookup("9780140328721"))?.coverUrl).toBeNull();
+    expect(await provider.lookup("9780140328721")).toMatchObject({ title: "X", coverUrl: null });
     expect(isAllowedCoverUrl("http://covers.openlibrary.org/x.jpg")).toBe(false);
     expect(isAllowedCoverUrl("javascript:alert(1)")).toBe(false);
   });
@@ -49,8 +51,66 @@ describe("metadata providers", () => {
     const google = new GoogleBooksProvider(
       fakeFetch({ items: [{ volumeInfo: { title: "Found" } }] }),
     );
-    expect((await lookupIsbn([failing, empty, google], "9780140328721"))?.title).toBe("Found");
-    expect(await lookupIsbn([failing, empty], "9780140328721")).toBeNull();
+    expect((await lookupIsbn([failing, empty, google], "9780140328721")).book?.title).toBe("Found");
+    // A failed provider means "try again later", not "this ISBN doesn't exist".
+    expect(await lookupIsbn([failing, empty], "9780140328721")).toEqual({
+      book: null,
+      unavailable: true,
+    });
+    expect(await lookupIsbn([empty, failing], "9780140328721")).toEqual({
+      book: null,
+      unavailable: true,
+    });
+    expect(await lookupIsbn([empty], "9780140328721")).toEqual({
+      book: null,
+      unavailable: false,
+    });
+  });
+
+  it("treat a rate-limited Google Books as unavailable, and send the key when set", async () => {
+    const urls: string[] = [];
+    const limited = (async (url: string) => {
+      urls.push(url);
+      return new Response(JSON.stringify({ error: { code: 429 } }), { status: 429 });
+    }) as unknown as typeof fetch;
+    expect(await new GoogleBooksProvider(limited).lookup("9781742990040")).toBe("unavailable");
+    expect(urls[0]).not.toContain("key=");
+    await new GoogleBooksProvider(limited, "k e/y").lookup("9781742990040");
+    expect(urls[1]).toContain("&key=k%20e%2Fy");
+  });
+
+  it("tidy catalogue titles", () => {
+    expect(tidyTitle("charlotte's web", ["E. B. White"])).toBe("Charlotte's Web");
+    expect(tidyTitle("the cat in the hat", ["Dr. Seuss"])).toBe("The Cat in the Hat");
+    expect(
+      tidyTitle(
+        "Where The Wild Things Are by Maurice Sendak (Special Edition, 1 Jan 1967) Hardcover",
+        ["Maurice Sendak"],
+      ),
+    ).toBe("Where The Wild Things Are");
+    // "by" that isn't the author stays.
+    expect(tidyTitle("Stand by Me", ["Ben E. King"])).toBe("Stand by Me");
+    expect(tidyTitle("Possum Magic", ["Mem Fox"])).toBe("Possum Magic");
+    expect(tidyTitle("Goodnight moon", [])).toBe("Goodnight Moon");
+    expect(tidyTitle("Possum magic", [])).toBe("Possum Magic");
+    expect(tidyTitle("Matilda", [])).toBe("Matilda");
+    expect(tidyTitle("matilda", [])).toBe("Matilda");
+    // "by" in the title itself is kept, even when a short surname appears after it.
+    expect(tidyTitle("Learning by Doing", ["Ng"])).toBe("Learning by Doing");
+    expect(tidyTitle("Ruled by Fear by Joe Smith", ["Joe Smith"])).toBe("Ruled by Fear");
+    expect(tidyTitle("HARRY POTTER", [])).toBe("HARRY POTTER");
+    expect(tidyTitle("iPhone for kids", [])).toBe("iPhone for kids");
+    expect(tidyTitle("web: a tale", [])).toBe("Web: A Tale");
+    expect(tidyTitle("spider-man and friends", [])).toBe("Spider-Man and Friends");
+    expect(tidyTitle("my 3d book", [])).toBe("My 3d Book");
+  });
+
+  it("drop repeated authors", () => {
+    expect(tidyAuthors(["Mem Fox", "Vivas Julie", "Julie Vivas"])).toEqual([
+      "Mem Fox",
+      "Julie Vivas",
+    ]);
+    expect(tidyAuthors(["E. B. White", "E.B. White"])).toEqual(["E.B. White"]);
   });
 });
 

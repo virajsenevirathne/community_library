@@ -1896,3 +1896,9 @@ kbd {
     padding-left: calc(var(--s-4) + 1px);
   }
 }
+.alert__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}

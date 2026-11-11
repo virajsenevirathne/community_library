@@ -8,6 +8,7 @@ export interface Secrets {
   RESEND_API_KEY?: string;
   MAILJET_API_KEY?: string;
   MAILJET_API_SECRET?: string;
+  GOOGLE_BOOKS_API_KEY?: string;
 }
 
 export function secrets(env: Env): Secrets {
@@ -23,6 +24,7 @@ export function secrets(env: Env): Secrets {
     "RESEND_API_KEY",
     "MAILJET_API_KEY",
     "MAILJET_API_SECRET",
+    "GOOGLE_BOOKS_API_KEY",
   ] as const) {
     const value = read(key);
     if (value) result[key] = value;

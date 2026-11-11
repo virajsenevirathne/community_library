@@ -8,10 +8,16 @@ export interface BookMetadata {
   source: string;
 }
 
+/**
+ * A provider's answer: the book, null when it definitely doesn't know the
+ * ISBN, or "unavailable" when it couldn't answer (down, slow or rate-limited).
+ */
+export type ProviderAnswer = BookMetadata | null | "unavailable";
+
 export interface MetadataProvider {
   readonly name: string;
-  /** Looks up an ISBN-13. Returns null when the book is not found or the service fails. */
-  lookup(isbn13: string): Promise<BookMetadata | null>;
+  /** Looks up an ISBN-13. Never throws. */
+  lookup(isbn13: string): Promise<ProviderAnswer>;
 }
 
 /** Cover images are only accepted from these hosts, so a stored link cannot point anywhere else. */
@@ -32,6 +38,9 @@ export function isAllowedCoverUrl(value: string): boolean {
 
 const TIMEOUT_MS = 5000;
 
+const UNAVAILABLE = Symbol("unavailable");
+
+/** The JSON body, or UNAVAILABLE when the service failed, timed out or refused (rate limit). */
 async function getJson(fetcher: typeof fetch, url: string): Promise<unknown> {
   try {
     const res = await fetcher(url, {
@@ -41,10 +50,16 @@ async function getJson(fetcher: typeof fetch, url: string): Promise<unknown> {
       },
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // Rate limits are expected; anything else (a bad API key, say) is worth a log line.
+      // Only the host and status: the URL can carry the API key.
+      if (res.status !== 429)
+        console.warn(`Book lookup failed: ${new URL(url).host} HTTP ${res.status}`);
+      return UNAVAILABLE;
+    }
     return await res.json();
   } catch {
-    return null;
+    return UNAVAILABLE;
   }
 }
 
@@ -52,16 +67,97 @@ function clean(value: unknown, max: number): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
 }
 
+const SMALL_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "at",
+  "by",
+  "for",
+  "in",
+  "of",
+  "on",
+  "or",
+  "the",
+  "to",
+]);
+
+const capitalise = (word: string) =>
+  // Words with digits (such as "3d") are left as they are.
+  /\d/.test(word)
+    ? word
+    : word
+        .split("-")
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join("-");
+
+/**
+ * Tidies titles as catalogues store them: "charlotte's web" and "Goodnight
+ * moon" become "Charlotte's Web" and "Goodnight Moon", and seller-style
+ * extras such as "by Maurice Sendak (Special Edition, 1 Jan 1967) Hardcover"
+ * are dropped. Titles with capitals inside ("iPhone", "McDonald's") or in
+ * all capitals are left alone.
+ */
+export function tidyTitle(title: string, authors: string[]): string {
+  let result = title.replace(/\s+(hardcover|hardback|paperback|board book)$/i, "");
+  // Only the last " by ", and only when a listed author's full name follows it.
+  const by = result.match(/^(.+)\s+by\s+(.+)$/i);
+  if (by?.[1] && by[2]) {
+    const tail = by[2].toLowerCase();
+    if (authors.some((a) => a.trim() && tail.startsWith(a.trim().toLowerCase()))) result = by[1];
+  }
+  const rest = result.slice(1);
+  const allLower = result === result.toLowerCase();
+  const sentenceCase = rest === rest.toLowerCase() && result.includes(" ");
+  if (/[a-z]/.test(result) && (allLower || sentenceCase)) {
+    let afterColon = false;
+    result = result
+      .split(" ")
+      .map((word, i) => {
+        const keepSmall = i > 0 && !afterColon && SMALL_WORDS.has(word);
+        afterColon = word.endsWith(":");
+        return keepSmall ? word : capitalise(word);
+      })
+      .join(" ");
+  }
+  return result.trim() || title;
+}
+
+/**
+ * Drops repeated authors, including reversed duplicates such as "Vivas Julie"
+ * next to "Julie Vivas". Of two forms, the later one is kept: catalogues tend
+ * to list the raw "Surname Given" form first.
+ */
+export function tidyAuthors(authors: string[]): string[] {
+  const byKey = new Map<string, string>();
+  for (const name of authors) {
+    const key = name
+      .toLowerCase()
+      .replace(/[.,]/g, " ")
+      .split(/\s+/)
+      .filter(Boolean)
+      .sort()
+      .join(" ");
+    if (!key) continue;
+    // Deleting first keeps the list in order of each name's last appearance.
+    byKey.delete(key);
+    byKey.set(key, name);
+  }
+  return [...byKey.values()];
+}
+
 /** Open Library (https://openlibrary.org): free, no key needed. */
 export class OpenLibraryProvider implements MetadataProvider {
   readonly name = "openlibrary";
   constructor(private readonly fetcher: typeof fetch = fetch) {}
 
-  async lookup(isbn: string): Promise<BookMetadata | null> {
-    const data = (await getJson(
+  async lookup(isbn: string): Promise<ProviderAnswer> {
+    const raw = await getJson(
       this.fetcher,
       `https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`,
-    )) as Record<
+    );
+    if (raw === UNAVAILABLE) return "unavailable";
+    const data = raw as Record<
       string,
       {
         title?: unknown;
@@ -74,29 +170,40 @@ export class OpenLibraryProvider implements MetadataProvider {
     const title = clean(book?.title, 200);
     if (!book || !title) return null;
     const cover = clean(book.cover?.medium, 500).replace(/^http:/, "https:");
+    const authors = tidyAuthors(
+      (book.authors ?? []).map((a) => clean(a.name, 100)).filter(Boolean),
+    ).slice(0, 10);
     return {
       isbn,
-      title,
-      authors: (book.authors ?? [])
-        .map((a) => clean(a.name, 100))
-        .filter(Boolean)
-        .slice(0, 10),
+      title: tidyTitle(title, authors),
+      authors,
       coverUrl: isAllowedCoverUrl(cover) ? cover : null,
       source: this.name,
     };
   }
 }
 
-/** Google Books: a second source for books Open Library does not know. Free for low volume. */
+/**
+ * Google Books: a second source for books Open Library does not know (many
+ * recent Australian editions, for example). Without an API key every site
+ * shares one anonymous daily quota that is usually used up, so set a free
+ * key (GOOGLE_BOOKS_API_KEY) for this to work reliably.
+ */
 export class GoogleBooksProvider implements MetadataProvider {
   readonly name = "googlebooks";
-  constructor(private readonly fetcher: typeof fetch = fetch) {}
+  constructor(
+    private readonly fetcher: typeof fetch = fetch,
+    private readonly apiKey?: string,
+  ) {}
 
-  async lookup(isbn: string): Promise<BookMetadata | null> {
-    const data = (await getJson(
+  async lookup(isbn: string): Promise<ProviderAnswer> {
+    const key = this.apiKey ? `&key=${encodeURIComponent(this.apiKey)}` : "";
+    const raw = await getJson(
       this.fetcher,
-      `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&maxResults=1`,
-    )) as {
+      `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&maxResults=1${key}`,
+    );
+    if (raw === UNAVAILABLE) return "unavailable";
+    const data = raw as {
       items?: {
         volumeInfo?: { title?: unknown; authors?: unknown[]; imageLinks?: { thumbnail?: unknown } };
       }[];
@@ -105,27 +212,35 @@ export class GoogleBooksProvider implements MetadataProvider {
     const title = clean(info?.title, 200);
     if (!info || !title) return null;
     const cover = clean(info.imageLinks?.thumbnail, 500).replace(/^http:/, "https:");
+    const authors = tidyAuthors(
+      (info.authors ?? []).map((a) => clean(a, 100)).filter(Boolean),
+    ).slice(0, 10);
     return {
       isbn,
-      title,
-      authors: (info.authors ?? [])
-        .map((a) => clean(a, 100))
-        .filter(Boolean)
-        .slice(0, 10),
+      title: tidyTitle(title, authors),
+      authors,
       coverUrl: isAllowedCoverUrl(cover) ? cover : null,
       source: this.name,
     };
   }
 }
 
-/** Asks each provider in turn and returns the first answer. */
+export interface LookupResult {
+  book: BookMetadata | null;
+  /** No book, and at least one provider couldn't answer: worth trying again later. */
+  unavailable: boolean;
+}
+
+/** Asks each provider in turn and returns the first book found. */
 export async function lookupIsbn(
   providers: MetadataProvider[],
   isbn13: string,
-): Promise<BookMetadata | null> {
+): Promise<LookupResult> {
+  let unavailable = false;
   for (const provider of providers) {
-    const result = await provider.lookup(isbn13);
-    if (result) return result;
+    const answer = await provider.lookup(isbn13);
+    if (answer === "unavailable") unavailable = true;
+    else if (answer) return { book: answer, unavailable: false };
   }
-  return null;
+  return { book: null, unavailable };
 }
