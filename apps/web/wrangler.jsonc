@@ -40,13 +40,16 @@
   },
 
   "vars": {
-    // Shown before the library is set up, and used as the passkey name.
-    "LIBRARY_NAME": "Community Library",
+    // The site's own name: shown on pages outside any library (the front
+    // page, sign-in, the owner area), in site-wide emails, and as the passkey name.
+    "LIBRARY_NAME": "Reading Joey",
     // Sender for all email. Must be on a domain verified with Resend and Mailjet.
     "EMAIL_FROM": "library@readingjoey.com",
     // The site's public address, such as https://library.example.org. Set it in
     // production: passkeys only work on the address they were saved on. Empty
     // means "whatever address the request used", which suits local development.
-    "APP_URL": "https://readingjoey.com"
+    "APP_URL": "https://readingjoey.com",
+    // Where "Ask for a library" on the front page emails. Empty hides the button.
+    "CONTACT_EMAIL": ""
   }
 }

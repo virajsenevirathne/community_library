@@ -32,7 +32,14 @@ function actor(role: Role, libraryId = "lib-1", familyId: string | null = "famil
   return {
     userId: `u-${role}`,
     email: `${role}@example.com`,
-    library: { id: libraryId, name: "L", slug: libraryId, settings: parseSettings(null) },
+    library: {
+      id: libraryId,
+      name: "L",
+      slug: libraryId,
+      settings: parseSettings(null),
+      status: "active",
+      setUp: true,
+    },
     role,
     family: familyId ? { id: familyId, name: "A", status: "active" } : null,
   };
@@ -155,7 +162,7 @@ describe("scoped queries", () => {
  * - borrower: a member of an active family
  * - a Permission: the roles in PERMISSIONS
  */
-export type RouteRule = "public" | "user" | "member" | "borrower" | Permission;
+export type RouteRule = "public" | "user" | "owner" | "member" | "borrower" | Permission;
 
 export const ROUTES: {
   route: `${"GET" | "POST" | "PATCH" | "PUT" | "DELETE"} /api/${string}`;
@@ -205,7 +212,11 @@ export const ROUTES: {
     rule: "catalog:edit",
     body: { copyIds: ["missing"] },
   },
-  { route: "GET /api/copies/:code", rule: "member", request: "/api/copies/ZZZZ" },
+  {
+    route: "GET /api/copies/:code",
+    rule: "member",
+    request: "/api/copies/ZZZZ",
+  },
   {
     route: "POST /api/copies/:code/borrow",
     rule: "borrower",
@@ -251,6 +262,22 @@ export const ROUTES: {
     body: {},
   },
   { route: "GET /api/admin/settings", rule: "library:admin" },
+  { route: "POST /api/admin/welcome", rule: "library:admin", body: {} },
+  // The site's owner only: nobody else can create or change libraries.
+  { route: "GET /api/owner/libraries", rule: "owner" },
+  { route: "POST /api/owner/libraries", rule: "owner", body: {} },
+  {
+    route: "PATCH /api/owner/libraries/:id",
+    rule: "owner",
+    request: "/api/owner/libraries/lib-1",
+    body: {},
+  },
+  {
+    route: "POST /api/owner/libraries/:id/admin-invite",
+    rule: "owner",
+    request: "/api/owner/libraries/lib-1/admin-invite",
+    body: {},
+  },
   { route: "PATCH /api/admin/settings", rule: "library:admin", body: {} },
   { route: "POST /api/reminders-off", rule: "public", body: { f: "x", t: "y" } },
   { route: "GET /api/family/reminders", rule: "loans:own" },
@@ -305,10 +332,14 @@ export const ROUTES: {
 type Who = "signedOut" | "nonMember" | "pendingMember" | "member" | "staff" | "admin";
 
 /** The status class each kind of person should get for a rule. */
+// Book pages answer members of other libraries with "not found" instead; see
+// routes/libraries.test.ts. The non-member here belongs to no library at all.
 function expectedFor(rule: RouteRule, who: Who): "allowed" | 401 | 403 {
   if (rule === "public") return "allowed";
   if (who === "signedOut") return 401;
   if (rule === "user") return "allowed";
+  // None of the people here own the site; routes/owner.test.ts covers the owner.
+  if (rule === "owner") return 403;
   if (who === "nonMember") return 403;
   if (rule === "member") return "allowed";
   if (rule === "borrower") return who === "member" ? "allowed" : 403;

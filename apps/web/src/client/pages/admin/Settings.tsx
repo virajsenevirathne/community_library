@@ -59,6 +59,8 @@ const toForm = (settings: Settings, libraryName: string): Form => ({
   overdueText: settings.overdueReminderDays.join(", "),
 });
 
+const VISIT_DAY = new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeZone: "UTC" });
+
 export function SettingsPage() {
   const { refresh } = useSession();
   const [saved, setSaved] = useState<Form | null>(null);
@@ -71,13 +73,15 @@ export function SettingsPage() {
   const formRef = useRef<HTMLFormElement>(null);
   const dateInput = useRef<HTMLInputElement>(null);
   const dirty = form !== null && saved !== null && JSON.stringify(form) !== JSON.stringify(saved);
+  const [supportVisits, setSupportVisits] = useState<string[]>([]);
 
   useEffect(() => {
-    api<{ libraryName: string; settings: Settings }>("/admin/settings")
+    api<{ libraryName: string; settings: Settings; supportVisits?: string[] }>("/admin/settings")
       .then((res) => {
         const loaded = toForm(res.settings, res.libraryName);
         setForm(loaded);
         setSaved(loaded);
+        setSupportVisits(res.supportVisits ?? []);
       })
       .catch((e) => setError(errorMessage(e)));
   }, []);
@@ -250,13 +254,13 @@ export function SettingsPage() {
         </label>
         <p className="field__hint" id="check-in-hint" aria-live="polite">
           {form.returnsNeedCheckIn
-            ? "When a parent taps Return, the book shows as handed back. It counts as returned once staff scan it from the returns basket. Scan the basket every day or two: after 3 days an unchecked book counts against the family again."
-            : "When a parent taps Return, the book is returned straight away. Books already handed back can then be returned by their family, or checked in by staff."}
+            ? "When a borrower taps Return, the book shows as handed back. It counts as returned once staff scan it from the returns basket. Scan the basket every day or two: after 3 days an unchecked book counts against the family again."
+            : "When a borrower taps Return, the book is returned straight away. Books already handed back can then be returned by their family, or checked in by staff."}
         </p>
 
         <h2>Opening days</h2>
         <fieldset className="field" aria-describedby="open-days">
-          <legend>Days the centre is closed</legend>
+          <legend>Days the library is closed</legend>
           <p className="field__hint" id="open-days">
             {openDaysSummary(form.closedWeekdays)}. Books are never due on a closed day, and no
             reminders go out.
@@ -394,6 +398,28 @@ export function SettingsPage() {
           </Button>
         </div>
       </form>
+      <section className="card settings-support" aria-labelledby="support-heading">
+        <h2 id="support-heading" className="section-title">
+          Site support visits
+        </h2>
+        {supportVisits.length === 0 ? (
+          <p className="muted">
+            The person who runs this site hasn't opened your library. If they do, to help with a
+            problem, each day's visit is listed here.
+          </p>
+        ) : (
+          <>
+            <p className="muted">
+              Days the person who runs this site opened your library to help (latest first):
+            </p>
+            <ul>
+              {supportVisits.map((day) => (
+                <li key={day}>{VISIT_DAY.format(new Date(`${day}T12:00:00Z`))}</li>
+              ))}
+            </ul>
+          </>
+        )}
+      </section>
     </Layout>
   );
 }

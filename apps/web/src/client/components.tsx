@@ -7,9 +7,9 @@ import {
   useId,
   useRef,
 } from "react";
-import { Icon } from "./icons.tsx";
+import { Icon, JoeyMark } from "./icons.tsx";
 import { hasNavigated, Link, useLocation } from "./lib/router.tsx";
-import { isStaff, useSession } from "./lib/session.tsx";
+import { isStaff, type LibraryLink, useSession } from "./lib/session.tsx";
 
 /** True when `path` is `href` or a page inside it (so /admin/loans is inside /admin). */
 function isCurrent(path: string, href: string, exact = false) {
@@ -35,6 +35,8 @@ export function Layout({
   focusKey,
   width = "narrow",
   actions,
+  siteWide = false,
+  focused = false,
 }: {
   title: string;
   children: ReactNode;
@@ -42,12 +44,25 @@ export function Layout({
   focusKey?: string;
   width?: "narrow" | "wide";
   actions?: ReactNode;
+  /**
+   * A page outside any library (the picker, "library not found"): the header
+   * keeps only the site's own links, so nothing points into a library.
+   */
+  siteWide?: boolean;
+  /**
+   * A step that must be finished first (a new library's welcome): the menus
+   * keep only Account, so there's nowhere to wander off to.
+   */
+  focused?: boolean;
 }) {
   const { state } = useSession();
   const { path } = useLocation();
   const me = state.status === "ready" ? state.me : null;
-  const libraryName = me?.library?.name ?? "Community Library";
-  const staff = me ? isStaff(me) : false;
+  const libraryName = (!siteWide && me?.library?.name) || me?.siteName || "Community Library";
+  const staff = !siteWide && !focused && me ? isStaff(me) : false;
+  const showLibraryLinks = !siteWide && !focused;
+  // People in several libraries see which one they're in, and can switch.
+  const switchable = !siteWide && Boolean(me?.library) && (me?.libraries.length ?? 0) > 1;
   const admin = me?.membership?.role === "admin";
   const signedIn = Boolean(me?.user);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -91,20 +106,20 @@ export function Layout({
       </button>
       <header className="site-header">
         <div className="site-header__inner">
-          <Link href="/" className="brand" aria-label={`${libraryName}: home`}>
-            <span className="brand__mark">
-              <Icon name="book" className="brand__icon" />
-            </span>
+          <Link href="/" absolute={siteWide} className="brand" aria-label={`${libraryName}: home`}>
+            <JoeyMark className="brand__mark" />
             <span className="brand__name">{libraryName}</span>
           </Link>
           {signedIn && (
             <nav aria-label="Main">
               <ul className="nav">
-                <li>
-                  <Link href="/" aria-current={current("/")}>
-                    Your books
-                  </Link>
-                </li>
+                {showLibraryLinks && (
+                  <li>
+                    <Link href="/" aria-current={current("/")}>
+                      Your books
+                    </Link>
+                  </li>
+                )}
                 {staff && (
                   <li>
                     <Link
@@ -115,8 +130,26 @@ export function Layout({
                     </Link>
                   </li>
                 )}
+                {me?.owner && !focused && (
+                  <li>
+                    <Link
+                      href="/owner"
+                      absolute
+                      aria-current={path === "/owner" ? "page" : undefined}
+                    >
+                      Owner
+                    </Link>
+                  </li>
+                )}
+                {switchable && (
+                  <li className="desktop-only-flex">
+                    <Link href="/" absolute>
+                      Switch library
+                    </Link>
+                  </li>
+                )}
                 <li>
-                  <Link href="/account" aria-current={current("/account")}>
+                  <Link href="/account" absolute={siteWide} aria-current={current("/account")}>
                     Account
                   </Link>
                 </li>
@@ -145,6 +178,19 @@ export function Layout({
             <Link href={back}>← Back</Link>
           </p>
         )}
+        {!siteWide && me?.library?.status === "paused" && (
+          <Alert kind="warning">
+            This library is paused, so nothing can be borrowed or changed right now. Please ask the
+            library staff.
+          </Alert>
+        )}
+        {!siteWide && me?.library?.support && (path === "/" || path === "/admin") && (
+          <Alert kind="info">
+            You're here as site support, with admin access. Today's visit is logged, and the
+            library's admins can see it in Settings.
+          </Alert>
+        )}
+        {switchable && me?.library && <p className="eyebrow">{me.library.name}</p>}
         {actions ? (
           <div className="page-header">
             <h1 ref={heading} tabIndex={-1}>
@@ -162,18 +208,22 @@ export function Layout({
       {signedIn && (
         <nav aria-label="Main (phone)" className="tabbar-nav">
           <ul className="tabbar">
-            <li>
-              <Link href="/" aria-current={current("/")}>
-                <Icon name="book" />
-                Books
-              </Link>
-            </li>
-            <li>
-              <Link href="/c" aria-current={current("/c", true)}>
-                <Icon name="keyboard" />
-                Type a code
-              </Link>
-            </li>
+            {showLibraryLinks && (
+              <li>
+                <Link href="/" aria-current={current("/")}>
+                  <Icon name="book" />
+                  Books
+                </Link>
+              </li>
+            )}
+            {showLibraryLinks && (
+              <li>
+                <Link href="/c" aria-current={current("/c", true)}>
+                  <Icon name="keyboard" />
+                  Type a code
+                </Link>
+              </li>
+            )}
             {staff && (
               <li>
                 <Link href="/admin" aria-current={path.startsWith("/admin") ? "page" : undefined}>
@@ -182,8 +232,16 @@ export function Layout({
                 </Link>
               </li>
             )}
+            {me?.owner && !focused && (
+              <li>
+                <Link href="/owner" absolute aria-current={path === "/owner" ? "page" : undefined}>
+                  <Icon name="library" />
+                  Owner
+                </Link>
+              </li>
+            )}
             <li>
-              <Link href="/account" aria-current={current("/account")}>
+              <Link href="/account" absolute={siteWide} aria-current={current("/account")}>
                 <Icon name="user" />
                 Account
               </Link>
@@ -326,5 +384,40 @@ export function LoadingPage({ label = "Loading…" }: { label?: string }) {
       <h1 className="visually-hidden">{label}</h1>
       <Loading label={label} />
     </main>
+  );
+}
+
+const ROLE_LABELS: Record<LibraryLink["role"], string> = {
+  admin: "You run this library",
+  staff: "Staff",
+  member: "Your family",
+};
+
+/** Links to each of the person's libraries. */
+export function LibraryList({
+  libraries,
+  rest = "/",
+}: {
+  libraries: LibraryLink[];
+  /** The page to open inside the chosen library (an old link's destination). */
+  rest?: string;
+}) {
+  return (
+    <ul className="tiles tiles--single" aria-label="Your libraries">
+      {libraries.map((library) => (
+        <li key={library.slug}>
+          <Link href={`/${library.slug}${rest}`} absolute className="tile">
+            <span className="tile__text">
+              <strong>{library.name}</strong>
+              <span>
+                <span className="visually-hidden">, </span>
+                {ROLE_LABELS[library.role]}
+              </span>
+            </span>
+            <Icon name="chevron" className="tile__chevron" />
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }

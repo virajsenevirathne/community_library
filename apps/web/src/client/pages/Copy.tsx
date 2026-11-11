@@ -2,7 +2,7 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { Alert, Button, Field, Layout, Loading } from "../components.tsx";
 import { ApiError, api, errorMessage } from "../lib/api.ts";
 import { type CopyView, formatDate, lateText, parseCopyCode } from "../lib/copies.ts";
-import { Link, navigate } from "../lib/router.tsx";
+import { Link, libraryBase, navigate } from "../lib/router.tsx";
 import { isStaff, useSession } from "../lib/session.tsx";
 import { Cover } from "./admin/Cover.tsx";
 
@@ -46,7 +46,21 @@ export function CopyPage({ code }: { code: string }) {
   const load = useCallback(
     async (keepError = false) => {
       try {
-        setCopy((await api<{ copy: CopyView }>(`/copies/${encodeURIComponent(code)}`)).copy);
+        const found = (await api<{ copy: CopyView }>(`/copies/${encodeURIComponent(code)}`)).copy;
+        // A sticker's short address (/c/K7R2), or a book opened from another
+        // library's pages, moves to the book's own library, so the page shows
+        // that library and what this person can do there.
+        const here = libraryBase();
+        if (here !== found.library.slug) {
+          // Say so when the scan came from another library's pages.
+          const from = here ? `?from=${encodeURIComponent(here)}` : "";
+          navigate(`/${found.library.slug}/c/${found.code}${from}`, {
+            replace: true,
+            absolute: true,
+          });
+          return;
+        }
+        setCopy(found);
         if (!keepError) setError(null);
       } catch (e) {
         setError(toPageError(e));
@@ -143,6 +157,8 @@ export function CopyPage({ code }: { code: string }) {
     );
   }
 
+  const fromSlug = new URLSearchParams(window.location.search).get("from");
+  const movedFrom = fromSlug !== null && fromSlug !== copy.library.slug;
   const staff = me ? isStaff(me) : false;
   const family = copy.family;
 
@@ -157,6 +173,12 @@ export function CopyPage({ code }: { code: string }) {
         </div>
         <div>
           <div className="book-hero__text">
+            {movedFrom && (
+              <Alert kind="info">
+                This book belongs to <strong>{copy.library.name}</strong>, so you're now in that
+                library.
+              </Alert>
+            )}
             {done && (
               <p>
                 <strong>{copy.title.title}</strong>
@@ -166,7 +188,7 @@ export function CopyPage({ code }: { code: string }) {
             <p className="row row--tight">
               {!done && <StatusPill copy={copy} />}
               <span className="muted">
-                Copy <span className="code">{copy.code}</span>
+                Book code <span className="code">{copy.code}</span>
               </span>
             </p>
           </div>
@@ -176,7 +198,7 @@ export function CopyPage({ code }: { code: string }) {
             <div className="stack">
               <Alert kind="success">
                 Due back <strong>{formatDate(done.dueOn)}</strong>
-                {done.movedForClosure && " (moved to a day the centre is open)"}.
+                {done.movedForClosure && " (moved to a day the library is open)"}.
                 {family && ` That's ${family.booksOut} of ${family.maxLoans} books out.`} A
                 confirmation email is on its way.
               </Alert>

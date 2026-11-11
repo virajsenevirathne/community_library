@@ -139,6 +139,9 @@ function oneOf(column: string, values: readonly string[]) {
   return sql.raw(`${column} in (${values.map((v) => `'${v}'`).join(", ")})`);
 }
 
+export const LIBRARY_STATUSES = ["active", "paused"] as const;
+export type LibraryStatus = (typeof LIBRARY_STATUSES)[number];
+
 export const libraries = sqliteTable(
   "libraries",
   {
@@ -155,10 +158,30 @@ export const libraries = sqliteTable(
      * sign-up by link is turned off.
      */
     joinNonce: text("join_nonce"),
+    /** Paused libraries are read-only to staff and closed to families; the hourly job skips them. */
+    status: text("status", { enum: LIBRARY_STATUSES }).notNull().default("active"),
+    /** Billing plan, for a later monthly fee. Everyone is on "free" for now. */
+    plan: text("plan").notNull().default("free"),
+    /** When the library's first admin accepted the terms and privacy policy. */
+    termsAcceptedAt: integer("terms_accepted_at", { mode: "timestamp_ms" }),
     createdAt: createdAt(),
   },
-  () => [check("libraries_settings_json", sql`json_valid(settings)`)],
+  () => [
+    check("libraries_settings_json", sql`json_valid(settings)`),
+    check("libraries_status_check", oneOf("status", LIBRARY_STATUSES)),
+  ],
 );
+
+/**
+ * People who run the whole site: they create libraries, invite their first
+ * admins, and can open any library for support (each visit is logged).
+ */
+export const platformAdmins = sqliteTable("platform_admins", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  grantedAt: createdAt(),
+});
 
 export const ROLES = ["admin", "staff", "member"] as const;
 export type Role = (typeof ROLES)[number];

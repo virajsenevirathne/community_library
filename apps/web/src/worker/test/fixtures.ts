@@ -5,14 +5,44 @@ import { type createTestApp, TestClient } from "./client.ts";
 /** Creates a library row directly, as setup would. Returns its id. */
 export async function createLibrary(
   env: Env,
-  options: { id?: string; name?: string; settings?: Partial<LibrarySettings> } = {},
+  options: {
+    id?: string;
+    name?: string;
+    settings?: Partial<LibrarySettings>;
+    /** False for a new library whose first admin hasn't finished setting it up. */
+    setUp?: boolean;
+  } = {},
 ): Promise<string> {
   const id = options.id ?? "lib-1";
   const settings = { ...defaultSettings(), ...options.settings };
-  await env.DB.prepare("insert into libraries (id, name, slug, settings) values (?, ?, ?, ?)")
-    .bind(id, options.name ?? "Test Library", id, JSON.stringify(settings))
+  await ensureOwner(env);
+  await env.DB.prepare(
+    "insert into libraries (id, name, slug, settings, terms_accepted_at) values (?, ?, ?, ?, ?)",
+  )
+    .bind(
+      id,
+      options.name ?? "Test Library",
+      id,
+      JSON.stringify(settings),
+      options.setUp === false ? null : 1,
+    )
     .run();
   return id;
+}
+
+/**
+ * A site with libraries has an owner (who created them). Without one, the
+ * server treats the site as not set up yet and lets anyone get a sign-in code.
+ */
+export async function ensureOwner(env: Env): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare(
+      "insert into users (id, name, email, email_verified, updated_at) values ('site-owner', '', 'site-owner@example.com', 1, 0) on conflict do nothing",
+    ),
+    env.DB.prepare(
+      "insert into platform_admins (user_id) select 'site-owner' where not exists (select 1 from platform_admins)",
+    ),
+  ]);
 }
 
 let counter = 0;
@@ -64,6 +94,8 @@ export async function person(
   }
 
   const client = new TestClient(ctx, email);
+  // Test libraries use their id as their slug, so the person browses their own library.
+  client.library = libraryId;
   await client.signIn();
   return Object.assign(client, { userId, familyId });
 }

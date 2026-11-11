@@ -1,13 +1,11 @@
-import { defaultSettings, isValidTimezone, mergeSettings } from "@community-library/core";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
-import { actorFor } from "../access.ts";
+import { actorFor, isPlatformOwner } from "../access.ts";
 import { authSecret, isLocalHost, secrets } from "../config.ts";
 import { type AppEnv, fail, readBody, requireUser } from "../context.ts";
 import { sha256Hex, timingSafeEqual } from "../crypto.ts";
-import { newId, schema } from "../db/client.ts";
-import { slugify } from "../library.ts";
+import { schema } from "../db/client.ts";
 import { clientIp, consume } from "../limiter.ts";
 
 /** A short name typed by a person: trimmed, not empty, no line breaks or control characters. */
@@ -25,34 +23,74 @@ const MIN_SETUP_CODE = 16;
 
 const setupBody = z.object({
   setupCode: z.string().max(200).optional(),
-  libraryName: name("Library name", 80),
-  timezone: z.string().refine(isValidTimezone, "Choose a timezone from the list."),
-  familyName: name("Family name", 60).optional(),
-  /** Asked at setup: should staff check returned books in? */
-  returnsNeedCheckIn: z.boolean().optional(),
 });
 
 export const accountRoutes = new Hono<AppEnv>()
-  /** Who is signed in, what they can do, and whether the library still needs setting up. */
+  /**
+   * Who is signed in, the libraries they belong to, their role in the library
+   * this page belongs to (if any), and whether the site still needs setting up.
+   */
   .get("/me", async (c) => {
     const db = c.get("db");
     const library = c.get("library");
     const user = c.get("user");
+    // Setup is open while the site has no owner: to anyone on an empty site,
+    // and only to an existing library's admin on a site that predates owners.
+    const site = await c.env.DB.prepare(
+      `select (select count(*) from platform_admins) as owners,
+              (select count(*) from libraries) as libraries,
+              (select count(*) from memberships where user_id = ? and role = 'admin') as adminOf`,
+    )
+      .bind(c.get("user")?.id ?? "")
+      .first<{ owners: number; libraries: number; adminOf: number }>();
+    const setupNeeded =
+      (site?.owners ?? 0) === 0 && ((site?.libraries ?? 0) === 0 || (site?.adminOf ?? 0) > 0);
+    // A library's name is shown only to its members, so addresses can't be
+    // tried one by one to list the centres on the site.
+    const siteName = c.env.LIBRARY_NAME;
+    const contactEmail =
+      (c.env as unknown as { CONTACT_EMAIL?: string }).CONTACT_EMAIL?.trim() || null;
     if (!user) {
       return c.json({
         user: null,
-        library: library && { name: library.name },
-        setupNeeded: !library,
+        library: null,
+        libraries: [],
+        setupNeeded,
+        siteName,
+        contactEmail,
       });
     }
-    const actor = await actorFor(c);
-    const passkeyCount = await db.$count(schema.passkeys, eq(schema.passkeys.userId, user.id));
+    const [actor, passkeyCount, libraries, isOwner] = await Promise.all([
+      actorFor(c),
+      db.$count(schema.passkeys, eq(schema.passkeys.userId, user.id)),
+      c.env.DB.prepare(
+        `select l.slug as slug, l.name as name, m.role as role
+         from memberships m join libraries l on l.id = m.library_id
+         where m.user_id = ? order by l.name`,
+      )
+        .bind(user.id)
+        .all<{ slug: string; name: string; role: "admin" | "staff" | "member" }>(),
+      isPlatformOwner(c),
+    ]);
     return c.json({
       user: { id: user.id, email: user.email, name: user.name, hasPasskey: passkeyCount > 0 },
-      library: library && { name: library.name },
-      setupNeeded: !library,
+      library:
+        actor && library
+          ? {
+              name: library.name,
+              slug: library.slug,
+              status: library.status,
+              setUp: library.setUp,
+              support: actor.support === true,
+            }
+          : null,
+      libraries: libraries.results,
+      owner: isOwner,
+      siteName,
+      contactEmail,
+      setupNeeded,
       // Only matters before setup: whether the setup form must ask for the code.
-      setupCodeRequired: !library && Boolean(secrets(c.env).SETUP_CODE),
+      setupCodeRequired: setupNeeded && Boolean(secrets(c.env).SETUP_CODE),
       membership: actor ? { role: actor.role, family: actor.family } : null,
     });
   })
@@ -98,47 +136,21 @@ export const accountRoutes = new Hono<AppEnv>()
       );
     }
 
-    const merged = mergeSettings(defaultSettings(), {
-      timezone: body.timezone,
-      ...(body.returnsNeedCheckIn === undefined
-        ? {}
-        : { returnsNeedCheckIn: body.returnsNeedCheckIn }),
-    });
-    if (!merged.ok) fail(422, "invalid_input", merged.errors[0]?.message ?? "Invalid timezone.");
-
-    const libraryId = newId();
-    const familyId = body.familyName ? newId() : null;
-    const DB = c.env.DB;
-    const libraryExists = "exists (select 1 from libraries where id = ?)";
-    const statements = [
-      DB.prepare(
-        "insert into libraries (id, name, slug, settings) select ?, ?, ?, ? where not exists (select 1 from libraries)",
-      ).bind(
-        libraryId,
-        body.libraryName,
-        slugify(body.libraryName),
-        JSON.stringify(merged.settings),
-      ),
-    ];
-    if (familyId && body.familyName) {
-      statements.push(
-        DB.prepare(
-          `insert into families (id, library_id, name) select ?, ?, ? where ${libraryExists}`,
-        ).bind(familyId, libraryId, body.familyName, libraryId),
-      );
-    }
-    statements.push(
-      DB.prepare(
-        `insert into memberships (id, library_id, user_id, role, family_id) select ?, ?, ?, 'admin', ? where ${libraryExists}`,
-      ).bind(newId(), libraryId, user.id, familyId, libraryId),
-      DB.prepare(
-        `insert into events (id, library_id, actor_user_id, type) select ?, ?, ?, 'library_created' where ${libraryExists}`,
-      ).bind(newId(), libraryId, user.id, libraryId),
-    );
-    // One batch is one transaction in D1: either all of it happens or none.
-    const [created] = await DB.batch(statements);
-    if (created?.meta.changes !== 1) {
-      fail(409, "already_set_up", "This library has already been set up.");
+    // The first person through becomes the site's owner. Libraries are then
+    // created from the owner area, each with an invited admin.
+    // On a site that already has libraries (set up before there were owners),
+    // only one of their admins may take the owner's seat: the setup code alone
+    // must not hand a stranger every library.
+    const created = await c.env.DB.prepare(
+      `insert into platform_admins (user_id)
+       select ?1 where not exists (select 1 from platform_admins)
+         and (not exists (select 1 from libraries)
+              or exists (select 1 from memberships where user_id = ?1 and role = 'admin'))`,
+    )
+      .bind(user.id)
+      .run();
+    if (created.meta.changes !== 1) {
+      fail(409, "already_set_up", "This site has already been set up.");
     }
     return c.json({ ok: true }, 201);
   });

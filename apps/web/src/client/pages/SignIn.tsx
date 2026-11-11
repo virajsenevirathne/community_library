@@ -35,7 +35,8 @@ export function SignInPage() {
   const finish = async () => {
     forgetTokens();
     const me = await refresh();
-    navigate(me?.setupNeeded ? "/setup" : next, { replace: true });
+    // `next` is a full address (it may name a library), so it is used as is.
+    navigate(me?.setupNeeded ? "/setup" : next, { replace: true, absolute: true });
   };
 
   const afterCodeSignIn = async () => {
@@ -208,7 +209,7 @@ function EmailStep(props: {
       )}
       {!setupNeeded && (
         <p className="muted">
-          New here? Use the sign-up link or QR code from your daycare to join the library.
+          New here? Use the sign-up link or QR code from your library to join.
         </p>
       )}
     </>

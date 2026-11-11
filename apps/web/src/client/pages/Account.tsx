@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Button, Field, Layout, Loading, LoadingPage } from "../components.tsx";
+import { Alert, Button, Field, Layout, LibraryList, Loading, LoadingPage } from "../components.tsx";
 import { ApiError, api, errorMessage } from "../lib/api.ts";
 import { authClient, isPasskeyCancel, passkeyHint, passkeysSupported } from "../lib/auth.ts";
-import { navigate } from "../lib/router.tsx";
+import { Link, navigate } from "../lib/router.tsx";
 import { useSession } from "../lib/session.tsx";
 import { deviceName } from "./SignIn.tsx";
 
@@ -149,6 +149,33 @@ export function AccountPage() {
 
       {me.membership?.family && <ReminderSetting />}
 
+      {/* Site-wide, family settings belong to each library: point to them. */}
+      {!me.library && me.libraries.length > 0 && (
+        <section className="card" aria-labelledby="libraries-heading">
+          <h2 id="libraries-heading" className="section-title">
+            Your libraries
+          </h2>
+          <p className="muted">
+            Your family and reminder emails are set in each library. Open one to change them.
+          </p>
+          <LibraryList libraries={me.libraries} />
+        </section>
+      )}
+      {(me.owner || (me.library && me.libraries.length > 1)) && (
+        <div className="row account-links">
+          {me.library && me.libraries.length > 1 && (
+            <Link href="/" absolute className="btn btn--secondary">
+              Switch library
+            </Link>
+          )}
+          {me.owner && (
+            <Link href="/owner" absolute className="btn btn--secondary">
+              Owner area
+            </Link>
+          )}
+        </div>
+      )}
+
       <DeleteAccount />
     </Layout>
   );
@@ -214,10 +241,13 @@ function ReminderSetting() {
 function DeleteAccount() {
   const { state, refresh } = useSession();
   const user = state.status === "ready" ? state.me.user : null;
+  const libraryCount = state.status === "ready" ? state.me.libraries.length : 0;
   const [step, setStep] = useState<"idle" | "blocked" | "code">("idle");
-  const [blocked, setBlocked] = useState<{ books: { title: string }[]; lastAdmin: boolean } | null>(
-    null,
-  );
+  const [blocked, setBlocked] = useState<{
+    books: { title: string }[];
+    lastAdmin: boolean;
+    lastOwner?: boolean;
+  } | null>(null);
   const [familyGoes, setFamilyGoes] = useState(false);
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
@@ -238,6 +268,7 @@ function DeleteAccount() {
         setBlocked({
           books: (e.details.books as { title: string }[] | undefined) ?? [],
           lastAdmin: e.details.lastAdmin === true,
+          lastOwner: e.details.lastOwner === true,
         });
         setStep("blocked");
       } else setError(errorMessage(e));
@@ -268,9 +299,11 @@ function DeleteAccount() {
       {step === "idle" && (
         <>
           <p className="muted">
-            Signs you out everywhere and removes your email and sign-in from the library straight
-            away. If you're the last parent in your family, the family is removed too. Books
-            borrowed in the past stay in the library's counts without your name.
+            Signs you out everywhere and removes your email and sign-in from{" "}
+            {libraryCount > 1 ? `all ${libraryCount} libraries you belong to` : "the library"}{" "}
+            straight away. In each library where you're the last parent in your family, the family
+            is removed too. Books borrowed in the past stay in the library's counts without your
+            name.
           </p>
           <Button variant="secondary" onClick={start} busy={busy} busyLabel="Checking…">
             Delete my account
@@ -280,8 +313,10 @@ function DeleteAccount() {
       {step === "blocked" && (
         <div className="stack">
           <Alert kind="info">
-            {blocked?.lastAdmin ? (
-              "You're the library's only admin. Invite another admin first (Admin › Families › Staff), then you can delete your account."
+            {blocked?.lastOwner ? (
+              "You run this site, so your account can't be deleted while you're its only owner."
+            ) : blocked?.lastAdmin ? (
+              `You're the only admin of ${libraryCount > 1 ? "one of your libraries" : "the library"}. Invite another admin there first (Staff › Families › Staff), then you can delete your account.`
             ) : (
               <>
                 Your family still has {blocked?.books.length === 1 ? "a book" : "books"} out. Please

@@ -242,7 +242,7 @@ function JoinLinkCard({
       {url ? (
         <>
           <p>
-            Share this link (in the centre's app, newsletter or email), or print the QR code as a
+            Share this link (in your newsletter, group chat or email), or print the QR code as a
             poster by the shelf. Parents open it, sign in with their email, and type their family
             name.
           </p>
@@ -512,7 +512,7 @@ function FamilyCard({ family, notify }: { family: Family; notify: Notify }) {
           aria-expanded={inviting}
           aria-controls={`invite-${family.id}`}
         >
-          Add a parent
+          Add another adult
         </Button>
       </div>
       {inviting && (
