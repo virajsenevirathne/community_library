@@ -14,6 +14,14 @@ interface Dashboard {
   waitingForCheckIn?: number;
   returnsNeedCheckIn?: boolean;
   mostBorrowed: { id: string; title: string; times: number }[];
+  neverBorrowed: { total: number; titles: { id: string; title: string }[] };
+  /** Null until there are enough borrows to say anything. */
+  borrowSpeed: {
+    borrows: number;
+    withinGoal: number;
+    p90Seconds: number;
+    goalSeconds: number;
+  } | null;
   counts: {
     titles: number;
     copies: number;
@@ -264,22 +272,66 @@ export function AdminHomePage() {
             </section>
           </div>
 
-          <aside className="card" aria-labelledby="popular-heading">
-            <h2 id="popular-heading" className="section-title">
-              Most borrowed
-            </h2>
-            <p className="muted">Last 90 days</p>
-            {data.mostBorrowed.length === 0 ? (
-              <p className="muted">Nothing borrowed yet. The favourites will show up here.</p>
-            ) : (
-              <ol className="count-list">
-                {data.mostBorrowed.map((t) => (
-                  <li key={t.id}>
-                    <Link href={`/admin/catalog/${t.id}`}>{t.title}</Link>
-                    <span className="muted">{plural(t.times, "time", "times")}</span>
-                  </li>
-                ))}
-              </ol>
+          <aside className="stack">
+            <section className="card" aria-labelledby="popular-heading">
+              <h2 id="popular-heading" className="section-title">
+                Most borrowed
+              </h2>
+              <p className="muted">Last 90 days</p>
+              {data.mostBorrowed.length === 0 ? (
+                <p className="muted">Nothing borrowed yet. The favourites will show up here.</p>
+              ) : (
+                <ol className="count-list">
+                  {data.mostBorrowed.map((t) => (
+                    <li key={t.id}>
+                      <Link href={`/admin/catalog/${t.id}`}>{t.title}</Link>
+                      <span className="muted">{plural(t.times, "time", "times")}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+
+            {data.neverBorrowed.total > 0 && (
+              <section className="card" aria-labelledby="never-heading">
+                <h2 id="never-heading" className="section-title">
+                  Waiting for a reader
+                </h2>
+                <p className="muted">
+                  {plural(data.neverBorrowed.total, "book has", "books have")} never been borrowed.
+                  Try them on a display shelf.
+                  {data.neverBorrowed.total > data.neverBorrowed.titles.length &&
+                    ` The ${data.neverBorrowed.titles.length} added longest ago:`}
+                </p>
+                <ul className="count-list">
+                  {data.neverBorrowed.titles.map((t) => (
+                    <li key={t.id}>
+                      <Link href={`/admin/catalog/${t.id}`}>{t.title}</Link>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {data.borrowSpeed && (
+              <section className="card" aria-labelledby="speed-heading">
+                <h2 id="speed-heading" className="section-title">
+                  How quickly books go out
+                </h2>
+                <p className="muted">
+                  Last 30 days, {plural(data.borrowSpeed.borrows, "borrow", "borrows")}
+                </p>
+                <p>
+                  9 in 10 borrows took <strong>{data.borrowSpeed.p90Seconds} seconds</strong> or
+                  less, from opening the book to “Enjoy the book!”.
+                </p>
+                <p className="muted">
+                  {Math.floor(data.borrowSpeed.withinGoal * 100)}% were done within{" "}
+                  {data.borrowSpeed.goalSeconds} seconds; the goal is 90%.
+                  {data.borrowSpeed.withinGoal < 0.9 &&
+                    " If borrowing feels slow, check the Wi-Fi by the shelf and that stickers aren't worn."}
+                </p>
+              </section>
             )}
           </aside>
         </div>

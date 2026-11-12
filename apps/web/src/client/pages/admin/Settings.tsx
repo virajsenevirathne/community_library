@@ -3,6 +3,7 @@ import { Alert, Button, Field, Layout, Loading } from "../../components.tsx";
 import { ApiError, api, errorMessage } from "../../lib/api.ts";
 import { formatDate } from "../../lib/copies.ts";
 import { useSession } from "../../lib/session.tsx";
+import { DataExport } from "./DataExport.tsx";
 import { KioskSettings } from "./Kiosks.tsx";
 
 interface Settings {
@@ -400,6 +401,7 @@ export function SettingsPage() {
         </div>
       </form>
       <KioskSettings />
+      <DataExport />
       <section className="card settings-support" aria-labelledby="support-heading">
         <h2 id="support-heading" className="section-title">
           Site support visits

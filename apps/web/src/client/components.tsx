@@ -363,12 +363,12 @@ export function Alert({
   live?: boolean;
   children: ReactNode;
 }) {
-  if (!children) return null;
+  const role = live ? (kind === "error" ? "alert" : "status") : undefined;
+  // A live message box stays on the page while empty (hidden), so screen
+  // readers are already watching it when a message arrives and read it out.
+  if (!children) return live ? <div className="visually-hidden" role={role} /> : null;
   return (
-    <div
-      className={`alert alert--${kind}`}
-      role={live ? (kind === "error" ? "alert" : "status") : undefined}
-    >
+    <div className={`alert alert--${kind}`} role={role}>
       <Icon name={ALERT_ICONS[kind]} className="alert__icon" />
       <div className="alert__body">{children}</div>
     </div>

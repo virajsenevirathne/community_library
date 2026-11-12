@@ -207,3 +207,25 @@ describe("CSV import", () => {
     expect(readInvites("Nguyen,anh@example.com").error).toMatch(/headings/);
   });
 });
+
+describe("toCsv", () => {
+  it("quotes every cell, doubles quotes and neutralises formulas", async () => {
+    const { parseCsv, toCsv } = await import("./csv.ts");
+    const csv = toCsv([
+      ["Title", "Note"],
+      ['Say "hi"', '=HYPERLINK("http://x")'],
+      ["+61 400", null],
+      ["a, b", 3],
+      ["  =1+1", "\tx"],
+    ]);
+    expect(csv.startsWith("﻿")).toBe(true);
+    expect(csv).toContain('"Say ""hi"""');
+    expect(parseCsv(csv)).toEqual([
+      ["Title", "Note"],
+      ['Say "hi"', '\'=HYPERLINK("http://x")'],
+      ["'+61 400", ""],
+      ["a, b", "3"],
+      ["'  =1+1", "'\tx"],
+    ]);
+  });
+});
