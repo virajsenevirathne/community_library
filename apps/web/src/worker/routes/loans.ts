@@ -1007,7 +1007,6 @@ export const loanRoutes = new Hono<AppEnv>()
     const actor = await requirePermission(c, "loans:own");
     const db = c.get("db");
     const s = scope(actor);
-    const settings = actor.library.settings;
     const loan = await db.query.loans.findFirst({
       columns: {
         id: true,

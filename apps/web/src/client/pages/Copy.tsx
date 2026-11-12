@@ -275,11 +275,6 @@ export function CopyPage({ code }: { code: string }) {
   );
 }
 
-function ordinal(n: number) {
-  const rule = new Intl.PluralRules("en", { type: "ordinal" }).select(n);
-  return `${n}${{ one: "st", two: "nd", few: "rd" }[rule as "one" | "two" | "few"] ?? "th"}`;
-}
-
 /**
  * Waiting for a book someone else has: join the list, see your place, or
  * leave it. The family is emailed when a copy is back on the shelf.
