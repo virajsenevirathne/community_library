@@ -9,6 +9,7 @@ export const SERVER_LOG_PATH = SERVER_LOG;
 /** Saved sessions (see auth.setup.ts). */
 export const PARENT = resolve(import.meta.dirname, "../.e2e-state/parent.json");
 export const ADMIN = resolve(import.meta.dirname, "../.e2e-state/admin.json");
+export const OTHER_PARENT = resolve(import.meta.dirname, "../.e2e-state/other-parent.json");
 
 /** The newest sign-in code printed for `email` after `since` (a log length). */
 export async function codeFor(email: string, since: number): Promise<string> {
@@ -24,6 +25,12 @@ export async function codeFor(email: string, since: number): Promise<string> {
 
 /** Signs in with an emailed code, the way a parent does. */
 export async function signIn(page: Page, email: string, next = "/") {
+  // Each test person signs in from their own address, as real parents do on
+  // their own phones, so the per-network limits on sign-in codes don't add up.
+  const octet = () => Math.floor(Math.random() * 250) + 1;
+  await page
+    .context()
+    .setExtraHTTPHeaders({ "cf-connecting-ip": `10.${octet()}.${octet()}.${octet()}` });
   const since = readFileSync(SERVER_LOG, "utf8").length;
   await page.goto(`/signin?next=${encodeURIComponent(next)}`);
   await page.getByLabel("Email").fill(email);

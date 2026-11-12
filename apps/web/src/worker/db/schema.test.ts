@@ -53,6 +53,7 @@ describe("migrations", () => {
       "email_quota",
       "events",
       "families",
+      "holds",
       "invitations",
       "job_runs",
       "kiosk_devices",

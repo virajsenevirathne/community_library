@@ -20,6 +20,7 @@ import {
   insertLoan,
   sendCheckoutEmails,
   sendEach,
+  tellWaitingFamily,
   timing,
   undoHandBack,
 } from "./loans.ts";
@@ -441,6 +442,10 @@ export const kioskRoutes = new Hono<AppEnv>()
         DB.prepare(
           "update copies set found_at = null, found_by = null where id = ? and found_at is not null and exists (select 1 from loans where id = ?)",
         ).bind(row.copyId, loanId),
+        // Waiting for this book is over for the family.
+        DB.prepare(
+          "delete from holds where library_id = ? and family_id = ? and title_id = ? and exists (select 1 from loans where id = ?)",
+        ).bind(lib, family.id, row.titleId, loanId),
       ]);
       inserted = result?.meta.changes ?? 0;
     } catch (error) {
@@ -551,6 +556,7 @@ export const kioskRoutes = new Hono<AppEnv>()
     ]);
     if (closed?.meta.changes !== 1) return c.json({ title: row.title, alreadyReturned: true });
     tellFamily(c, kiosk, row, false);
+    tellWaitingFamily(c, kiosk.library, row.titleId);
     return c.json({ title: row.title, returned: true, overdueDays: late });
   })
 

@@ -106,8 +106,68 @@ function dueText(loan: MyLoan): { text: string; urgent: boolean } {
   return { text: `Due back ${formatDate(loan.dueOn)}`, urgent: false };
 }
 
+interface Waiting {
+  id: string;
+  title: string;
+  position: number;
+  /** We've emailed that a copy is back on the shelf. */
+  back: boolean;
+}
+
+/** Books the family is on the waiting list for. */
+function WaitingFor({ waiting, onChange }: { waiting: Waiting[]; onChange: () => Promise<void> }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const leave = async (hold: Waiting) => {
+    setBusy(hold.id);
+    setError("");
+    try {
+      await api(`/holds/${hold.id}`, { method: "DELETE" });
+      await onChange();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <section aria-labelledby="waiting-heading">
+      <h2 id="waiting-heading">Waiting for</h2>
+      <Alert>{error}</Alert>
+      <ul className="book-list">
+        {waiting.map((hold) => (
+          <li key={hold.id} className="book-row book-row--wrap">
+            <span className="book-row__text">
+              <strong>{hold.title}</strong>
+              <span className={hold.back ? "ok" : "muted"}>
+                {hold.back
+                  ? "Back on the shelf: borrow it soon"
+                  : hold.position === 1
+                    ? "You're next"
+                    : `${hold.position - 1} ${hold.position === 2 ? "family" : "families"} ahead of you`}
+              </span>
+            </span>
+            <Button
+              variant="secondary"
+              onClick={() => void leave(hold)}
+              busy={busy === hold.id}
+              busyLabel="Leaving…"
+            >
+              Leave<span className="visually-hidden"> the waiting list for {hold.title}</span>
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function MyBooks() {
-  const [data, setData] = useState<{ loans: MyLoan[]; maxLoans: number } | null>(null);
+  const [data, setData] = useState<{
+    loans: MyLoan[];
+    maxLoans: number;
+    waiting: Waiting[];
+  } | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   // Loans extended on this visit: the button is replaced by the new date in the same row.
@@ -116,7 +176,7 @@ function MyBooks() {
 
   const load = useCallback(async () => {
     try {
-      setData(await api<{ loans: MyLoan[]; maxLoans: number }>("/loans/mine"));
+      setData(await api("/loans/mine"));
       setError("");
     } catch (e) {
       setError(errorMessage(e));
@@ -219,6 +279,7 @@ function MyBooks() {
           </ul>
         </>
       )}
+      {data && data.waiting.length > 0 && <WaitingFor waiting={data.waiting} onChange={load} />}
       {data && data.loans.length > 0 && (
         <div className="hint-card">
           <p>

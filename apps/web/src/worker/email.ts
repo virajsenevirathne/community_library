@@ -164,6 +164,38 @@ export function checkoutEmail(options: {
   };
 }
 
+/** Tells a family waiting for a book that a copy is back on the shelf. */
+export function holdReadyEmail(options: {
+  libraryName: string;
+  to: string;
+  title: string;
+  lapseDays: number;
+  siteUrl: string;
+}): EmailMessage {
+  const library = cleanHeader(options.libraryName);
+  const keep = `It isn't kept aside, so borrow it soon. If someone else gets to it first, we'll tell you when the next copy is back. Your place lapses after ${options.lapseDays} days.`;
+  return {
+    to: options.to,
+    subject: `"${cleanHeader(options.title).slice(0, 80)}" is back at the library`,
+    text: [
+      `Good news: "${options.title}" is back on the shelf at ${library}.`,
+      "",
+      `Scan its sticker to borrow it as usual. ${keep}`,
+      "",
+      `See your books: ${options.siteUrl}/`,
+    ].join("\n"),
+    html: htmlEmail(library, {
+      title: "Your book is back",
+      preheader: `${options.title} is back on the shelf.`,
+      paragraphs: [
+        `Good news: <strong>${escapeHtml(options.title)}</strong> is back on the shelf.`,
+        `Scan its sticker to borrow it as usual. ${escapeHtml(keep)}`,
+        `<a href="${escapeHtml(options.siteUrl)}/" style="color:#1f6f5c;font-weight:600;text-decoration:underline">See your books</a>`,
+      ],
+    }),
+  };
+}
+
 /**
  * Tells a family a book of theirs was brought back at the kiosk tablet
  * (no code is needed to return), so a mistake or a prank is noticed.
@@ -243,6 +275,8 @@ export interface ReminderLine {
   dueOn: string;
   kind: "due_soon" | "overdue";
   overdueDays: number;
+  /** One-tap "keep it longer", when the library allows it and nobody is waiting. */
+  extendUrl?: string;
 }
 
 /** One email per parent per day, listing every book that needs attention. */
@@ -276,7 +310,10 @@ export function reminderEmail(options: {
     text: [
       intro,
       "",
-      ...options.lines.map((l) => `- ${reminderLine(l)}`),
+      ...options.lines.flatMap((l) => [
+        `- ${reminderLine(l)}`,
+        ...(l.extendUrl ? [`  Keep it longer: ${l.extendUrl}`] : []),
+      ]),
       "",
       `See your books (and keep one longer, if allowed): ${options.siteUrl}/`,
       "",
@@ -287,7 +324,16 @@ export function reminderEmail(options: {
       preheader: intro,
       paragraphs: [
         escapeHtml(intro),
-        `<ul style="margin:0;padding-left:20px">${options.lines.map((l) => `<li>${escapeHtml(reminderLine(l))}</li>`).join("")}</ul>`,
+        `<ul style="margin:0;padding-left:20px">${options.lines
+          .map(
+            (l) =>
+              `<li>${escapeHtml(reminderLine(l))}${
+                l.extendUrl
+                  ? ` <a href="${escapeHtml(l.extendUrl)}" style="color:#1f6f5c;font-weight:600;text-decoration:underline">Keep it longer</a>`
+                  : ""
+              }</li>`,
+          )
+          .join("")}</ul>`,
         `<a href="${escapeHtml(options.siteUrl)}/" style="color:#1f6f5c;font-weight:600;text-decoration:underline">See your books and keep one longer</a>`,
         `<span style="font-size:14px;color:#3d4743">Don't want these reminders? <a href="${escapeHtml(options.nudgesOffUrl)}" style="color:#3d4743;text-decoration:underline">Turn them off</a>. You'll still get an email when you borrow.</span>`,
       ],

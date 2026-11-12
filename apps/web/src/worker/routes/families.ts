@@ -764,7 +764,7 @@ export const familyRoutes = new Hono<AppEnv>()
       .all<{ id: string }>();
     if (results.length !== 2) fail(404, "not_found", "That family was not found.");
     const move = (
-      table: "memberships" | "loans" | "invitations" | "notifications" | "kiosk_people",
+      table: "memberships" | "loans" | "invitations" | "notifications" | "kiosk_people" | "holds",
     ) =>
       DB.prepare(
         `update ${table} set family_id = ?3 where library_id = ?1 and family_id = ?2`,
@@ -776,6 +776,12 @@ export const familyRoutes = new Hono<AppEnv>()
         move("invitations"),
         move("notifications"),
         move("kiosk_people"),
+        // A book both families wait for keeps its place in the family merged into.
+        DB.prepare(
+          `delete from holds where library_id = ?1 and family_id = ?2 and title_id in
+             (select title_id from holds where library_id = ?1 and family_id = ?3)`,
+        ).bind(lib, from, body.into),
+        move("holds"),
         DB.prepare(
           `update events set payload = json_set(payload, '$.familyId', ?3)
            where library_id = ?1 and json_valid(payload) and json_extract(payload, '$.familyId') = ?2`,

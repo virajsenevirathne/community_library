@@ -15,15 +15,23 @@ export interface CopyView {
     extensionsLeft?: number;
     /** Handed back by the family; waiting for staff to check it in. */
     handedBack?: boolean;
+    /** Another family is waiting for this book, so it can't be kept longer. */
+    othersWaiting?: boolean;
     familyName?: string;
   } | null;
   reportedFound: boolean;
+  /** The waiting list for this book (any copy of it). */
+  waitlist: {
+    waiting: number;
+    onShelf: number;
+    mine: { id: string; position: number; toldItsBack: boolean } | null;
+  };
   family: {
     status: "active" | "pending" | "deactivated";
     booksOut: number;
     maxLoans: number;
   } | null;
-  can: { borrow: boolean; return: boolean; reportFound: boolean };
+  can: { borrow: boolean; return: boolean; reportFound: boolean; hold: boolean };
 }
 
 /**

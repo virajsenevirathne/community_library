@@ -363,6 +363,41 @@ export const kioskPeople = sqliteTable(
   ],
 );
 
+/**
+ * A family waiting for a book (a title: any copy will do). When a copy comes
+ * back, the first family waiting is told; their place lapses some days after
+ * that, and borrowing the book removes it.
+ */
+export const holds = sqliteTable(
+  "holds",
+  {
+    id: text("id").primaryKey(),
+    libraryId: text("library_id")
+      .notNull()
+      .references(() => libraries.id, { onDelete: "cascade" }),
+    titleId: text("title_id").notNull(),
+    familyId: text("family_id").notNull(),
+    createdAt: createdAt(),
+    /** When the family was told a copy is back. */
+    notifiedAt: integer("notified_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [
+    uniqueIndex("holds_title_family_idx").on(t.libraryId, t.titleId, t.familyId),
+    index("holds_queue_idx").on(t.libraryId, t.titleId, t.createdAt),
+    index("holds_family_idx").on(t.familyId),
+    foreignKey({
+      name: "holds_title_fk",
+      columns: [t.titleId, t.libraryId],
+      foreignColumns: [titles.id, titles.libraryId],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "holds_family_fk",
+      columns: [t.familyId, t.libraryId],
+      foreignColumns: [families.id, families.libraryId],
+    }).onDelete("cascade"),
+  ],
+);
+
 export const LOAN_OUTCOMES = ["returned", "lost", "damaged", "found"] as const;
 export type LoanOutcome = (typeof LOAN_OUTCOMES)[number];
 
