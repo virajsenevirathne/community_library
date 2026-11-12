@@ -29,7 +29,7 @@ const COLOURS = [
   { id: "blue", name: "Blue", swatch: "#1d5fa8" },
   { id: "purple", name: "Purple", swatch: "#6b3fa0" },
   { id: "teal", name: "Teal", swatch: "#0f6b78" },
-  { id: "coral", name: "Coral", swatch: "#b3402b" },
+  { id: "coral", name: "Coral", swatch: "#a93a26" },
   { id: "gold", name: "Gold", swatch: "#7a5600" },
 ] as const;
 
@@ -214,9 +214,9 @@ export function SettingsPage() {
           times follow it. It was chosen when the library was set up; to change it, ask the person
           who set up this site.
         </p>
-        <fieldset className="field">
+        <fieldset className="field" aria-describedby="colour-hint">
           <legend>Colour</legend>
-          <p className="field__hint">
+          <p className="field__hint" id="colour-hint">
             For buttons and links on your library's pages and kiosk. Every colour is easy to read.
           </p>
           <div className="swatches">

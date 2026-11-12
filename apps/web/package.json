@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "npm run build && vite preview",
-    "deploy": "npm run build && wrangler deploy",
+    "deploy": "npm run build && wrangler d1 migrations apply DB --remote && wrangler deploy",
     "cf-typegen": "wrangler types",
     "typecheck": "wrangler types && tsc -p tsconfig.app.json && tsc -p tsconfig.worker.json",
     "test": "vitest run",
@@ -17,7 +17,9 @@
     "db:generate": "drizzle-kit generate",
     "e2e": "playwright test -c e2e/playwright.config.ts",
     "vapid-keys": "node scripts/vapid-keys.mjs",
-    "icons": "node scripts/make-icons.mjs"
+    "icons": "node scripts/make-icons.mjs",
+    "docs-screenshots": "DOCS_SCREENSHOTS=1 playwright test -c e2e/playwright.config.ts e2e/screenshots.spec.ts",
+    "demo-data": "wrangler d1 execute DB --local --file scripts/demo-data.sql"
   },
   "dependencies": {
     "@better-auth/passkey": "^1.7.20",

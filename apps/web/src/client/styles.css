@@ -22,6 +22,8 @@
   --warning-soft: #fdf1d6;
   --warning-text: #5c4100;
   --success-soft: #dcefe8;
+  /* "It worked" stays green whatever the library's colour. */
+  --success: #1f6f5c;
   --focus: #1a5fb4;
   --shadow: 0 1px 2px rgb(40 30 10 / 0.06), 0 4px 14px rgb(40 30 10 / 0.06);
   /* Playful colours for pictures, icons and edges: never for body text. */
@@ -99,6 +101,7 @@
     --warning-soft: #352a10;
     --warning-text: #f5d58a;
     --success-soft: #1f3a32;
+    --success: #6fcfb2;
     --focus: #8ab4f8;
     --shadow: none;
     --sun: #f5c35a;
@@ -713,11 +716,11 @@ fieldset.field {
 }
 .alert--info .alert__icon,
 .alert--success .alert__icon {
-  color: var(--accent);
+  color: var(--success);
 }
 .alert--success {
   background: var(--success-soft);
-  border-color: var(--accent);
+  border-color: var(--success);
   color: var(--text);
 }
 .alert details {
@@ -2589,8 +2592,8 @@ body.kiosk-mode {
 /* ------------------------------------------------------------- library colours */
 /*
  * A library's colour (Settings › Colour) replaces the green accent. Each pair
- * is checked: white text on the light accent and dark text on the dark accent
- * are at least 5:1, and the accent against the page at least 5:1.
+ * is checked: white text on the light accent and dark text on the dark accent,
+ * the accent against the page and against its soft tint: all at least 5:1.
  */
 :root[data-accent="blue"] {
   --accent: #1d5fa8;
@@ -2605,7 +2608,7 @@ body.kiosk-mode {
   --accent-soft: #d8eef1;
 }
 :root[data-accent="coral"] {
-  --accent: #b3402b;
+  --accent: #a93a26;
   --accent-soft: #f9e1dc;
 }
 :root[data-accent="gold"] {
@@ -2669,4 +2672,9 @@ body.kiosk-mode {
   width: 1.25rem;
   height: 1.25rem;
   border-radius: 50%;
+  border: 1px solid var(--border-strong);
+}
+.field .swatch:has(input:focus-visible) {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
 }

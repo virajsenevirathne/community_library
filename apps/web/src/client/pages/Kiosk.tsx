@@ -144,7 +144,7 @@ export function KioskPage() {
 }
 
 function Kiosk({ info, onLost }: { info: KioskInfo; onLost: () => Promise<void> }) {
-  useTheme(info.library.theme);
+  useTheme(info.library.theme, info.library.slug);
   const [screen, setScreen] = useState<Screen>({ kind: "start" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");

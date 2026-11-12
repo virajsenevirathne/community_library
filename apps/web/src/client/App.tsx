@@ -53,6 +53,9 @@ function Routes() {
     state.status === "ready" && state.me.library?.slug === base
       ? state.me.library?.theme
       : undefined,
+    base,
+    // The kiosk sets its own library's colour.
+    !(base && path === "/kiosk"),
   );
 
   // A kiosk tablet has its own pass, not a person's sign-in, so it doesn't
