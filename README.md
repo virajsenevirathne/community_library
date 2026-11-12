@@ -1,6 +1,6 @@
 # Reading Joey
 
-A free, open-source lending library for daycares, schools and other small libraries.
+A free lending library for daycares, schools and other small libraries.
 Every book gets a QR sticker; parents scan it with their phone to borrow or return,
 and the app sends reminders and gives staff a live list of who has what. A shared
 tablet by the shelf can be a kiosk, where families borrow with a personal code.
@@ -29,7 +29,7 @@ apps/web/            The Worker: Hono API (src/worker) and React app (src/client
 packages/core/       Business rules (loan limits, due dates), no UI or database code
 packages/adapters/   Email senders, book lookup, label templates
 migrations/          D1 SQL migrations
-docs/                Setup and architecture notes
+docs/                Guides, such as backups and restoring
 ```
 
 ## Local development

@@ -566,7 +566,8 @@ export const loanRoutes = new Hono<AppEnv>()
           familyId: row.loanFamilyId,
           byStaff: row.loanFamilyId !== actor.family?.id,
           wasFound,
-          ...(await timing(c)),
+          // Staff checking in another family's book don't count as a family's time.
+          ...(row.loanFamilyId === actor.family?.id ? await timing(c) : {}),
         },
         closedByUs,
         row.loanId,

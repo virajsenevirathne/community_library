@@ -1,14 +1,17 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { expect, type Page } from "@playwright/test";
-import { SERVER_LOG } from "./playwright.config.ts";
+import AxeBuilder from "@axe-core/playwright";
+import { expect, type Page, test } from "@playwright/test";
+import { SERVER_LOG } from "./paths.ts";
+
+export const SERVER_LOG_PATH = SERVER_LOG;
 
 /** Saved sessions (see auth.setup.ts). */
 export const PARENT = resolve(import.meta.dirname, "../.e2e-state/parent.json");
 export const ADMIN = resolve(import.meta.dirname, "../.e2e-state/admin.json");
 
 /** The newest sign-in code printed for `email` after `since` (a log length). */
-async function codeFor(email: string, since: number): Promise<string> {
+export async function codeFor(email: string, since: number): Promise<string> {
   for (let i = 0; i < 50; i++) {
     const log = readFileSync(SERVER_LOG, "utf8").slice(since);
     const block = log.split("✉️  To: ").findLast((b) => b.startsWith(email));
@@ -38,4 +41,31 @@ export async function signIn(page: Page, email: string, next = "/") {
   if (await notNow.isVisible()) await notNow.click();
   await page.waitForURL((url) => !url.pathname.startsWith("/signin"), { timeout: 15_000 });
   await expect(page.getByRole("heading").first()).toBeVisible();
+}
+
+/**
+ * Automated accessibility checks (WCAG 2.2 AA rules in axe) on the current
+ * page. Serious and critical problems fail the test; smaller ones are noted
+ * on the test's report. Automated checks find only part of the problems:
+ * keyboard and screen-reader passes are still done by hand.
+ */
+export async function checkA11y(page: Page, where: string) {
+  const results = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+    .analyze();
+  const summary = (v: (typeof results.violations)[number]) =>
+    `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(" ")).join(", ")})`;
+  for (const v of results.violations.filter(
+    (v) => v.impact !== "serious" && v.impact !== "critical",
+  )) {
+    test
+      .info()
+      .annotations.push({ type: `a11y (${v.impact}) on ${where}`, description: summary(v) });
+  }
+  expect(
+    results.violations
+      .filter((v) => v.impact === "serious" || v.impact === "critical")
+      .map(summary),
+    `Accessibility problems on ${where}`,
+  ).toEqual([]);
 }

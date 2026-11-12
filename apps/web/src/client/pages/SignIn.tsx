@@ -63,29 +63,45 @@ export function SignInFlow({ onStep }: { onStep?: (step: Step) => void }) {
   const [email, setEmail] = useState(query.get("email") ?? "");
   const setupNeeded = state.status === "ready" && state.me.setupNeeded;
 
+  // The person may leave while a request is in flight: the flow then stops,
+  // and the flag must not be left on.
+  const mounted = useRef(true);
+
   const finish = async () => {
     forgetTokens();
     finishing = true;
-    const me = await refresh();
-    finishing = false;
+    let me: Awaited<ReturnType<typeof refresh>> = null;
+    try {
+      me = await refresh();
+    } finally {
+      finishing = false;
+    }
+    if (!mounted.current) return;
     // `next` is a full address (it may name a library), so it is used as is.
     navigate(me?.setupNeeded ? "/setup" : next, { replace: true, absolute: true });
   };
 
   const afterCodeSignIn = async () => {
+    if (!mounted.current) return;
     finishing = true;
     const me = await refresh();
+    // Left meanwhile, or the session couldn't be loaded: let the pages show what they can.
+    if (!mounted.current || !me) {
+      finishing = false;
+      if (!mounted.current) return;
+    }
     if (passkeysSupported() && !me?.user?.hasPasskey && !passkeyHint.declined()) setStep("passkey");
     else await finish();
   };
 
   // Leaving the page part-way (say, from the passkey offer) ends the flow.
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
       finishing = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   useEffect(() => {
     onStep?.(step);
@@ -399,9 +415,14 @@ function PasskeyOffer({ onDone }: { onDone: () => void }) {
     passkeyHint.markDeclined();
     onDone();
   };
+  // The offer replaces the code form: say so, wherever the flow is shown.
+  const lead = useRef<HTMLParagraphElement>(null);
+  useEffect(() => lead.current?.focus(), []);
   return (
     <div className="stack">
-      <p className="lead">You're signed in. Next time, skip the email code?</p>
+      <p className="lead" ref={lead} tabIndex={-1}>
+        You're signed in. Next time, skip the email code?
+      </p>
       <p>
         Save a passkey and sign in with Face ID, your fingerprint or your phone's screen lock.
         Nothing about your face or fingerprint is shared with the library.

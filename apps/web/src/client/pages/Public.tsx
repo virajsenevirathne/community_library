@@ -148,6 +148,11 @@ export function PrivacyPage() {
         <li>
           Sign-in records and passkeys (Face ID or fingerprint sign-in), so you can sign in safely.
         </li>
+        <li>
+          A sign-in cookie on your device, so you stay signed in. A library's kiosk tablet keeps a
+          cookie of its own. There are no tracking or advertising cookies.
+        </li>
+        <li>How long borrowing and returning take, without who did it, to keep the site quick.</li>
         <li>Nothing about children: no names, ages or photos.</li>
       </ul>
 
@@ -159,9 +164,9 @@ export function PrivacyPage() {
           a library is logged, and that library's admins can see it.
         </li>
         <li>
-          Services that run the site: Cloudflare (hosting and database) and Resend or Mailjet
-          (sending emails). Book details are looked up by barcode only; no personal details are sent
-          for that.
+          Services that run the site: Cloudflare (hosting and database), Resend or Mailjet (sending
+          emails) and GitHub (keeping the encrypted weekly backups). Book details are looked up by
+          barcode only; no personal details are sent for that.
         </li>
       </ul>
 
@@ -176,8 +181,8 @@ export function PrivacyPage() {
           away; if you were the last adult in your household, the household goes too.
         </li>
         <li>
-          Backups of the database are kept for up to 30 days, so something lost by mistake can be
-          restored. Deleted details disappear from backups when those backups expire.
+          Encrypted backups of the database are kept for up to 30 days, so something lost by mistake
+          can be restored. Deleted details disappear from backups when those backups expire.
         </li>
       </ul>
 

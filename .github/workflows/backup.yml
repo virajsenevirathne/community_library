@@ -22,10 +22,9 @@ jobs:
   backup:
     if: vars.BACKUP_ENABLED == 'true'
     runs-on: ubuntu-latest
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+    timeout-minutes: 20
+    # Secrets are given only to the steps that need them, never to installing
+    # dependencies.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,13 +33,18 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Check the passphrase is set
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
         run: |
-          if [ "${#BACKUP_PASSPHRASE}" -lt 16 ]; then
-            echo "::error::BACKUP_PASSPHRASE must be at least 16 characters."
+          if [ "${#BACKUP_PASSPHRASE}" -lt 32 ]; then
+            echo "::error::BACKUP_PASSPHRASE must be a random string of at least 32 characters (openssl rand -base64 32)."
             exit 1
           fi
       - name: Export the database
         working-directory: apps/web
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         # Structure first, then the rows: a single export puts each table's
         # rows right after it, before the tables they point at exist, and
         # then can't be loaded back.
@@ -49,8 +53,11 @@ jobs:
           npx wrangler d1 export DB --remote --no-schema --output "$RUNNER_TEMP/data.sql"
           cat "$RUNNER_TEMP/schema.sql" "$RUNNER_TEMP/data.sql" > "$RUNNER_TEMP/library.sql"
           rm "$RUNNER_TEMP/schema.sql" "$RUNNER_TEMP/data.sql"
+          grep -q "CREATE TABLE" "$RUNNER_TEMP/library.sql"
       - name: Compress and encrypt
         # The export holds families' names and emails: it is never stored unencrypted.
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
         run: |
           stamp=$(date -u +%Y-%m-%d)
           gzip -9 "$RUNNER_TEMP/library.sql"
@@ -59,6 +66,13 @@ jobs:
             -pass env:BACKUP_PASSPHRASE
           rm "$RUNNER_TEMP/library.sql.gz"
           echo "STAMP=$stamp" >> "$GITHUB_ENV"
+      - name: Check the backup opens
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
+            -in "library-$STAMP.sql.gz.enc" -pass env:BACKUP_PASSPHRASE \
+            | gunzip | grep -q "CREATE TABLE"
       - uses: actions/upload-artifact@v4
         with:
           name: library-backup-${{ env.STAMP }}

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN, signIn } from "./helpers.ts";
+import { ADMIN, checkA11y, signIn } from "./helpers.ts";
 
 // Last: setting up the kiosk signs this admin session out.
 test.use({ storageState: ADMIN });
@@ -26,13 +26,17 @@ test("a kiosk tablet: scan a book with the camera and borrow it with a code", as
   await page.goto("/e2e-owls/kiosk");
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByRole("link", { name: "Staff" })).toBeVisible();
+  await checkA11y(page, "the kiosk's start screen");
 
   // The fake camera shows the sticker of "The Gruffalo".
   await expect(page.getByRole("heading", { name: "Borrow this book?" })).toBeVisible({
     timeout: 20_000,
   });
   await expect(page.getByText("The Gruffalo")).toBeVisible();
+  await checkA11y(page, "the kiosk's book screen");
   await page.getByRole("button", { name: "Borrow this book" }).click();
+  await expect(page.getByRole("heading", { name: "Type your kiosk code" })).toBeVisible();
+  await checkA11y(page, "the kiosk keypad");
 
   // A wrong code first, then the right one on the keypad.
   for (const digit of "000000" === code ? "111111" : "000000") {
@@ -42,6 +46,7 @@ test("a kiosk tablet: scan a book with the camera and borrow it with a code", as
   for (const digit of code) await page.getByRole("button", { name: digit, exact: true }).click();
   await expect(page.getByRole("heading", { name: "Enjoy the book!" })).toBeVisible();
   await expect(page.getByText(/Borrowed by Nana/)).toBeVisible();
+  await checkA11y(page, "the kiosk's confirmation");
 
   // Returning needs no code.
   await page.getByRole("button", { name: "Done" }).click();

@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
+import { SERVER_LOG, STATE } from "./paths.ts";
 
 /*
  * Browser tests: the real app (Worker and pages) in Chrome, against its own
@@ -9,8 +10,7 @@ import { defineConfig, devices } from "@playwright/test";
  *   npm run e2e -w @community-library/web
  */
 const PORT = 5174;
-const state = resolve(import.meta.dirname, "../.e2e-state");
-export const SERVER_LOG = resolve(state, "server.log");
+const state = STATE;
 
 export default defineConfig({
   testDir: ".",

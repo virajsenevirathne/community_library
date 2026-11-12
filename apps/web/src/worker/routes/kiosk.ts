@@ -282,7 +282,10 @@ export const kioskRoutes = new Hono<AppEnv>()
   .post("/kiosk/copies/:code/borrow", async (c) => {
     const kiosk = await requireKiosk(c);
     refuseIfPaused(kiosk);
-    const body = await readBody(c, z.object({ code: codeField, elapsedMs: z.number().optional() }));
+    const body = await readBody(
+      c,
+      z.object({ code: codeField, elapsedMs: z.unknown().optional() }),
+    );
     const db = c.get("db");
     const DB = c.env.DB;
     const lib = kiosk.library.id;

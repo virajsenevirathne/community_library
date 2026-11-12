@@ -1,53 +1,45 @@
-import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
-import { ADMIN, PARENT } from "./helpers.ts";
+import { ADMIN, checkA11y, PARENT } from "./helpers.ts";
 
-/*
- * Automated accessibility checks (WCAG 2.2 AA rules in axe) on the main
- * pages. Serious and critical problems fail the build. Automated checks
- * catch only part of the problems: keyboard and screen-reader passes are
- * still done by hand.
- */
+/* The main pages, in light and dark. The kiosk is checked in kiosk.spec.ts. */
 async function check(page: Page, path: string, ready: string) {
   await page.goto(path);
   await expect(page.getByRole("heading", { name: ready }).first()).toBeVisible();
-  const results = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
-    .analyze();
-  const serious = results.violations.filter(
-    (v) => v.impact === "serious" || v.impact === "critical",
-  );
-  expect(
-    serious.map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(" ")).join(", ")})`),
-    `Accessibility problems on ${path}`,
-  ).toEqual([]);
+  await checkA11y(page, path);
 }
 
-test.describe("light and dark", () => {
-  for (const scheme of ["light", "dark"] as const) {
-    test(`public pages (${scheme})`, async ({ page }) => {
-      await page.emulateMedia({ colorScheme: scheme });
+for (const scheme of ["light", "dark"] as const) {
+  test.describe(`${scheme} mode`, () => {
+    test.use({ colorScheme: scheme });
+
+    test("public pages", async ({ page }) => {
       await check(page, "/", "Borrow a book. Scan. Read together.");
       await check(page, "/privacy", "Privacy policy");
+      await check(page, "/terms", "Terms of use");
       await check(page, "/signin", "Sign in");
     });
 
-    test(`a parent's pages (${scheme})`, async ({ browser }) => {
-      const page = await (await browser.newContext({ storageState: PARENT })).newPage();
-      await page.emulateMedia({ colorScheme: scheme });
-      await check(page, "/e2e-owls/", "Your books");
-      await check(page, "/e2e-owls/c/BK2A", "Owl Babies");
-      await check(page, "/e2e-owls/account", "Your account");
+    test.describe("a parent's pages", () => {
+      test.use({ storageState: PARENT });
+      test("home, a book, account", async ({ page }) => {
+        await check(page, "/e2e-owls/", "Your books");
+        await check(page, "/e2e-owls/c/BK2A", "Owl Babies");
+        await check(page, "/e2e-owls/account", "Your account");
+      });
     });
 
-    test(`staff pages (${scheme})`, async ({ browser }) => {
-      const page = await (await browser.newContext({ storageState: ADMIN })).newPage();
-      await page.emulateMedia({ colorScheme: scheme });
-      await check(page, "/e2e-owls/admin", "Dashboard");
-      await check(page, "/e2e-owls/admin/loans", "Loans");
-      await check(page, "/e2e-owls/admin/families", "Families");
-      await check(page, "/e2e-owls/admin/catalog", "Catalog");
-      await check(page, "/e2e-owls/admin/settings", "Settings");
+    test.describe("staff pages", () => {
+      test.use({ storageState: ADMIN });
+      test("dashboard, loans, families, books, settings", async ({ page }) => {
+        await check(page, "/e2e-owls/admin", "Dashboard");
+        await check(page, "/e2e-owls/admin/loans", "Loans");
+        await check(page, "/e2e-owls/admin/returns", "Check in");
+        await check(page, "/e2e-owls/admin/families", "Families");
+        await check(page, "/e2e-owls/admin/catalog", "Catalog");
+        await check(page, "/e2e-owls/admin/add", "Add books");
+        await check(page, "/e2e-owls/admin/labels", "labels");
+        await check(page, "/e2e-owls/admin/settings", "Settings");
+      });
     });
-  }
-});
+  });
+}
