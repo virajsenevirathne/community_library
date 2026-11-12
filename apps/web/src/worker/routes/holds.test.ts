@@ -137,6 +137,68 @@ describe("waiting lists", () => {
   });
 });
 
+describe("waiting lists, the edges", () => {
+  it("has nothing to wait for on a lost copy", async () => {
+    const [code = ""] = await addBook();
+    await env.DB.prepare("update copies set status = 'lost'").run();
+    const res = await okafor.json(`/api/copies/${code}/hold`, { body: {} });
+    expect(res.body).toMatchObject({ error: "unavailable" });
+  });
+
+  it("skips a paused family, and its wait doesn't stop others keeping the book", async () => {
+    const [code = ""] = await addBook();
+    await lee.request(`/api/copies/${code}/borrow`, { body: {} });
+    await okafor.request(`/api/copies/${code}/hold`, { body: {} });
+    await nguyen.request(`/api/copies/${code}/hold`, { body: {} });
+    await env.DB.prepare("update families set status = 'deactivated' where id = ?")
+      .bind(okafor.familyId)
+      .run();
+    // Nguyen still waits, so no extension; take Nguyen off to see Okafor's wait doesn't count.
+    await env.DB.prepare("delete from holds where family_id = ?").bind(nguyen.familyId).run();
+    expect((await view(lee, code)).loan).toMatchObject({ canExtend: true });
+    await nguyen.request(`/api/copies/${code}/hold`, { body: {} });
+    const before = ctx.outbox.sent.length;
+    await lee.request(`/api/copies/${code}/return`, { body: {} });
+    await ctx.settle();
+    expect(
+      ctx.outbox.sent
+        .slice(before)
+        .filter((m) => m.subject.includes("is back"))
+        .map((m) => m.to),
+    ).toEqual([nguyen.email]);
+  });
+
+  it("tells one family per copy, even when told from two places at once", async () => {
+    const [code = ""] = await addBook();
+    await lee.request(`/api/copies/${code}/borrow`, { body: {} });
+    await okafor.request(`/api/copies/${code}/hold`, { body: {} });
+    await nguyen.request(`/api/copies/${code}/hold`, { body: {} });
+    // Returned without telling anyone (as if mid-request), then two notices race.
+    await env.DB.prepare("update loans set returned_at = 1, outcome = 'returned'").run();
+    const { notifyNextHold } = await import("../holds.ts");
+    const deps = { DB: env.DB, mailer: ctx.outbox, origin: "https://library.test" };
+    const library = { id: "lib-1", name: "Test Library", slug: "lib-1" };
+    const title = await env.DB.prepare("select id from titles").first<string>("id");
+    const told = await Promise.all([
+      notifyNextHold(deps, library, title ?? ""),
+      notifyNextHold(deps, library, title ?? ""),
+    ]);
+    expect(told[0] + told[1]).toBe(1);
+  });
+
+  it("caps how many books a family waits for", async () => {
+    await env.DB.prepare(
+      "update libraries set settings = json_set(settings, '$.maxLoans', 20)",
+    ).run();
+    for (let i = 0; i < 11; i++) {
+      const [code = ""] = await addBook(`Book ${i}`);
+      await lee.request(`/api/copies/${code}/borrow`, { body: {} });
+      const res = await okafor.json(`/api/copies/${code}/hold`, { body: {} });
+      expect(res.status).toBe(i < 10 ? 201 : 409);
+    }
+  });
+});
+
 describe("keeping a book longer from the reminder email", () => {
   it("works once from the signed link, and not when someone is waiting", async () => {
     const [code = ""] = await addBook();
@@ -158,7 +220,7 @@ describe("keeping a book longer from the reminder email", () => {
       now: twoDaysBefore,
     });
     const reminder = ctx.outbox.sent.findLast(
-      (m) => m.to === lee.email && m.text.includes("Keep it longer"),
+      (m) => m.to === lee.email && m.text.includes("longer:"),
     );
     const link = reminder?.text.match(/https:\/\/library\.test\/extend\?l=([^&\s]+)&t=([0-9a-f]+)/);
     expect(link).toBeTruthy();
@@ -166,6 +228,11 @@ describe("keeping a book longer from the reminder email", () => {
 
     const anyone = new (await import("../test/client.ts")).TestClient(ctx, "nobody@example.com");
     anyone.library = null;
+    // Opening the link only shows the book; nothing changes.
+    const preview = await anyone.json<{ title: string; dueOn: string }>(
+      `/api/extend-by-link?l=${encodeURIComponent(l)}&t=${t}`,
+    );
+    expect(preview.body).toEqual({ title: "Owl Babies", dueOn: loan?.dueOn });
     const first = await anyone.json<{ dueOn: string }>("/api/extend-by-link", { body: { l, t } });
     expect(first.status).toBe(200);
     expect(first.body.dueOn > (loan?.dueOn ?? "")).toBe(true);

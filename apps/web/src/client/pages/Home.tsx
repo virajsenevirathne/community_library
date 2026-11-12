@@ -115,15 +115,34 @@ interface Waiting {
 }
 
 /** Books the family is on the waiting list for. */
-function WaitingFor({ waiting, onChange }: { waiting: Waiting[]; onChange: () => Promise<void> }) {
+function WaitingFor({
+  waiting,
+  onChange,
+  onLeft,
+}: {
+  waiting: Waiting[];
+  onChange: () => Promise<void>;
+  /** Says what happened, in a message that stays when this list is gone. */
+  onLeft: (message: string) => void;
+}) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const leave = async (hold: Waiting) => {
     setBusy(hold.id);
     setError("");
+    // The row goes: focus the next Leave button, or the list's heading.
+    const index = waiting.indexOf(hold);
+    const next = waiting[index + 1] ?? waiting[index - 1];
     try {
       await api(`/holds/${hold.id}`, { method: "DELETE" });
+      onLeft(`You've left the waiting list for ${hold.title}.`);
       await onChange();
+      requestAnimationFrame(() => {
+        const target = next
+          ? document.getElementById(`leave-${next.id}`)
+          : document.querySelector<HTMLElement>("main h1");
+        target?.focus();
+      });
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -141,13 +160,14 @@ function WaitingFor({ waiting, onChange }: { waiting: Waiting[]; onChange: () =>
               <strong>{hold.title}</strong>
               <span className={hold.back ? "ok" : "muted"}>
                 {hold.back
-                  ? "Back on the shelf: borrow it soon"
+                  ? "We emailed you a copy was back. It isn't kept aside: borrow it soon if it's still there"
                   : hold.position === 1
-                    ? "You're next"
-                    : `${hold.position - 1} ${hold.position === 2 ? "family" : "families"} ahead of you`}
+                    ? "You're first in line"
+                    : `${hold.position - 1} ${hold.position === 2 ? "family" : "families"} joined before you`}
               </span>
             </span>
             <Button
+              id={`leave-${hold.id}`}
               variant="secondary"
               onClick={() => void leave(hold)}
               busy={busy === hold.id}
@@ -173,6 +193,7 @@ function MyBooks() {
   // Loans extended on this visit: the button is replaced by the new date in the same row.
   const [extended, setExtended] = useState<Record<string, string>>({});
   const [rowError, setRowError] = useState<Record<string, string>>({});
+  const [notice, setNotice] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -279,7 +300,10 @@ function MyBooks() {
           </ul>
         </>
       )}
-      {data && data.waiting.length > 0 && <WaitingFor waiting={data.waiting} onChange={load} />}
+      <Alert kind="success">{notice}</Alert>
+      {data && data.waiting.length > 0 && (
+        <WaitingFor waiting={data.waiting} onChange={load} onLeft={setNotice} />
+      )}
       {data && data.loans.length > 0 && (
         <div className="hint-card">
           <p>

@@ -624,6 +624,56 @@ export const adminRoutes = new Hono<AppEnv>()
     return c.json({ libraryName: libraryName ?? actor.library.name, settings: merged.settings });
   });
 
+/**
+ * The open loan a "keep it longer" link is for, when the link is genuine and
+ * still current (it is tied to the due date, so it works once). Wrong links
+ * are limited per network, so they can't be guessed.
+ */
+async function loanForExtendLink(c: AppContext, l: string, t: string) {
+  const loan =
+    l.length > 0 && l.length <= 64
+      ? await c.env.DB.prepare(
+          `select l.id as id, l.library_id as libraryId, l.copy_id as copyId, l.family_id as familyId,
+                  l.due_on as dueOn, l.extended_count as extendedCount,
+                  l.return_requested_at as returnRequestedAt, t.title as title
+           from loans l
+           join copies c on c.id = l.copy_id and c.library_id = l.library_id
+           join titles t on t.id = c.title_id and t.library_id = c.library_id
+           where l.id = ? and l.returned_at is null`,
+        )
+          .bind(l)
+          .first<{
+            id: string;
+            libraryId: string;
+            copyId: string;
+            familyId: string | null;
+            dueOn: string;
+            extendedCount: number;
+            returnRequestedAt: number | null;
+            title: string;
+          }>()
+      : null;
+  if (
+    loan &&
+    t.length <= 128 &&
+    timingSafeEqual(await extendLinkToken(c.env, loan.id, loan.dueOn), t)
+  ) {
+    return loan;
+  }
+  const limit = await consume(
+    c.env.DB,
+    authSecret(c.env),
+    `extend-link-bad:${clientIp(c.req.raw.headers)}`,
+    { window: 3600, max: 20 },
+  );
+  if (!limit.allowed) fail(429, "too_many_attempts", "Please wait a little and try again.");
+  return fail(
+    400,
+    "bad_link",
+    "This link has already been used, or the book is back. Open the library to see your books.",
+  );
+}
+
 /** Public: the "turn off reminders" link in reminder emails. Needs the signed token from the email. */
 export const nudgeRoutes = new Hono<AppEnv>()
   .post("/reminders-off", async (c) => {
@@ -656,44 +706,16 @@ export const nudgeRoutes = new Hono<AppEnv>()
    * Public: "Keep it another week" from a reminder email. The link is signed
    * and tied to the book's due date, so it works once and only for that loan.
    */
+  /** What the link is for, before the person presses: the book and its due date. Changes nothing. */
+  .get("/extend-by-link", async (c) => {
+    const loan = await loanForExtendLink(c, c.req.query("l") ?? "", c.req.query("t") ?? "");
+    return c.json({ title: loan.title, dueOn: loan.dueOn });
+  })
+
   .post("/extend-by-link", async (c) => {
     const body = await readBody(c, z.object({ l: z.string().max(64), t: z.string().max(128) }));
     const DB = c.env.DB;
-    const secret = authSecret(c.env);
-    const loan = await DB.prepare(
-      `select l.id as id, l.library_id as libraryId, l.copy_id as copyId, l.family_id as familyId,
-              l.due_on as dueOn, l.extended_count as extendedCount,
-              l.return_requested_at as returnRequestedAt, t.title as title
-       from loans l
-       join copies c on c.id = l.copy_id and c.library_id = l.library_id
-       join titles t on t.id = c.title_id and t.library_id = c.library_id
-       where l.id = ? and l.returned_at is null`,
-    )
-      .bind(body.l)
-      .first<{
-        id: string;
-        libraryId: string;
-        copyId: string;
-        familyId: string | null;
-        dueOn: string;
-        extendedCount: number;
-        returnRequestedAt: number | null;
-        title: string;
-      }>();
-    const valid =
-      loan !== null && timingSafeEqual(await extendLinkToken(c.env, loan.id, loan.dueOn), body.t);
-    if (!valid) {
-      const limit = await consume(DB, secret, `extend-link-bad:${clientIp(c.req.raw.headers)}`, {
-        window: 3600,
-        max: 20,
-      });
-      if (!limit.allowed) fail(429, "too_many_attempts", "Please wait a little and try again.");
-      fail(
-        400,
-        "bad_link",
-        "This link has already been used or the book is back. Open the library to see your books.",
-      );
-    }
+    const loan = await loanForExtendLink(c, body.l, body.t);
     const library = await libraryById(c.get("db"), loan.libraryId);
     if (!library || library.status === "paused") {
       fail(403, "library_paused", "The library is paused, so loans can't be changed right now.");

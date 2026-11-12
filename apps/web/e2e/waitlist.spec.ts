@@ -18,13 +18,14 @@ test("a family joins the waiting list for a book another family has, then leaves
   await expect(page.getByText("This book shows as borrowed by another family.")).toBeVisible();
   await page.getByRole("button", { name: "Join the waiting list" }).click();
   await expect(page.getByText(/You're on the waiting list/)).toBeVisible();
-  await expect(page.getByText(/1st in line/)).toBeVisible();
+  await expect(page.getByText(/You're first in line/)).toBeVisible();
+  await expect(page.getByText(/You're first in line/)).toBeFocused();
   await checkA11y(page, "the book page, on the waiting list");
 
   // Home lists it under "Waiting for".
   await page.goto("/e2e-owls/");
   await expect(page.getByRole("heading", { name: "Waiting for" })).toBeVisible();
-  await expect(page.getByText("You're next")).toBeVisible();
+  await expect(page.getByText("You're first in line")).toBeVisible();
 
   // The Lee family can't keep it longer while someone waits.
   await leePage.goto("/e2e-owls/c/BK4A");
@@ -33,6 +34,7 @@ test("a family joins the waiting list for a book another family has, then leaves
 
   await page.getByRole("button", { name: /Leave/ }).click();
   await expect(page.getByRole("heading", { name: "Waiting for" })).toHaveCount(0);
+  await expect(page.getByText("You've left the waiting list for")).toBeVisible();
   await lee.close();
   await okafor.close();
 });

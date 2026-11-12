@@ -1,29 +1,46 @@
-import { useState } from "react";
-import { Alert, Button, Layout } from "../components.tsx";
+import { useEffect, useState } from "react";
+import { Alert, Button, Layout, Loading } from "../components.tsx";
 import { api, errorMessage } from "../lib/api.ts";
 import { formatDate } from "../lib/copies.ts";
 import { Link, useLocation } from "../lib/router.tsx";
 
 /**
  * "Keep it longer" from a reminder email. Works without signing in (the link
- * is signed), and asks first, so an email scanner following the link can't
- * extend the book by itself.
+ * is signed). Opening the page changes nothing: the book is extended only
+ * when the button is pressed, so an email scanner following the link can't
+ * do it by itself.
  */
 export function ExtendPage() {
   const { query } = useLocation();
-  const [state, setState] = useState<"ask" | "busy" | "done">("ask");
-  const [done, setDone] = useState<{ title: string; dueOn: string; slug: string } | null>(null);
+  const l = query.get("l") ?? "";
+  const t = query.get("t") ?? "";
+  const [book, setBook] = useState<{ title: string; dueOn: string } | null>(null);
+  const [state, setState] = useState<"loading" | "ask" | "busy" | "done" | "spent">("loading");
+  const [done, setDone] = useState<{ dueOn: string; slug: string } | null>(null);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    api<{ title: string; dueOn: string }>(
+      `/extend-by-link?l=${encodeURIComponent(l)}&t=${encodeURIComponent(t)}`,
+    )
+      .then((found) => {
+        setBook(found);
+        setState("ask");
+      })
+      .catch((e) => {
+        setError(errorMessage(e));
+        setState("spent");
+      });
+  }, [l, t]);
 
   const extend = async () => {
     setState("busy");
     setError("");
     try {
-      const res = await api<{ title: string; dueOn: string; library: { slug: string } }>(
-        "/extend-by-link",
-        { body: { l: query.get("l") ?? "", t: query.get("t") ?? "" } },
-      );
-      setDone({ title: res.title, dueOn: res.dueOn, slug: res.library.slug });
+      const res = await api<{ dueOn: string; library: { slug: string } }>("/extend-by-link", {
+        body: { l, t },
+      });
+      setDone({ dueOn: res.dueOn, slug: res.library.slug });
       setState("done");
     } catch (e) {
       setError(errorMessage(e));
@@ -31,19 +48,27 @@ export function ExtendPage() {
     }
   };
 
+  const title =
+    state === "done"
+      ? "Kept longer"
+      : state === "spent"
+        ? "This link can't be used"
+        : "Keep the book longer?";
   return (
-    <Layout title={done ? "Kept longer" : "Keep the book longer?"} siteWide>
+    <Layout title={title} focusKey={state} siteWide>
       <Alert>{error}</Alert>
-      {done ? (
+      {state === "loading" && <Loading label="Finding the book…" />}
+      {done && book && (
         <p className="lead">
-          Done. <strong>{done.title}</strong> is now due back{" "}
+          Done. <strong>{book.title}</strong> is now due back{" "}
           <strong>{formatDate(done.dueOn)}</strong>.
         </p>
-      ) : (
+      )}
+      {(state === "ask" || state === "busy") && book && (
         <>
           <p className="lead">
-            Keep the book from your reminder email for another loan period? You can do this once
-            nobody else is waiting for it.
+            Keep <strong>{book.title}</strong> for another loan period? It's due back{" "}
+            {formatDate(book.dueOn)} now.
           </p>
           <Button onClick={extend} busy={state === "busy"} busyLabel="Extending…">
             Keep it longer
@@ -52,7 +77,7 @@ export function ExtendPage() {
       )}
       <p style={{ marginTop: "1.5rem" }}>
         <Link href={done ? `/${done.slug}` : "/"} absolute>
-          Go to the library
+          Open the library
         </Link>
       </p>
     </Layout>

@@ -26,7 +26,7 @@ import { type AppContext, type AppEnv, fail } from "../context.ts";
 import { hmacHex } from "../crypto.ts";
 import { type Db, newId, schema } from "../db/client.ts";
 import { checkoutEmail, foundEmail } from "../email.ts";
-import { notifyNextHold } from "../holds.ts";
+import { ELIGIBLE, notifyNextHold } from "../holds.ts";
 import { libraryHome } from "../library.ts";
 import { consume } from "../limiter.ts";
 import type { Priority, QuotaMailer } from "../mailer.ts";
@@ -185,9 +185,9 @@ async function copyView(db: Db, actor: Actor, row: CopyRow) {
               mine &&
               !handedBack &&
               (row.extendedCount ?? 0) < settings.maxExtensions &&
-              wait.waiting === 0,
+              !wait.othersWaiting,
             /** Another family waits for this book, so it can't be kept longer. */
-            othersWaiting: wait.waiting > 0,
+            othersWaiting: wait.othersWaiting,
             extensionsLeft: Math.max(0, settings.maxExtensions - (row.extendedCount ?? 0)),
             handedBack,
             ...(isStaff ? { familyName: row.familyName ?? "Deleted family" } : {}),
@@ -379,7 +379,8 @@ export async function othersWaiting(
 ) {
   const row = await DB.prepare(
     `select 1 from holds h join copies c on c.title_id = h.title_id and c.library_id = h.library_id
-     where c.id = ? and h.library_id = ? and h.family_id is not ? limit 1`,
+     where c.id = ? and h.library_id = ? and h.family_id is not ?
+       and ${ELIGIBLE.replaceAll("?1", "h.library_id")} limit 1`,
   )
     .bind(copyId, libraryId, familyId)
     .first();
@@ -413,6 +414,8 @@ async function waitlist(db: Db, actor: Actor, titleId: string) {
                                and l.returned_at is null)) as onShelf,
             (select count(*) from loans l join copies c on c.id = l.copy_id and c.library_id = l.library_id
                where l.library_id = ?1 and c.title_id = ?2 and l.family_id = ?3 and l.returned_at is null) as familyHasOne,
+            (select count(*) from holds h3 where h3.library_id = ?1 and h3.title_id = ?2
+               and h3.family_id is not ?3 and ${ELIGIBLE.replaceAll("h.", "h3.").replaceAll("?1", "h3.library_id")}) as othersWaiting,
             h.id as holdId, h.notified_at as notifiedAt,
             (select count(*) from holds h2 where h2.library_id = ?1 and h2.title_id = ?2
                and (h2.created_at < h.created_at or (h2.created_at = h.created_at and h2.id < h.id))) as ahead
@@ -423,6 +426,7 @@ async function waitlist(db: Db, actor: Actor, titleId: string) {
       waiting: number;
       onShelf: number;
       familyHasOne: number;
+      othersWaiting: number;
       holdId: string | null;
       notifiedAt: number | null;
       ahead: number;
@@ -431,6 +435,8 @@ async function waitlist(db: Db, actor: Actor, titleId: string) {
     waiting: row?.waiting ?? 0,
     onShelf: row?.onShelf ?? 0,
     familyHasOne: (row?.familyHasOne ?? 0) > 0,
+    /** Families (other than the actor's) who could borrow it next: they stop extensions. */
+    othersWaiting: (row?.othersWaiting ?? 0) > 0,
     mine: row?.holdId
       ? { id: row.holdId, position: (row.ahead ?? 0) + 1, toldItsBack: row.notifiedAt !== null }
       : null,
@@ -865,6 +871,10 @@ export const loanRoutes = new Hono<AppEnv>()
     if (wait.onShelf > 0) {
       fail(409, "on_shelf", "A copy is on the shelf right now, so you can borrow that one.");
     }
+    // Only for a book that's out: a lost or retired copy has nothing to wait for.
+    if (row.status !== "available" || row.loanId === null) {
+      fail(409, "unavailable", "This copy isn't on loan, so there's nothing to wait for.");
+    }
     const limit = await consume(c.env.DB, authSecret(c.env), `holds:${actor.family.id}`, {
       window: 86_400,
       max: 20,
@@ -872,23 +882,15 @@ export const loanRoutes = new Hono<AppEnv>()
     if (!limit.allowed) {
       fail(429, "too_many_holds", "That's a lot of waiting lists for one day. Try again tomorrow.");
     }
-    const open = await c.env.DB.prepare(
-      "select count(*) as n from holds where library_id = ? and family_id = ?",
-    )
-      .bind(actor.library.id, actor.family.id)
-      .first<number>("n");
-    if ((open ?? 0) >= MAX_HOLDS) {
-      fail(
-        409,
-        "too_many_holds",
-        `Your family can wait for up to ${MAX_HOLDS} books at once. Leave a waiting list first.`,
-      );
-    }
     const DB = c.env.DB;
-    await DB.batch([
+    // One statement, so the cap holds when several joins arrive together.
+    const [added] = await DB.batch([
       DB.prepare(
-        "insert into holds (id, library_id, title_id, family_id) values (?, ?, ?, ?) on conflict do nothing",
-      ).bind(newId(), actor.library.id, row.titleId, actor.family.id),
+        `insert into holds (id, library_id, title_id, family_id)
+         select ?1, ?2, ?3, ?4
+         where (select count(*) from holds where library_id = ?2 and family_id = ?4) < ?5
+         on conflict do nothing`,
+      ).bind(newId(), actor.library.id, row.titleId, actor.family.id, MAX_HOLDS),
       DB.prepare(
         `insert into events (id, library_id, actor_user_id, type, payload)
          select ?, ?, ?, 'hold_created', ? where changes() = 1`,
@@ -899,6 +901,15 @@ export const loanRoutes = new Hono<AppEnv>()
         JSON.stringify({ titleId: row.titleId, familyId: actor.family.id }),
       ),
     ]);
+    if (added?.meta.changes !== 1) {
+      const again = await waitlist(db, actor, row.titleId);
+      if (again.mine) return c.json({ copy: await copyView(db, actor, row) });
+      fail(
+        409,
+        "too_many_holds",
+        `Your family can wait for up to ${MAX_HOLDS} books at once. Leave a waiting list first.`,
+      );
+    }
     return c.json({ copy: await copyView(db, actor, row) }, 201);
   })
 
@@ -929,7 +940,8 @@ export const loanRoutes = new Hono<AppEnv>()
         returnRequestedAt: schema.loans.returnRequestedAt,
         code: schema.copies.shortCode,
         othersWaiting: sql<number>`exists (select 1 from holds h where h.library_id = ${schema.loans.libraryId}
-          and h.title_id = ${schema.copies.titleId} and h.family_id != ${schema.loans.familyId})`,
+          and h.title_id = ${schema.copies.titleId} and h.family_id is not ${schema.loans.familyId}
+          and ${sql.raw(ELIGIBLE.replaceAll("?1", "h.library_id"))})`,
         title: schema.titles.title,
         authors: schema.titles.authors,
         coverUrl: schema.titles.coverUrl,

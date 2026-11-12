@@ -782,6 +782,12 @@ export const familyRoutes = new Hono<AppEnv>()
              (select title_id from holds where library_id = ?1 and family_id = ?3)`,
         ).bind(lib, from, body.into),
         move("holds"),
+        // Nobody waits for a book their (merged) family already has.
+        DB.prepare(
+          `delete from holds where library_id = ?1 and family_id = ?2 and title_id in
+             (select c.title_id from loans l join copies c on c.id = l.copy_id and c.library_id = l.library_id
+              where l.library_id = ?1 and l.family_id = ?2 and l.returned_at is null)`,
+        ).bind(lib, body.into),
         DB.prepare(
           `update events set payload = json_set(payload, '$.familyId', ?3)
            where library_id = ?1 and json_valid(payload) and json_extract(payload, '$.familyId') = ?2`,

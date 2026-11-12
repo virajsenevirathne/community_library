@@ -287,20 +287,31 @@ function ordinal(n: number) {
 function Waitlist({ copy, onChange }: { copy: CopyView; onChange: (copy: CopyView) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const status = useRef<HTMLParagraphElement>(null);
+  const joinButton = useRef<HTMLButtonElement>(null);
+  const [focus, setFocus] = useState<"status" | "join" | null>(null);
   const mine = copy.waitlist.mine;
   const others = copy.waitlist.waiting - (mine ? 1 : 0);
+
+  // After joining or leaving, the button pressed is gone: focus what replaced it.
+  useEffect(() => {
+    if (focus === "status") status.current?.focus();
+    if (focus === "join") joinButton.current?.focus();
+    setFocus(null);
+  }, [focus]);
 
   const join = async () => {
     setBusy(true);
     setError("");
+    setNotice("");
     try {
-      onChange(
-        (
-          await api<{ copy: CopyView }>(`/copies/${encodeURIComponent(copy.code)}/hold`, {
-            body: {},
-          })
-        ).copy,
-      );
+      const res = await api<{ copy: CopyView }>(`/copies/${encodeURIComponent(copy.code)}/hold`, {
+        body: {},
+      });
+      onChange(res.copy);
+      // Focus moves to the new "You're on the waiting list" text, which is read out.
+      setFocus("status");
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -311,9 +322,12 @@ function Waitlist({ copy, onChange }: { copy: CopyView; onChange: (copy: CopyVie
     if (!mine) return;
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       await api(`/holds/${mine.id}`, { method: "DELETE" });
       onChange((await api<{ copy: CopyView }>(`/copies/${encodeURIComponent(copy.code)}`)).copy);
+      setNotice("You've left the waiting list.");
+      setFocus("join");
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -323,13 +337,18 @@ function Waitlist({ copy, onChange }: { copy: CopyView; onChange: (copy: CopyVie
 
   if (!mine && !copy.can.hold) return null;
   return (
-    <div className="card stack">
+    <section className="card stack" aria-label="Waiting list">
       <Alert>{error}</Alert>
+      <Alert kind="success">{notice}</Alert>
       {mine ? (
         <>
-          <p>
-            <strong>You're on the waiting list</strong>, {ordinal(mine.position)} in line. We'll
-            email you when a copy is back on the shelf.
+          <p ref={status} tabIndex={-1}>
+            <strong>You're on the waiting list.</strong>{" "}
+            {mine.toldItsBack
+              ? "We've emailed you that a copy was back. It isn't kept aside, so if someone else got it first, we'll email you again when the next copy is back."
+              : mine.position === 1
+                ? "You're first in line. We'll email you when a copy is back on the shelf."
+                : `${mine.position - 1} ${mine.position === 2 ? "family" : "families"} joined before you. We'll email you when a copy is back for you.`}
           </p>
           <Button variant="link" onClick={leave} busy={busy} busyLabel="Leaving…">
             Leave the waiting list
@@ -338,18 +357,18 @@ function Waitlist({ copy, onChange }: { copy: CopyView; onChange: (copy: CopyVie
       ) : (
         <>
           <p>
-            Want it next?{" "}
+            Join the waiting list and we'll email you when a copy is back. Copies aren't kept aside,
+            so borrow it soon when you hear.{" "}
             {others > 0
-              ? `${others === 1 ? "1 family is" : `${others} families are`} already waiting.`
-              : "Nobody is waiting yet."}{" "}
-            We'll email you when a copy is back.
+              ? `${others === 1 ? "1 family is" : `${others} families are`} waiting already.`
+              : ""}
           </p>
-          <Button onClick={join} busy={busy} busyLabel="Joining…">
+          <Button ref={joinButton} onClick={join} busy={busy} busyLabel="Joining…">
             Join the waiting list
           </Button>
         </>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -546,8 +565,8 @@ function CopyActions(props: {
         <p className="lead">This book shows as borrowed by another family.</p>
         <Waitlist copy={copy} onChange={onWaitlist} />
         <p>
-          If you're holding it at the library, tap below. We'll let its family know, and staff will
-          check it in from the returns basket.
+          {copy.waitlist.mine || copy.can.hold ? "Or, if" : "If"} you're holding it at the library,
+          tap below. We'll let its family know, and staff will check it in from the returns basket.
         </p>
         <Button
           variant="secondary"

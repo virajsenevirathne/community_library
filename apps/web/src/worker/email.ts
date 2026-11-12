@@ -312,7 +312,7 @@ export function reminderEmail(options: {
       "",
       ...options.lines.flatMap((l) => [
         `- ${reminderLine(l)}`,
-        ...(l.extendUrl ? [`  Keep it longer: ${l.extendUrl}`] : []),
+        ...(l.extendUrl ? [`  Keep "${l.title}" longer:`, `  ${l.extendUrl}`] : []),
       ]),
       "",
       `See your books (and keep one longer, if allowed): ${options.siteUrl}/`,
@@ -329,7 +329,7 @@ export function reminderEmail(options: {
             (l) =>
               `<li>${escapeHtml(reminderLine(l))}${
                 l.extendUrl
-                  ? ` <a href="${escapeHtml(l.extendUrl)}" style="color:#1f6f5c;font-weight:600;text-decoration:underline">Keep it longer</a>`
+                  ? `<br><a href="${escapeHtml(l.extendUrl)}" style="display:inline-block;padding:8px 0;color:#1f6f5c;font-weight:600;text-decoration:underline">Keep ${escapeHtml(l.title)} longer</a>`
                   : ""
               }</li>`,
           )

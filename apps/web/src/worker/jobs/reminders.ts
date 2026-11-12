@@ -12,7 +12,7 @@ import { authSecret } from "../config.ts";
 import { hmacHex } from "../crypto.ts";
 import { newId } from "../db/client.ts";
 import { digestEmail, type ReminderLine, reminderEmail } from "../email.ts";
-import { HOLD_LAPSE_DAYS, NOTIFY_GAP_DAYS, notifyNextHold } from "../holds.ts";
+import { ELIGIBLE, HOLD_LAPSE_DAYS, NOTIFY_GAP_DAYS, notifyNextHold, ON_SHELF } from "../holds.ts";
 import { libraryHome } from "../library.ts";
 import type { Priority } from "../mailer.ts";
 import { sendInvite, unsentInvites } from "../routes/families.ts";
@@ -160,10 +160,12 @@ async function runForLibrary(deps: JobDeps, now: Date, budget: Budget, library: 
  */
 async function tellWaitingFamilies(deps: JobDeps, library: Library) {
   const { results } = await deps.DB.prepare(
-    `select distinct title_id as titleId from holds
-     where library_id = ? and (notified_at is null or notified_at <= ?) limit 50`,
+    `select h.title_id as titleId from holds h
+     where h.library_id = ?1 and (h.notified_at is null or h.notified_at <= ?3)
+       and (${ON_SHELF.replaceAll("?2", "h.title_id")}) > 0
+     group by h.title_id order by min(coalesce(h.notified_at, 0)) limit 50`,
   )
-    .bind(library.id, Date.now() - NOTIFY_GAP_DAYS * 86_400_000)
+    .bind(library.id, null, Date.now() - NOTIFY_GAP_DAYS * 86_400_000)
     .all<{ titleId: string }>();
   for (const { titleId } of results) {
     await notifyNextHold(
@@ -182,6 +184,12 @@ async function tellWaitingFamilies(deps: JobDeps, library: Library) {
 async function tidyUp(DB: D1Database, library: Library, now: Date) {
   const cutoff = monthsBefore(now, library.settings.historyMonths).getTime();
   await DB.batch([
+    // Nothing left to wait for: no copy of the book can be lent any more.
+    DB.prepare(
+      `delete from holds where library_id = ? and not exists (
+         select 1 from copies c where c.title_id = holds.title_id and c.library_id = holds.library_id
+           and c.status = 'available')`,
+    ).bind(library.id),
     // Waiting lists lapse some days after the family was told the book is back.
     DB.prepare(
       "delete from holds where library_id = ? and notified_at is not null and notified_at < ?",
@@ -267,7 +275,8 @@ async function sendFamilyReminders(deps: JobDeps, library: Library, today: strin
     `select l.id as loanId, l.family_id as familyId, l.due_on as dueOn, t.title as title,
             l.extended_count as extendedCount, l.return_requested_at is not null as handedBack,
             exists (select 1 from holds h where h.library_id = l.library_id and h.title_id = t.id
-                    and h.family_id != l.family_id) as othersWaiting
+                    and h.family_id is not l.family_id
+                    and ${ELIGIBLE.replaceAll("?1", "h.library_id")}) as othersWaiting
      from loans l
      join families f on f.id = l.family_id and f.library_id = l.library_id
      join copies c on c.id = l.copy_id and c.library_id = l.library_id
