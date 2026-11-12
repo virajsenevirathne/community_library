@@ -258,6 +258,19 @@ export function undoHandBack(
   ).bind(loan.loanId, loan.libraryId, loan.familyId, handBackCutoff(), loan.maxLoans);
 }
 
+/**
+ * How long the person took from opening the book (scanning it) to this
+ * action, when the page sends it: `{ elapsedMs }`. Kept on the loan's event,
+ * so the dashboard can show whether borrowing is quick. Never required.
+ */
+export async function timing(c: AppContext): Promise<{ elapsedMs?: number }> {
+  const body = (await c.req.json().catch(() => null)) as { elapsedMs?: unknown } | null;
+  const ms = body?.elapsedMs;
+  return typeof ms === "number" && Number.isInteger(ms) && ms >= 0 && ms <= 600_000
+    ? { elapsedMs: ms }
+    : {};
+}
+
 /** Emails of every parent in a family (each family member with a sign-in). */
 export async function familyEmails(db: Db, actor: Actor, familyId: string) {
   const rows = await db
@@ -449,7 +462,13 @@ export const loanRoutes = new Hono<AppEnv>()
           DB,
           actor,
           "loan_created",
-          { loanId, copyId: row.copyId, titleId: row.titleId, familyId: actor.family.id },
+          {
+            loanId,
+            copyId: row.copyId,
+            titleId: row.titleId,
+            familyId: actor.family.id,
+            ...(await timing(c)),
+          },
           "exists (select 1 from loans where id = ?)",
           loanId,
         ),
@@ -547,6 +566,8 @@ export const loanRoutes = new Hono<AppEnv>()
           familyId: row.loanFamilyId,
           byStaff: row.loanFamilyId !== actor.family?.id,
           wasFound,
+          // Staff checking in another family's book don't count as a family's time.
+          ...(row.loanFamilyId === actor.family?.id ? await timing(c) : {}),
         },
         closedByUs,
         row.loanId,

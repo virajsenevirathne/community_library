@@ -262,7 +262,7 @@ export function reminderEmail(options: {
     overdue.length > 0
       ? `Reminder: ${count === 1 ? "a library book" : `${count} library books`} to bring back`
       : `${count === 1 ? "A library book is" : `${count} library books are`} due back soon`;
-  const describe = (l: ReminderLine) =>
+  const reminderLine = (l: ReminderLine) =>
     l.kind === "overdue"
       ? `${l.title}: was due ${formatDueDate(l.dueOn)} (${l.overdueDays} ${l.overdueDays === 1 ? "day" : "days"} ago)`
       : `${l.title}: due ${formatDueDate(l.dueOn)}`;
@@ -276,7 +276,7 @@ export function reminderEmail(options: {
     text: [
       intro,
       "",
-      ...options.lines.map((l) => `- ${describe(l)}`),
+      ...options.lines.map((l) => `- ${reminderLine(l)}`),
       "",
       `See your books (and keep one longer, if allowed): ${options.siteUrl}/`,
       "",
@@ -287,7 +287,7 @@ export function reminderEmail(options: {
       preheader: intro,
       paragraphs: [
         escapeHtml(intro),
-        `<ul style="margin:0;padding-left:20px">${options.lines.map((l) => `<li>${escapeHtml(describe(l))}</li>`).join("")}</ul>`,
+        `<ul style="margin:0;padding-left:20px">${options.lines.map((l) => `<li>${escapeHtml(reminderLine(l))}</li>`).join("")}</ul>`,
         `<a href="${escapeHtml(options.siteUrl)}/" style="color:#1f6f5c;font-weight:600;text-decoration:underline">See your books and keep one longer</a>`,
         `<span style="font-size:14px;color:#3d4743">Don't want these reminders? <a href="${escapeHtml(options.nudgesOffUrl)}" style="color:#3d4743;text-decoration:underline">Turn them off</a>. You'll still get an email when you borrow.</span>`,
       ],

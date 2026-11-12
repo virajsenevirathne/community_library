@@ -140,6 +140,9 @@ function Kiosk({ info, onLost }: { info: KioskInfo; onLost: () => Promise<void> 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
+  /** When the current book was scanned, to time scan-to-confirmation. */
+  const scannedAt = useRef(0);
+  const elapsed = () => Math.round(performance.now() - scannedAt.current);
   const onLostRef = useRef(onLost);
   onLostRef.current = onLost;
 
@@ -199,6 +202,7 @@ function Kiosk({ info, onLost }: { info: KioskInfo; onLost: () => Promise<void> 
     }
     setBusy(true);
     setError("");
+    scannedAt.current = performance.now();
     try {
       const res = await api<{ copy: KioskCopy }>(`/kiosk/copies/${encodeURIComponent(code)}`);
       signal("ok");
@@ -220,7 +224,9 @@ function Kiosk({ info, onLost }: { info: KioskInfo; onLost: () => Promise<void> 
         returned?: boolean;
         pendingCheckIn?: boolean;
         alreadyReturned?: boolean;
-      }>(`/kiosk/copies/${encodeURIComponent(copy.code)}/return`, { body: {} });
+      }>(`/kiosk/copies/${encodeURIComponent(copy.code)}/return`, {
+        body: { elapsedMs: elapsed() },
+      });
       signal("ok");
       setScreen(
         res.pendingCheckIn
@@ -300,6 +306,7 @@ function Kiosk({ info, onLost }: { info: KioskInfo; onLost: () => Promise<void> 
           <CodeScreen
             heading={heading}
             copy={screen.copy}
+            elapsed={elapsed}
             onBorrowed={(b) => {
               signal("ok");
               setScreen({
@@ -544,11 +551,14 @@ function BookScreen({
 function CodeScreen({
   heading,
   copy,
+  elapsed,
   onBorrowed,
   onProblem,
 }: {
   heading: HeadingRef;
   copy: KioskCopy;
+  /** Milliseconds since the book was scanned. */
+  elapsed: () => number;
   onBorrowed: (b: { name: string; family: string; dueOn: string | null }) => void;
   onProblem: (e: unknown) => void;
 }) {
@@ -597,7 +607,9 @@ function CodeScreen({
       try {
         const res = await api<{
           borrowed: { name: string; family: string; dueOn: string | null };
-        }>(`/kiosk/copies/${encodeURIComponent(copy.code)}/borrow`, { body: { code } });
+        }>(`/kiosk/copies/${encodeURIComponent(copy.code)}/borrow`, {
+          body: { code, elapsedMs: elapsed() },
+        });
         if (mounted.current) onBorrowed(res.borrowed);
       } catch (e) {
         if (!mounted.current) return;
@@ -618,7 +630,7 @@ function CodeScreen({
         if (mounted.current) setBusy(false);
       }
     },
-    [copy.code, onBorrowed, onProblem],
+    [copy.code, elapsed, onBorrowed, onProblem],
   );
 
   const press = useCallback(

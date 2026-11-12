@@ -48,7 +48,7 @@ export function AccountPage() {
   };
 
   const remove = async (passkey: PasskeyRow) => {
-    const label = describe(passkey);
+    const label = passkeyLabel(passkey);
     if (!confirm(`Remove the passkey “${label}”? You can still sign in with an email code.`))
       return;
     const id = passkey.id;
@@ -120,13 +120,13 @@ export function AccountPage() {
           <ul className="list">
             {passkeys.map((p) => (
               <li key={p.id}>
-                <span>{describe(p)}</span>
+                <span>{passkeyLabel(p)}</span>
                 <Button
                   variant="secondary"
                   onClick={() => remove(p)}
                   busy={busy === p.id}
                   busyLabel="Removing…"
-                  aria-label={`Remove passkey ${describe(p)}`}
+                  aria-label={`Remove passkey ${passkeyLabel(p)}`}
                 >
                   Remove
                 </Button>
@@ -189,7 +189,7 @@ export function AccountPage() {
 const DATE = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 
 /** "iPhone, added 3 Nov 2026", so two passkeys with the same name can be told apart. */
-function describe(passkey: PasskeyRow): string {
+function passkeyLabel(passkey: PasskeyRow): string {
   const name = passkey.name || "Passkey";
   return passkey.createdAt ? `${name}, added ${DATE.format(new Date(passkey.createdAt))}` : name;
 }
