@@ -9,7 +9,7 @@ import {
   localParts,
   normalizeShortCode,
 } from "@community-library/core";
-import { and, asc, eq, isNull, lt, or } from "drizzle-orm";
+import { and, asc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import {
   type Actor,
@@ -23,8 +23,10 @@ import {
 } from "../access.ts";
 import { authSecret } from "../config.ts";
 import { type AppContext, type AppEnv, fail } from "../context.ts";
+import { hmacHex } from "../crypto.ts";
 import { type Db, newId, schema } from "../db/client.ts";
 import { checkoutEmail, foundEmail } from "../email.ts";
+import { ELIGIBLE, notifyNextHold } from "../holds.ts";
 import { libraryHome } from "../library.ts";
 import { consume } from "../limiter.ts";
 import type { Priority, QuotaMailer } from "../mailer.ts";
@@ -34,6 +36,9 @@ import type { Priority, QuotaMailer } from "../mailer.ts";
  * sticker (/c/K7R2) or typing its code, and offers the one action that makes
  * sense: Borrow, Return, or Found it.
  */
+
+/** Books one family can wait for at once. */
+const MAX_HOLDS = 10;
 
 const copyNotFound = (): never =>
   fail(
@@ -157,7 +162,10 @@ async function copyView(db: Db, actor: Actor, row: CopyRow) {
           : "out";
   const settings = actor.library.settings;
   const isStaff = allow(actor, "loans:manage");
-  const booksOut = await openLoanCount(db, actor);
+  const [booksOut, wait] = await Promise.all([
+    openLoanCount(db, actor),
+    waitlist(db, actor, row.titleId),
+  ]);
   /** The family handed it back; it waits for staff to check it in. */
   const handedBack = row.returnRequestedAt !== null && row.loanId !== null;
   return {
@@ -173,13 +181,25 @@ async function copyView(db: Db, actor: Actor, row: CopyRow) {
             id: row.loanId,
             dueOn: row.dueOn,
             overdueDays: daysOverdue(row.dueOn, today(settings)),
-            canExtend: mine && !handedBack && (row.extendedCount ?? 0) < settings.maxExtensions,
+            canExtend:
+              mine &&
+              !handedBack &&
+              (row.extendedCount ?? 0) < settings.maxExtensions &&
+              !wait.othersWaiting,
+            /** Another family waits for this book, so it can't be kept longer. */
+            othersWaiting: wait.othersWaiting,
             extensionsLeft: Math.max(0, settings.maxExtensions - (row.extendedCount ?? 0)),
             handedBack,
             ...(isStaff ? { familyName: row.familyName ?? "Deleted family" } : {}),
           }
         : null,
     reportedFound: row.foundAt !== null,
+    /** The waiting list for this book (any copy): your place in it, and how many wait. */
+    waitlist: {
+      waiting: wait.waiting,
+      onShelf: wait.onShelf,
+      mine: wait.mine,
+    },
     family: actor.family
       ? { status: actor.family.status, booksOut, maxLoans: settings.maxLoans }
       : null,
@@ -193,6 +213,13 @@ async function copyView(db: Db, actor: Actor, row: CopyRow) {
         (state === "out" && isStaff) ||
         (handedBack && isStaff),
       reportFound: state === "out" && !isStaff && row.foundAt === null,
+      // Only when no copy is on the shelf, and the family hasn't got one.
+      hold:
+        state === "out" &&
+        actor.family?.status === "active" &&
+        wait.onShelf === 0 &&
+        !wait.familyHasOne &&
+        wait.mine === null,
     },
   };
 }
@@ -269,6 +296,151 @@ export async function timing(c: AppContext): Promise<{ elapsedMs?: number }> {
   return typeof ms === "number" && Number.isInteger(ms) && ms >= 0 && ms <= 600_000
     ? { elapsedMs: ms }
     : {};
+}
+
+/**
+ * Keeps a book longer: a new due date one loan length from today (or from
+ * the due date, if later). Shared by the book's page and the one-tap link in
+ * reminder emails. Fails with a reason a parent can read.
+ */
+export async function extendLoan(
+  DB: D1Database,
+  library: Actor["library"],
+  loan: {
+    id: string;
+    copyId: string;
+    familyId: string | null;
+    dueOn: string;
+    extendedCount: number;
+    returnRequestedAt: Date | number | null;
+  },
+  actorUserId: string | null,
+): Promise<string> {
+  const settings = library.settings;
+  if (loan.returnRequestedAt !== null) {
+    fail(409, "handed_back", "This book has been handed back, so it can't be extended.");
+  }
+  if (await othersWaiting(DB, library.id, loan.copyId, loan.familyId)) {
+    fail(
+      409,
+      "others_waiting",
+      "Another family is waiting for this book, so it can't be kept longer. Please bring it back by the due date.",
+    );
+  }
+  if (loan.extendedCount >= settings.maxExtensions) {
+    fail(
+      409,
+      "no_more_extensions",
+      settings.maxExtensions === 0
+        ? "Loans can't be extended at this library."
+        : `This book has already been extended ${settings.maxExtensions === 1 ? "once" : `${settings.maxExtensions} times`}. Please bring it back.`,
+    );
+  }
+  const now = today(settings);
+  // Dates are YYYY-MM-DD strings, so the later one is the larger string.
+  const from = [loan.dueOn, now].sort().at(-1) ?? now;
+  const dueOn = extendedDue(from, settings);
+  const [result] = await DB.batch([
+    DB.prepare(
+      "update loans set due_on = ?, extended_count = ? where id = ? and library_id = ? and extended_count = ? and returned_at is null",
+    ).bind(dueOn, loan.extendedCount + 1, loan.id, library.id, loan.extendedCount),
+    DB.prepare(
+      `insert into events (id, library_id, actor_user_id, type, payload)
+       select ?, ?, ?, 'loan_extended', ?
+       where exists (select 1 from loans where id = ? and due_on = ? and extended_count = ?)`,
+    ).bind(
+      newId(),
+      library.id,
+      actorUserId,
+      JSON.stringify({ loanId: loan.id, familyId: loan.familyId, from: loan.dueOn, to: dueOn }),
+      loan.id,
+      dueOn,
+      loan.extendedCount + 1,
+    ),
+  ]);
+  if (result?.meta.changes !== 1) {
+    fail(409, "changed_meanwhile", "This loan just changed. Please refresh.");
+  }
+  return dueOn;
+}
+
+/** The signed link in a reminder email that keeps one book a loan length longer. */
+export async function extendLinkToken(env: Env, loanId: string, dueOn: string) {
+  // Tied to the due date, so the link works once: after it, the date has moved.
+  return hmacHex(authSecret(env), `extend:${loanId}:${dueOn}`);
+}
+
+/** True when a family other than `familyId` is waiting for the title of this copy. */
+export async function othersWaiting(
+  DB: D1Database,
+  libraryId: string,
+  copyId: string,
+  familyId: string | null,
+) {
+  const row = await DB.prepare(
+    `select 1 from holds h join copies c on c.title_id = h.title_id and c.library_id = h.library_id
+     where c.id = ? and h.library_id = ? and h.family_id is not ?
+       and ${ELIGIBLE.replaceAll("?1", "h.library_id")} limit 1`,
+  )
+    .bind(copyId, libraryId, familyId)
+    .first();
+  return row !== null;
+}
+
+/** A copy is back on the shelf: tell the next family waiting for it, if any. */
+export function tellWaitingFamily(c: AppContext, library: Actor["library"], titleId: string) {
+  inBackground(
+    c,
+    notifyNextHold(
+      { DB: c.env.DB, mailer: c.get("email"), origin: c.get("origin") },
+      library,
+      titleId,
+    ),
+  );
+}
+
+/**
+ * The waiting list for a title, as the actor may see it: how many families
+ * wait, how many copies are on the shelf, and the actor's own place.
+ */
+async function waitlist(db: Db, actor: Actor, titleId: string) {
+  const familyId = actor.family?.id ?? null;
+  const row = await db.$client
+    .prepare(
+      `select (select count(*) from holds where library_id = ?1 and title_id = ?2) as waiting,
+            (select count(*) from copies c where c.title_id = ?2 and c.library_id = ?1
+               and c.status = 'available'
+               and not exists (select 1 from loans l where l.copy_id = c.id and l.library_id = c.library_id
+                               and l.returned_at is null)) as onShelf,
+            (select count(*) from loans l join copies c on c.id = l.copy_id and c.library_id = l.library_id
+               where l.library_id = ?1 and c.title_id = ?2 and l.family_id = ?3 and l.returned_at is null) as familyHasOne,
+            (select count(*) from holds h3 where h3.library_id = ?1 and h3.title_id = ?2
+               and h3.family_id is not ?3 and ${ELIGIBLE.replaceAll("h.", "h3.").replaceAll("?1", "h3.library_id")}) as othersWaiting,
+            h.id as holdId, h.notified_at as notifiedAt,
+            (select count(*) from holds h2 where h2.library_id = ?1 and h2.title_id = ?2
+               and (h2.created_at < h.created_at or (h2.created_at = h.created_at and h2.id < h.id))) as ahead
+     from (select 1) left join holds h on h.library_id = ?1 and h.title_id = ?2 and h.family_id = ?3`,
+    )
+    .bind(actor.library.id, titleId, familyId)
+    .first<{
+      waiting: number;
+      onShelf: number;
+      familyHasOne: number;
+      othersWaiting: number;
+      holdId: string | null;
+      notifiedAt: number | null;
+      ahead: number;
+    }>();
+  return {
+    waiting: row?.waiting ?? 0,
+    onShelf: row?.onShelf ?? 0,
+    familyHasOne: (row?.familyHasOne ?? 0) > 0,
+    /** Families (other than the actor's) who could borrow it next: they stop extensions. */
+    othersWaiting: (row?.othersWaiting ?? 0) > 0,
+    mine: row?.holdId
+      ? { id: row.holdId, position: (row.ahead ?? 0) + 1, toldItsBack: row.notifiedAt !== null }
+      : null,
+  };
 }
 
 /** Emails of every parent in a family (each family member with a sign-in). */
@@ -472,6 +644,10 @@ export const loanRoutes = new Hono<AppEnv>()
           "exists (select 1 from loans where id = ?)",
           loanId,
         ),
+        // Waiting for this book is over for the family.
+        DB.prepare(
+          "delete from holds where library_id = ? and family_id = ? and title_id = ? and exists (select 1 from loans where id = ?)",
+        ).bind(actor.library.id, actor.family.id, row.titleId, loanId),
         // A "found" flag from an earlier loan must not carry over to this one.
         DB.prepare(
           "update copies set found_at = null, found_by = null where id = ? and found_at is not null and exists (select 1 from loans where id = ?)",
@@ -575,6 +751,7 @@ export const loanRoutes = new Hono<AppEnv>()
         actor.userId,
       ),
     ]);
+    if (closed?.meta.changes === 1) tellWaitingFamily(c, actor.library, row.titleId);
     if (closed?.meta.changes !== 1) {
       // Someone else returned it a moment ago.
       const now = await findCopy(db, actor, row.shortCode);
@@ -680,6 +857,75 @@ export const loanRoutes = new Hono<AppEnv>()
     return c.json({ copy: await copyView(db, actor, updated) });
   })
 
+  /**
+   * Join the waiting list for a book (any copy of it) that is out with
+   * another family. Someone already waiting is answered as a success.
+   */
+  .post("/copies/:code/hold", async (c) => {
+    const actor = await requireBorrower(c);
+    const db = c.get("db");
+    const row = await findCopy(db, actor, c.req.param("code"));
+    const wait = await waitlist(db, actor, row.titleId);
+    if (wait.mine) return c.json({ copy: await copyView(db, actor, row) });
+    if (wait.familyHasOne) fail(409, "yours", "Your family has this book already.");
+    if (wait.onShelf > 0) {
+      fail(409, "on_shelf", "A copy is on the shelf right now, so you can borrow that one.");
+    }
+    // Only for a book that's out: a lost or retired copy has nothing to wait for.
+    if (row.status !== "available" || row.loanId === null) {
+      fail(409, "unavailable", "This copy isn't on loan, so there's nothing to wait for.");
+    }
+    const limit = await consume(c.env.DB, authSecret(c.env), `holds:${actor.family.id}`, {
+      window: 86_400,
+      max: 20,
+    });
+    if (!limit.allowed) {
+      fail(429, "too_many_holds", "That's a lot of waiting lists for one day. Try again tomorrow.");
+    }
+    const DB = c.env.DB;
+    // One statement, so the cap holds when several joins arrive together.
+    const [added] = await DB.batch([
+      DB.prepare(
+        `insert into holds (id, library_id, title_id, family_id)
+         select ?1, ?2, ?3, ?4
+         where (select count(*) from holds where library_id = ?2 and family_id = ?4) < ?5
+         on conflict do nothing`,
+      ).bind(newId(), actor.library.id, row.titleId, actor.family.id, MAX_HOLDS),
+      DB.prepare(
+        `insert into events (id, library_id, actor_user_id, type, payload)
+         select ?, ?, ?, 'hold_created', ? where changes() = 1`,
+      ).bind(
+        newId(),
+        actor.library.id,
+        actor.userId,
+        JSON.stringify({ titleId: row.titleId, familyId: actor.family.id }),
+      ),
+    ]);
+    if (added?.meta.changes !== 1) {
+      const again = await waitlist(db, actor, row.titleId);
+      if (again.mine) return c.json({ copy: await copyView(db, actor, row) });
+      fail(
+        409,
+        "too_many_holds",
+        `Your family can wait for up to ${MAX_HOLDS} books at once. Leave a waiting list first.`,
+      );
+    }
+    return c.json({ copy: await copyView(db, actor, row) }, 201);
+  })
+
+  /** Leave a waiting list. */
+  .delete("/holds/:id", async (c) => {
+    const actor = await requirePermission(c, "loans:own");
+    if (!actor.family) fail(404, "not_found", "That waiting list was not found.");
+    const result = await c.env.DB.prepare(
+      "delete from holds where id = ? and library_id = ? and family_id = ?",
+    )
+      .bind(c.req.param("id"), actor.library.id, actor.family.id)
+      .run();
+    if (result.meta.changes !== 1) fail(404, "not_found", "That waiting list was not found.");
+    return c.json({ ok: true });
+  })
+
   /** The signed-in family's books that are out, soonest due first. */
   .get("/loans/mine", async (c) => {
     const actor = await requireMember(c);
@@ -693,6 +939,9 @@ export const loanRoutes = new Hono<AppEnv>()
         extendedCount: schema.loans.extendedCount,
         returnRequestedAt: schema.loans.returnRequestedAt,
         code: schema.copies.shortCode,
+        othersWaiting: sql<number>`exists (select 1 from holds h where h.library_id = ${schema.loans.libraryId}
+          and h.title_id = ${schema.copies.titleId} and h.family_id is not ${schema.loans.familyId}
+          and ${sql.raw(ELIGIBLE.replaceAll("?1", "h.library_id"))})`,
         title: schema.titles.title,
         authors: schema.titles.authors,
         coverUrl: schema.titles.coverUrl,
@@ -718,7 +967,22 @@ export const loanRoutes = new Hono<AppEnv>()
       .orderBy(asc(schema.loans.dueOn))
       .all();
     const now = today(settings);
+    const { results: holds } = await c.env.DB.prepare(
+      `select h.id as id, t.title as title, h.notified_at as notifiedAt,
+              (select count(*) from holds h2 where h2.library_id = h.library_id and h2.title_id = h.title_id
+                 and (h2.created_at < h.created_at or (h2.created_at = h.created_at and h2.id < h.id))) + 1 as position
+       from holds h join titles t on t.id = h.title_id and t.library_id = h.library_id
+       where h.library_id = ? and h.family_id = ? order by h.created_at`,
+    )
+      .bind(actor.library.id, actor.family?.id ?? null)
+      .all<{ id: string; title: string; notifiedAt: number | null; position: number }>();
     return c.json({
+      waiting: holds.map((h) => ({
+        id: h.id,
+        title: h.title,
+        position: h.position,
+        back: h.notifiedAt !== null,
+      })),
       loans: rows.map((r) => ({
         id: r.id,
         code: r.code,
@@ -727,7 +991,10 @@ export const loanRoutes = new Hono<AppEnv>()
         coverUrl: r.coverUrl,
         dueOn: r.dueOn,
         overdueDays: daysOverdue(r.dueOn, now),
-        canExtend: r.returnRequestedAt === null && r.extendedCount < settings.maxExtensions,
+        canExtend:
+          r.returnRequestedAt === null &&
+          r.extendedCount < settings.maxExtensions &&
+          !r.othersWaiting,
         handedBack: r.returnRequestedAt !== null,
       })),
       maxLoans: settings.maxLoans,
@@ -740,10 +1007,10 @@ export const loanRoutes = new Hono<AppEnv>()
     const actor = await requirePermission(c, "loans:own");
     const db = c.get("db");
     const s = scope(actor);
-    const settings = actor.library.settings;
     const loan = await db.query.loans.findFirst({
       columns: {
         id: true,
+        copyId: true,
         familyId: true,
         dueOn: true,
         extendedCount: true,
@@ -758,40 +1025,6 @@ export const loanRoutes = new Hono<AppEnv>()
     if (!loan || !canActOnFamily(actor, loan.familyId)) {
       fail(404, "not_found", "That loan was not found. The book may already be back.");
     }
-    if (loan.returnRequestedAt !== null) {
-      fail(409, "handed_back", "This book has been handed back, so it can't be extended.");
-    }
-    if (loan.extendedCount >= settings.maxExtensions) {
-      fail(
-        409,
-        "no_more_extensions",
-        settings.maxExtensions === 0
-          ? "Loans can't be extended at this library."
-          : `This book has already been extended ${settings.maxExtensions === 1 ? "once" : `${settings.maxExtensions} times`}. Please bring it back.`,
-      );
-    }
-    const now = today(settings);
-    // Dates are YYYY-MM-DD strings, so the later one is the larger string.
-    const from = [loan.dueOn, now].sort().at(-1) ?? now;
-    const dueOn = extendedDue(from, settings);
-    const DB = c.env.DB;
-    const [result] = await DB.batch([
-      DB.prepare(
-        "update loans set due_on = ?, extended_count = ? where id = ? and library_id = ? and extended_count = ? and returned_at is null",
-      ).bind(dueOn, loan.extendedCount + 1, loan.id, actor.library.id, loan.extendedCount),
-      eventIf(
-        DB,
-        actor,
-        "loan_extended",
-        { loanId: loan.id, familyId: loan.familyId, from: loan.dueOn, to: dueOn },
-        "exists (select 1 from loans where id = ? and due_on = ? and extended_count = ?)",
-        loan.id,
-        dueOn,
-        loan.extendedCount + 1,
-      ),
-    ]);
-    if (result?.meta.changes !== 1) {
-      fail(409, "changed_meanwhile", "This loan just changed. Please refresh.");
-    }
+    const dueOn = await extendLoan(c.env.DB, actor.library, loan, actor.userId);
     return c.json({ dueOn });
   });

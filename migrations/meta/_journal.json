@@ -57,6 +57,13 @@
       "when": 1794485972805,
       "tag": "0007_kiosk",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794492127233,
+      "tag": "0008_holds",
+      "breakpoints": true
     }
   ]
 }

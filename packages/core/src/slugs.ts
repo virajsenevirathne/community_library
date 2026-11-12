@@ -8,6 +8,7 @@
 export const SITE_PAGES = [
   "account",
   "c",
+  "extend",
   "invite",
   "join",
   "owner",

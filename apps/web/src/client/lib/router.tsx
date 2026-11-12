@@ -28,6 +28,7 @@ const SITE_ONLY = new Set([
   "join",
   "invite",
   "reminders-off",
+  "extend",
 ]);
 
 /** The library the address belongs to ("little-owls" in /little-owls/admin), or null. */

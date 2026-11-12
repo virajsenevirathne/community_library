@@ -12,9 +12,11 @@ import { authSecret } from "../config.ts";
 import { hmacHex } from "../crypto.ts";
 import { newId } from "../db/client.ts";
 import { digestEmail, type ReminderLine, reminderEmail } from "../email.ts";
+import { ELIGIBLE, HOLD_LAPSE_DAYS, NOTIFY_GAP_DAYS, notifyNextHold, ON_SHELF } from "../holds.ts";
 import { libraryHome } from "../library.ts";
 import type { Priority } from "../mailer.ts";
 import { sendInvite, unsentInvites } from "../routes/families.ts";
+import { extendLinkToken } from "../routes/loans.ts";
 
 /*
  * The hourly job (Cron Trigger "0 * * * *"). Each library gets its reminders
@@ -142,12 +144,36 @@ async function runForLibrary(deps: JobDeps, now: Date, budget: Budget, library: 
   await tidyUp(deps.DB, library, now);
   if (library.status === "paused") return;
   await sendQueuedInvites(deps, library, budget);
+  await tellWaitingFamilies(deps, library);
 
   if (local.hour < settings.reminderHour) return;
   // Staff get the weekly summary on Monday even when the centre is closed.
   if (local.weekday === 1) await sendWeeklyDigest(deps, library, local.date, now, budget);
   if (isClosed(local.date, settings)) return;
   await sendFamilyReminders(deps, library, local.date, budget);
+}
+
+/**
+ * Books on the shelf that someone is waiting for (a place lapsed, or a copy
+ * came back without a return, such as a lost book found): tell the next
+ * family. Normally a return tells them straight away.
+ */
+async function tellWaitingFamilies(deps: JobDeps, library: Library) {
+  const { results } = await deps.DB.prepare(
+    `select h.title_id as titleId from holds h
+     where h.library_id = ?1 and (h.notified_at is null or h.notified_at <= ?3)
+       and (${ON_SHELF.replaceAll("?2", "h.title_id")}) > 0
+     group by h.title_id order by min(coalesce(h.notified_at, 0)) limit 50`,
+  )
+    .bind(library.id, null, Date.now() - NOTIFY_GAP_DAYS * 86_400_000)
+    .all<{ titleId: string }>();
+  for (const { titleId } of results) {
+    await notifyNextHold(
+      { DB: deps.DB, mailer: deps.mailer, origin: deps.siteUrl },
+      library,
+      titleId,
+    );
+  }
 }
 
 /**
@@ -158,6 +184,16 @@ async function runForLibrary(deps: JobDeps, now: Date, budget: Budget, library: 
 async function tidyUp(DB: D1Database, library: Library, now: Date) {
   const cutoff = monthsBefore(now, library.settings.historyMonths).getTime();
   await DB.batch([
+    // Nothing left to wait for: no copy of the book can be lent any more.
+    DB.prepare(
+      `delete from holds where library_id = ? and not exists (
+         select 1 from copies c where c.title_id = holds.title_id and c.library_id = holds.library_id
+           and c.status = 'available')`,
+    ).bind(library.id),
+    // Waiting lists lapse some days after the family was told the book is back.
+    DB.prepare(
+      "delete from holds where library_id = ? and notified_at is not null and notified_at < ?",
+    ).bind(library.id, now.getTime() - HOLD_LAPSE_DAYS * 86_400_000),
     DB.prepare(
       `update loans set family_id = null, borrowed_by = null, returned_by = null, kiosk_person_id = null
        where library_id = ? and returned_at is not null and returned_at < ?
@@ -236,7 +272,11 @@ async function sendFamilyReminders(deps: JobDeps, library: Library, today: strin
   const { DB } = deps;
   // Open loans of active families that have not turned reminders off.
   const { results: loans } = await DB.prepare(
-    `select l.id as loanId, l.family_id as familyId, l.due_on as dueOn, t.title as title
+    `select l.id as loanId, l.family_id as familyId, l.due_on as dueOn, t.title as title,
+            l.extended_count as extendedCount, l.return_requested_at is not null as handedBack,
+            exists (select 1 from holds h where h.library_id = l.library_id and h.title_id = t.id
+                    and h.family_id is not l.family_id
+                    and ${ELIGIBLE.replaceAll("?1", "h.library_id")}) as othersWaiting
      from loans l
      join families f on f.id = l.family_id and f.library_id = l.library_id
      join copies c on c.id = l.copy_id and c.library_id = l.library_id
@@ -246,7 +286,15 @@ async function sendFamilyReminders(deps: JobDeps, library: Library, today: strin
        and f.status = 'active' and f.nudges_off = 0`,
   )
     .bind(library.id, handBackCutoff())
-    .all<{ loanId: string; familyId: string; dueOn: string; title: string }>();
+    .all<{
+      loanId: string;
+      familyId: string;
+      dueOn: string;
+      title: string;
+      extendedCount: number;
+      handedBack: number;
+      othersWaiting: number;
+    }>();
   const byLoan = new Map(loans.map((l) => [l.loanId, l]));
   const plan = remindersFor(loans, library.settings, today);
   if (plan.size === 0) return;
@@ -270,6 +318,13 @@ async function sendFamilyReminders(deps: JobDeps, library: Library, today: strin
         const key = `${reminder.key}:to:${parent.userId}`;
         if (!(await claim(DB, library, key, reminder.kind, familyId))) continue;
         const loan = byLoan.get(reminder.loanId);
+        // "Keep it another week" in the due-soon email, when it's allowed.
+        const extendable =
+          loan &&
+          reminder.kind === "due_soon" &&
+          !loan.handedBack &&
+          !loan.othersWaiting &&
+          loan.extendedCount < library.settings.maxExtensions;
         claimed.push({
           key,
           line: {
@@ -277,6 +332,11 @@ async function sendFamilyReminders(deps: JobDeps, library: Library, today: strin
             dueOn: loan?.dueOn ?? today,
             kind: reminder.kind,
             overdueDays: loan ? daysOverdue(loan.dueOn, today) : 0,
+            ...(extendable
+              ? {
+                  extendUrl: `${deps.siteUrl}/extend?l=${encodeURIComponent(loan.loanId)}&t=${await extendLinkToken(deps.env, loan.loanId, loan.dueOn)}`,
+                }
+              : {}),
           },
         });
       }

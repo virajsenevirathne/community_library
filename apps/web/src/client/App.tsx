@@ -15,6 +15,7 @@ import { SettingsPage } from "./pages/admin/Settings.tsx";
 import { TitleDetailPage } from "./pages/admin/TitleDetail.tsx";
 import { WelcomePage } from "./pages/admin/Welcome.tsx";
 import { CodeEntryPage, CopyPage } from "./pages/Copy.tsx";
+import { ExtendPage } from "./pages/Extend.tsx";
 import { HomePage } from "./pages/Home.tsx";
 import { InvitePage, JoinPage } from "./pages/Join.tsx";
 import { KioskPage } from "./pages/Kiosk.tsx";
@@ -74,6 +75,7 @@ function Routes() {
     }
     // Opened from an email; works without signing in (the link is signed).
     if (path === "/reminders-off") return <RemindersOffPage />;
+    if (path === "/extend") return <ExtendPage />;
     // Sign-up and invite links name their own library, and lead to sign-in themselves.
     const joinMatch = path.match(/^\/join\/([0-9a-f]{32})$/);
     if (joinMatch?.[1]) return <JoinPage token={joinMatch[1]} />;

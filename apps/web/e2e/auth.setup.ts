@@ -1,5 +1,5 @@
 import { test as setup } from "@playwright/test";
-import { ADMIN, PARENT, signIn } from "./helpers.ts";
+import { ADMIN, OTHER_PARENT, PARENT, signIn } from "./helpers.ts";
 
 /*
  * Signs each test person in once and saves the session, so the tests don't
@@ -9,6 +9,11 @@ import { ADMIN, PARENT, signIn } from "./helpers.ts";
 setup("sign in the parent", async ({ page }) => {
   await signIn(page, "parent@e2e.test");
   await page.context().storageState({ path: PARENT });
+});
+
+setup("sign in a parent of another family", async ({ page }) => {
+  await signIn(page, "other@e2e.test");
+  await page.context().storageState({ path: OTHER_PARENT });
 });
 
 setup("sign in the admin", async ({ page }) => {

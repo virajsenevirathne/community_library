@@ -260,11 +260,110 @@ export function CopyPage({ code }: { code: string }) {
           )}
 
           {!done && (
-            <CopyActions copy={copy} staff={staff} busy={busy} onAct={act} onExtend={extend} />
+            <CopyActions
+              copy={copy}
+              staff={staff}
+              busy={busy}
+              onAct={act}
+              onExtend={extend}
+              onWaitlist={(updated) => setCopy(updated)}
+            />
           )}
         </div>
       </div>
     </Layout>
+  );
+}
+
+/**
+ * Waiting for a book someone else has: join the list, see your place, or
+ * leave it. The family is emailed when a copy is back on the shelf.
+ */
+function Waitlist({ copy, onChange }: { copy: CopyView; onChange: (copy: CopyView) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const status = useRef<HTMLParagraphElement>(null);
+  const joinButton = useRef<HTMLButtonElement>(null);
+  const [focus, setFocus] = useState<"status" | "join" | null>(null);
+  const mine = copy.waitlist.mine;
+  const others = copy.waitlist.waiting - (mine ? 1 : 0);
+
+  // After joining or leaving, the button pressed is gone: focus what replaced it.
+  useEffect(() => {
+    if (focus === "status") status.current?.focus();
+    if (focus === "join") joinButton.current?.focus();
+    setFocus(null);
+  }, [focus]);
+
+  const join = async () => {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const res = await api<{ copy: CopyView }>(`/copies/${encodeURIComponent(copy.code)}/hold`, {
+        body: {},
+      });
+      onChange(res.copy);
+      // Focus moves to the new "You're on the waiting list" text, which is read out.
+      setFocus("status");
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const leave = async () => {
+    if (!mine) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await api(`/holds/${mine.id}`, { method: "DELETE" });
+      onChange((await api<{ copy: CopyView }>(`/copies/${encodeURIComponent(copy.code)}`)).copy);
+      setNotice("You've left the waiting list.");
+      setFocus("join");
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!mine && !copy.can.hold) return null;
+  return (
+    <section className="card stack" aria-label="Waiting list">
+      <Alert>{error}</Alert>
+      <Alert kind="success">{notice}</Alert>
+      {mine ? (
+        <>
+          <p ref={status} tabIndex={-1}>
+            <strong>You're on the waiting list.</strong>{" "}
+            {mine.toldItsBack
+              ? "We've emailed you that a copy was back. It isn't kept aside, so if someone else got it first, we'll email you again when the next copy is back."
+              : mine.position === 1
+                ? "You're first in line. We'll email you when a copy is back on the shelf."
+                : `${mine.position - 1} ${mine.position === 2 ? "family" : "families"} joined before you. We'll email you when a copy is back for you.`}
+          </p>
+          <Button variant="link" onClick={leave} busy={busy} busyLabel="Leaving…">
+            Leave the waiting list
+          </Button>
+        </>
+      ) : (
+        <>
+          <p>
+            Join the waiting list and we'll email you when a copy is back. Copies aren't kept aside,
+            so borrow it soon when you hear.{" "}
+            {others > 0
+              ? `${others === 1 ? "1 family is" : `${others} families are`} waiting already.`
+              : ""}
+          </p>
+          <Button ref={joinButton} onClick={join} busy={busy} busyLabel="Joining…">
+            Join the waiting list
+          </Button>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -293,8 +392,9 @@ function CopyActions(props: {
   busy: string | null;
   onAct: (action: Action) => void;
   onExtend: () => void;
+  onWaitlist: (copy: CopyView) => void;
 }) {
-  const { copy, staff, busy, onAct, onExtend } = props;
+  const { copy, staff, busy, onAct, onExtend, onWaitlist } = props;
   const family = copy.family;
   // While one action runs, the others wait.
   const locked = busy !== null;
@@ -365,10 +465,17 @@ function CopyActions(props: {
           Your family has this book. Due back <strong>{formatDate(copy.loan.dueOn)}</strong>
           {late && <span className="badge badge--lost"> {late}</span>}.
         </p>
-        {!copy.loan.canExtend && (copy.loan.extensionsLeft ?? 0) === 0 && (
+        {copy.loan.othersWaiting ? (
           <p className="muted">
-            You've already kept this book longer, so please bring it back by then.
+            Another family is waiting for this book, so please bring it back by then.
           </p>
+        ) : (
+          !copy.loan.canExtend &&
+          (copy.loan.extensionsLeft ?? 0) === 0 && (
+            <p className="muted">
+              You've already kept this book longer, so please bring it back by then.
+            </p>
+          )
         )}
         <div className="action-dock">
           <Button
@@ -416,6 +523,13 @@ function CopyActions(props: {
             Out with <strong>{copy.loan.familyName}</strong>, due {formatDate(copy.loan.dueOn)}
             {late && <span className="badge badge--lost"> {late}</span>}.
           </p>
+          {copy.waitlist.waiting > 0 && (
+            <p className="muted">
+              {copy.waitlist.waiting === 1
+                ? "1 family is waiting for this book."
+                : `${copy.waitlist.waiting} families are waiting for this book.`}
+            </p>
+          )}
           {copy.reportedFound && (
             <Alert kind="info">
               A parent reported finding this book. Check it in now that it's back.
@@ -444,9 +558,10 @@ function CopyActions(props: {
     return (
       <div className="stack">
         <p className="lead">This book shows as borrowed by another family.</p>
+        <Waitlist copy={copy} onChange={onWaitlist} />
         <p>
-          If you're holding it at the library, tap below. We'll let its family know, and staff will
-          check it in from the returns basket.
+          {copy.waitlist.mine || copy.can.hold ? "Or, if" : "If"} you're holding it at the library,
+          tap below. We'll let its family know, and staff will check it in from the returns basket.
         </p>
         <Button
           variant="secondary"

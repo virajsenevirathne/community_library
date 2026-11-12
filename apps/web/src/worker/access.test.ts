@@ -238,6 +238,15 @@ export const ROUTES: {
   },
   { route: "GET /api/loans/mine", rule: "member" },
   {
+    route: "POST /api/copies/:code/hold",
+    rule: "borrower",
+    request: "/api/copies/ZZZZ/hold",
+    body: {},
+  },
+  { route: "DELETE /api/holds/:id", rule: "loans:own", request: "/api/holds/missing" },
+  { route: "GET /api/extend-by-link", rule: "public", request: "/api/extend-by-link?l=x&t=y" },
+  { route: "POST /api/extend-by-link", rule: "public", body: { l: "x", t: "y" } },
+  {
     route: "POST /api/loans/:id/extend",
     rule: "loans:own",
     request: "/api/loans/missing/extend",
