@@ -3,7 +3,7 @@ import { Layout } from "../components.tsx";
 import { BookStack } from "../icons.tsx";
 import { Link } from "../lib/router.tsx";
 import { useSession } from "../lib/session.tsx";
-import { SignInFlow, type SignInStep, signInTitle } from "./SignIn.tsx";
+import { isFinishingSignIn, SignInFlow, type SignInStep, signInTitle } from "./SignIn.tsx";
 
 const KINDS = [
   "Daycares",
@@ -18,7 +18,7 @@ const KINDS = [
 export function FrontPage() {
   const { state } = useSession();
   const me = state.status === "ready" ? state.me : null;
-  const signedIn = Boolean(me?.user);
+  const signedIn = Boolean(me?.user) && !isFinishingSignIn();
   const [step, setStep] = useState<SignInStep>("email");
   const contact = me?.contactEmail;
 
@@ -136,7 +136,14 @@ export function PrivacyPage() {
 
       <h2>What we store</h2>
       <ul>
-        <li>Your email address, and the household (family) name you or your library gave.</li>
+        <li>
+          Your email address and first name, and the household (family) name you or your library
+          gave.
+        </li>
+        <li>
+          If your library has a kiosk tablet: your kiosk code, stored scrambled so nobody can read
+          it back, and the first names of any adults the library added without an email address.
+        </li>
         <li>Which books your household borrowed, when, and when they were due.</li>
         <li>
           Sign-in records and passkeys (Face ID or fingerprint sign-in), so you can sign in safely.
@@ -167,6 +174,10 @@ export function PrivacyPage() {
         <li>
           Delete your account at any time from your Account page. Your email and sign-in go straight
           away; if you were the last adult in your household, the household goes too.
+        </li>
+        <li>
+          Backups of the database are kept for up to 30 days, so something lost by mistake can be
+          restored. Deleted details disappear from backups when those backups expire.
         </li>
       </ul>
 

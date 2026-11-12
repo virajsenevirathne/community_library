@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { Alert, Button, Layout, LibraryList, LoadingPage } from "./components.tsx";
-import { Link, navigate, useLocation } from "./lib/router.tsx";
+import { Link, navigate, safeNext, useLocation } from "./lib/router.tsx";
 import { isStaff, type LibraryLink, type Me, SessionProvider, useSession } from "./lib/session.tsx";
 import { AccountPage } from "./pages/Account.tsx";
 import { AddBooksPage } from "./pages/admin/AddBooks.tsx";
@@ -22,7 +22,7 @@ import { OwnerPage } from "./pages/Owner.tsx";
 import { FrontPage, PrivacyPage, TermsPage } from "./pages/Public.tsx";
 import { RemindersOffPage } from "./pages/RemindersOff.tsx";
 import { SetupPage } from "./pages/Setup.tsx";
-import { SignInPage } from "./pages/SignIn.tsx";
+import { isFinishingSignIn, SignInPage } from "./pages/SignIn.tsx";
 
 export function App() {
   return (
@@ -62,8 +62,16 @@ function Routes() {
     // The front page, also for people who are signed in.
     if (path === "/about") return <FrontPage />;
     // Signed out, the home page is the front page, with sign-in at the top.
-    if (path === "/" && !me.user) return <FrontPage />;
-    if (path === "/signin") return me.user ? <Redirect to="/" /> : <SignInPage />;
+    // While sign-in finishes (the passkey offer), its page stays put.
+    const signingIn = isFinishingSignIn();
+    if (path === "/" && (!me.user || signingIn)) return <FrontPage />;
+    if (path === "/signin") {
+      return me.user && !signingIn ? (
+        <Redirect to={safeNext(new URLSearchParams(window.location.search).get("next"))} absolute />
+      ) : (
+        <SignInPage />
+      );
+    }
     // Opened from an email; works without signing in (the link is signed).
     if (path === "/reminders-off") return <RemindersOffPage />;
     // Sign-up and invite links name their own library, and lead to sign-in themselves.

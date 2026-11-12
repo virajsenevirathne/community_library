@@ -1,8 +1,8 @@
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Button, Field, Layout, Loading } from "../components.tsx";
 import { ApiError, api, errorMessage } from "../lib/api.ts";
 import { type CopyView, formatDate, lateText, parseCopyCode } from "../lib/copies.ts";
-import { Link, libraryBase, navigate } from "../lib/router.tsx";
+import { hasNavigated, Link, libraryBase, navigate } from "../lib/router.tsx";
 import { isStaff, useSession } from "../lib/session.tsx";
 import { Cover } from "./admin/Cover.tsx";
 
@@ -41,6 +41,8 @@ export function CopyPage({ code }: { code: string }) {
   const [error, setError] = useState<PageError | null>(null);
   const [busy, setBusy] = useState<Action | "extend" | "load" | null>(null);
   const [done, setDone] = useState<Done | null>(null);
+  // When the book was opened: the page load after a scan, or now within the app.
+  const openedAt = useRef(hasNavigated() ? performance.now() : 0);
 
   /** Reloads the copy. A failed action's message is kept, so the reason stays on screen. */
   const load = useCallback(
@@ -82,7 +84,9 @@ export function CopyPage({ code }: { code: string }) {
         dueOn?: string;
         movedForClosure?: boolean;
         pendingCheckIn?: boolean;
-      }>(`/copies/${encodeURIComponent(code)}/${action}`, { body: {} });
+      }>(`/copies/${encodeURIComponent(code)}/${action}`, {
+        body: { elapsedMs: Math.round(performance.now() - openedAt.current) },
+      });
       setCopy(res.copy);
       if (action === "borrow") {
         setDone({

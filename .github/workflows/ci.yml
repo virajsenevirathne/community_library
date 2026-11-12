@@ -26,3 +26,24 @@ jobs:
       - run: npm run typecheck
       - run: npm run test
       - run: npm run build
+
+  # The real app in Chrome: borrow and return, the kiosk with a fake camera,
+  # and automated accessibility checks (axe) on the main pages.
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: npm run e2e -w @community-library/web
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-results
+          path: apps/web/test-results
+          retention-days: 7

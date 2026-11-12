@@ -20,6 +20,7 @@ import {
   insertLoan,
   sendCheckoutEmails,
   sendEach,
+  timing,
   undoHandBack,
 } from "./loans.ts";
 
@@ -281,7 +282,7 @@ export const kioskRoutes = new Hono<AppEnv>()
   .post("/kiosk/copies/:code/borrow", async (c) => {
     const kiosk = await requireKiosk(c);
     refuseIfPaused(kiosk);
-    const body = await readBody(c, z.object({ code: codeField }));
+    const body = await readBody(c, z.object({ code: codeField, elapsedMs: z.number().optional() }));
     const db = c.get("db");
     const DB = c.env.DB;
     const lib = kiosk.library.id;
@@ -430,6 +431,7 @@ export const kioskRoutes = new Hono<AppEnv>()
             familyId: family.id,
             kioskDeviceId: kiosk.id,
             kioskPersonId: person.id,
+            ...(await timing(c)),
           }),
           loanId,
         ),
@@ -538,6 +540,7 @@ export const kioskRoutes = new Hono<AppEnv>()
           familyId: row.loanFamilyId,
           kioskDeviceId: kiosk.id,
           wasFound: row.foundAt !== null,
+          ...(await timing(c)),
         }),
         row.loanId,
         returnedAt,

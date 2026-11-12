@@ -45,6 +45,22 @@ async function addBook(title = "Owl Babies", copies = 1): Promise<string[]> {
 const view = async (who: Person, code: string) =>
   (await who.json<{ copy: CopyView }>(`/api/copies/${code}`)).body.copy;
 
+describe("timing", () => {
+  it("keeps how long a borrow and a return took from opening the book", async () => {
+    const [code] = await addBook();
+    await parent.request(`/api/copies/${code}/borrow`, { body: { elapsedMs: 4200 } });
+    await parent.request(`/api/copies/${code}/return`, { body: { elapsedMs: 99_999_999 } });
+    const { results } = await env.DB.prepare(
+      "select type, json_extract(payload, '$.elapsedMs') as ms from events where type in ('loan_created', 'loan_returned') order by created_at",
+    ).all<{ type: string; ms: number | null }>();
+    // An impossible time is ignored, not kept.
+    expect(results).toEqual([
+      { type: "loan_created", ms: 4200 },
+      { type: "loan_returned", ms: null },
+    ]);
+  });
+});
+
 describe("a book's page", () => {
   it("offers Borrow for an available copy, and accepts a typed code in lowercase", async () => {
     const [code] = await addBook();

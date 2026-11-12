@@ -41,6 +41,16 @@ export function signInTitle(step: Step): string {
 export type SignInStep = Step;
 
 /**
+ * True from the moment a code or passkey is accepted until the flow moves on
+ * (after the passkey offer). The pages that hold the flow keep showing it
+ * meanwhile, instead of jumping away as soon as the person counts as signed in.
+ */
+let finishing = false;
+export function isFinishingSignIn(): boolean {
+  return finishing;
+}
+
+/**
  * Signing in: email, then the emailed code, then an offer to save a passkey.
  * Used on the sign-in page and at the top of the front page.
  */
@@ -55,16 +65,27 @@ export function SignInFlow({ onStep }: { onStep?: (step: Step) => void }) {
 
   const finish = async () => {
     forgetTokens();
+    finishing = true;
     const me = await refresh();
+    finishing = false;
     // `next` is a full address (it may name a library), so it is used as is.
     navigate(me?.setupNeeded ? "/setup" : next, { replace: true, absolute: true });
   };
 
   const afterCodeSignIn = async () => {
+    finishing = true;
     const me = await refresh();
     if (passkeysSupported() && !me?.user?.hasPasskey && !passkeyHint.declined()) setStep("passkey");
     else await finish();
   };
+
+  // Leaving the page part-way (say, from the passkey offer) ends the flow.
+  useEffect(
+    () => () => {
+      finishing = false;
+    },
+    [],
+  );
 
   useEffect(() => {
     onStep?.(step);
