@@ -17,16 +17,40 @@ interface Family {
   name: string;
   status: "active" | "pending" | "deactivated";
   booksOut: number;
-  parents: string[];
+  adults: Adult[];
   invites: Invite[];
+}
+
+interface Adult {
+  userId: string;
+  name: string;
+  email: string;
+}
+
+/** "Priya" when a first name is known, otherwise the email address. */
+function adultName(adult: { name: string; email: string }) {
+  return adult.name.trim() || adult.email;
+}
+
+/** "Lee (Priya, Tom)": tells apart two families with the same name. */
+function familyLabel(family: Family) {
+  const names = family.adults.map(adultName).join(", ");
+  return names ? `${family.name} (${names})` : family.name;
 }
 
 interface FamiliesData {
   families: Family[];
-  staff: { userId: string; email: string; role: string }[];
+  staff: StaffPerson[];
   staffInvites: Invite[];
   joinUrl: string | null;
   canManageStaff: boolean;
+}
+
+interface StaffPerson {
+  userId: string;
+  name: string;
+  email: string;
+  role: string;
 }
 
 const STATUS: Record<Family["status"], string> = {
@@ -94,8 +118,15 @@ export function FamiliesPage() {
       (!onlyWaiting || f.status === "pending") &&
       (!q ||
         f.name.toLowerCase().includes(q) ||
-        f.parents.some((p) => p.toLowerCase().includes(q))),
+        f.adults.some(
+          (a) => a.email.toLowerCase().includes(q) || a.name.toLowerCase().includes(q),
+        )),
   );
+  // Families sharing a name are often one household that joined twice.
+  const sameName = (family: Family) =>
+    data.families.filter(
+      (f) => f.id !== family.id && f.name.trim().toLowerCase() === family.name.trim().toLowerCase(),
+    );
 
   return (
     <Layout
@@ -138,7 +169,7 @@ export function FamiliesPage() {
             <Field
               label="Find a family"
               type="search"
-              hint="Family name or parent email"
+              hint="Family name, or an adult's first name or email"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -157,7 +188,13 @@ export function FamiliesPage() {
           )}
           <ul className="loan-list">
             {shown.map((family) => (
-              <FamilyCard key={family.id} family={family} notify={notify} />
+              <FamilyCard
+                key={family.id}
+                family={family}
+                twins={sameName(family)}
+                others={data.families.filter((f) => f.id !== family.id)}
+                notify={notify}
+              />
             ))}
           </ul>
 
@@ -390,26 +427,59 @@ function InviteRow({ invite, notify }: { invite: Invite; notify: Notify }) {
   );
 }
 
-function FamilyCard({ family, notify }: { family: Family; notify: Notify }) {
+function FamilyCard({
+  family,
+  twins,
+  others,
+  notify,
+}: {
+  family: Family;
+  /** Other families with the same name: possibly the same household. */
+  twins: Family[];
+  others: Family[];
+  notify: Notify;
+}) {
   const [busy, setBusy] = useState<string | null>(null);
   const [inviting, setInviting] = useState(false);
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
+  /** The family chosen to merge this one into, waiting for confirmation. */
+  const [merging, setMerging] = useState<string | null>(null);
+  const [mergeChoice, setMergeChoice] = useState("");
+  const [moveWho, setMoveWho] = useState("");
+  const [moveTo, setMoveTo] = useState("");
+  const mergeTarget = others.find((f) => f.id === merging) ?? null;
   // "ask": confirm removal. Any other text: removal was refused because books are out.
   const [removing, setRemoving] = useState<string | null>(null);
   const confirmRef = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
-    if (removing) confirmRef.current?.focus();
-  }, [removing]);
+    if (removing || merging) confirmRef.current?.focus();
+  }, [removing, merging]);
+  // A confirmation hands focus back to the button that opened it when cancelled.
+  const opener = useRef<HTMLElement | null>(null);
+  const openConfirm = (open: () => void) => {
+    opener.current = document.activeElement as HTMLElement | null;
+    open();
+  };
+  const closeConfirm = (close: () => void) => {
+    close();
+    requestAnimationFrame(() => opener.current?.focus());
+  };
+  // Choices that no longer match a row (after a move or merge) count as unchosen.
+  const moveAdult = family.adults.find((a) => a.userId === moveWho) ?? null;
+  const moveFamily = others.find((f) => f.id === moveTo) ?? null;
+  const mergeFamily = others.find((f) => f.id === mergeChoice) ?? null;
 
   const call = async (key: string, request: () => Promise<unknown>, message: string) => {
     setBusy(key);
     try {
       await request();
       await notify.success(message);
+      return true;
     } catch (e) {
       notify.error(errorMessage(e));
+      return false;
     } finally {
       setBusy(null);
     }
@@ -463,13 +533,42 @@ function FamilyCard({ family, notify }: { family: Family; notify: Notify }) {
         </span>
       </p>
       <ul className="plain">
-        {family.parents.map((p) => (
-          <li key={p}>{p}</li>
+        {family.adults.map((a) => (
+          <li key={a.userId}>
+            {a.name.trim() ? (
+              <>
+                {a.name} <span className="muted">· {a.email}</span>
+              </>
+            ) : (
+              a.email
+            )}
+          </li>
         ))}
         {family.invites.map((i) => (
           <InviteRow key={i.id} invite={i} notify={notify} />
         ))}
       </ul>
+      {twins.length > 0 && (
+        <Alert kind="warning" live={false}>
+          <p>
+            {twins.length === 1 ? "Another family is" : `${twins.length} other families are`} also
+            called {family.name}. If you're one household, merge them so you share one list of
+            books.
+          </p>
+          <div className="row">
+            {twins.map((twin) => (
+              <Button
+                key={twin.id}
+                variant="secondary"
+                onClick={() => openConfirm(() => setMerging(twin.id))}
+                aria-label={`Merge into ${familyLabel(twin)}: moves ${familyLabel(family)} into it`}
+              >
+                Merge into {familyLabel(twin)}
+              </Button>
+            ))}
+          </div>
+        </Alert>
+      )}
       <div className="row">
         {family.status === "pending" && (
           <Button
@@ -531,6 +630,43 @@ function FamilyCard({ family, notify }: { family: Family; notify: Notify }) {
           </Button>
         </form>
       )}
+      {mergeTarget && (
+        <div className="confirm">
+          <p className="confirm__text" ref={confirmRef} tabIndex={-1}>
+            Merge {familyLabel(family)} into {familyLabel(mergeTarget)}? The adults and books move
+            into one family called {mergeTarget.name}.{" "}
+            {mergeTarget.status === "pending"
+              ? "That family is still waiting for approval, so nobody in it can borrow until you approve it."
+              : mergeTarget.status === "deactivated"
+                ? "Borrowing is paused for that family, so nobody in it can borrow until you turn it back on."
+                : ""}{" "}
+            This can't be undone.
+          </p>
+          <div className="row">
+            <Button variant="secondary" onClick={() => closeConfirm(() => setMerging(null))}>
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                const ok = await call(
+                  "merge",
+                  () =>
+                    api(`/admin/families/${family.id}/merge`, { body: { into: mergeTarget.id } }),
+                  `Merged into the ${mergeTarget.name} family.`,
+                );
+                if (ok) {
+                  setMerging(null);
+                  setMergeChoice("");
+                }
+              }}
+              busy={busy === "merge"}
+              busyLabel="Merging…"
+            >
+              Merge the families
+            </Button>
+          </div>
+        </div>
+      )}
       <details className="more" open={moreOpen} onToggle={(e) => setMoreOpen(e.currentTarget.open)}>
         <summary>More</summary>
         {removing ? (
@@ -541,7 +677,7 @@ function FamilyCard({ family, notify }: { family: Family; notify: Notify }) {
                 : `${removing} Remove the family anyway and mark those books lost?`}
             </p>
             <div className="row">
-              <Button variant="secondary" onClick={() => setRemoving(null)} autoFocus>
+              <Button variant="secondary" onClick={() => closeConfirm(() => setRemoving(null))}>
                 Cancel
               </Button>
               <Button
@@ -555,32 +691,117 @@ function FamilyCard({ family, notify }: { family: Family; notify: Notify }) {
             </div>
           </div>
         ) : (
-          <div className="row">
-            {family.status === "active" && (
+          <div className="stack">
+            {others.length > 0 && (
+              <div className="inline-form">
+                <div className="field">
+                  <label htmlFor={`merge-${family.id}`}>Same household as another family?</label>
+                  <select
+                    id={`merge-${family.id}`}
+                    value={mergeFamily ? mergeChoice : ""}
+                    onChange={(e) => setMergeChoice(e.target.value)}
+                  >
+                    <option value="">Choose a family…</option>
+                    {others.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {familyLabel(f)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <Button
+                  variant="secondary"
+                  disabled={!mergeFamily}
+                  onClick={() => mergeFamily && openConfirm(() => setMerging(mergeFamily.id))}
+                >
+                  Merge families
+                </Button>
+              </div>
+            )}
+            {family.adults.length > 1 && others.length > 0 && (
+              <div className="inline-form">
+                <div className="field">
+                  <label htmlFor={`move-who-${family.id}`}>Move an adult</label>
+                  <select
+                    id={`move-who-${family.id}`}
+                    value={moveAdult ? moveWho : ""}
+                    onChange={(e) => setMoveWho(e.target.value)}
+                  >
+                    <option value="">Who…</option>
+                    {family.adults.map((a) => (
+                      <option key={a.userId} value={a.userId}>
+                        {adultName(a)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor={`move-to-${family.id}`}>To family</label>
+                  <select
+                    id={`move-to-${family.id}`}
+                    value={moveFamily ? moveTo : ""}
+                    onChange={(e) => setMoveTo(e.target.value)}
+                  >
+                    <option value="">Choose a family…</option>
+                    {others.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {familyLabel(f)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <Button
+                  variant="secondary"
+                  disabled={!moveAdult || !moveFamily}
+                  busy={busy === "move"}
+                  busyLabel="Moving…"
+                  onClick={async () => {
+                    if (!moveAdult || !moveFamily) return;
+                    const ok = await call(
+                      "move",
+                      () =>
+                        api(`/admin/families/${family.id}/adults/${moveAdult.userId}/move`, {
+                          body: { to: moveFamily.id },
+                        }),
+                      `${adultName(moveAdult)} is now in the ${moveFamily.name} family.`,
+                    );
+                    if (ok) {
+                      setMoveWho("");
+                      setMoveTo("");
+                    }
+                  }}
+                >
+                  Move
+                </Button>
+              </div>
+            )}
+            <div className="row">
+              {family.status === "active" && (
+                <Button
+                  variant="link"
+                  onClick={() =>
+                    call(
+                      "pause",
+                      () =>
+                        api(`/admin/families/${family.id}/status`, {
+                          body: { status: "deactivated" },
+                        }),
+                      `Borrowing is paused for the ${family.name} family.`,
+                    )
+                  }
+                  busy={busy === "pause"}
+                >
+                  Pause borrowing
+                </Button>
+              )}
               <Button
                 variant="link"
-                onClick={() =>
-                  call(
-                    "pause",
-                    () =>
-                      api(`/admin/families/${family.id}/status`, {
-                        body: { status: "deactivated" },
-                      }),
-                    `Borrowing is paused for the ${family.name} family.`,
-                  )
-                }
-                busy={busy === "pause"}
+                onClick={() => openConfirm(() => setRemoving("ask"))}
+                aria-label={`Remove family: ${family.name}`}
               >
-                Pause borrowing
+                Remove family
               </Button>
-            )}
-            <Button
-              variant="link"
-              onClick={() => setRemoving("ask")}
-              aria-label={`Remove the ${family.name} family`}
-            >
-              Remove family
-            </Button>
+            </div>
           </div>
         )}
       </details>
@@ -589,13 +810,7 @@ function FamilyCard({ family, notify }: { family: Family; notify: Notify }) {
 }
 
 /** One staff member, with their role and a way to change it. */
-function StaffRow({
-  person,
-  notify,
-}: {
-  person: { userId: string; email: string; role: string };
-  notify: Notify;
-}) {
+function StaffRow({ person, notify }: { person: StaffPerson; notify: Notify }) {
   const [choice, setChoice] = useState(person.role);
   const [busy, setBusy] = useState(false);
   const save = async () => {
@@ -622,7 +837,8 @@ function StaffRow({
   return (
     <li className="staff-row">
       <span>
-        {person.email} <span className="muted">· {ROLE_NAMES[person.role] ?? person.role}</span>
+        {person.name.trim() ? `${person.name} · ${person.email}` : person.email}{" "}
+        <span className="muted">· {ROLE_NAMES[person.role] ?? person.role}</span>
       </span>
       <span className="row row--tight">
         <label className="inline-select">
@@ -643,11 +859,7 @@ function StaffRow({
   );
 }
 
-function StaffSection(props: {
-  staff: { userId: string; email: string; role: string }[];
-  invites: Invite[];
-  notify: Notify;
-}) {
+function StaffSection(props: { staff: StaffPerson[]; invites: Invite[]; notify: Notify }) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"staff" | "admin">("staff");
   const [error, setError] = useState("");

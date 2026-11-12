@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Alert, Button, Field, Layout, Loading } from "../components.tsx";
 import { api, errorMessage } from "../lib/api.ts";
 import { authClient, forgetTokens, rememberToken } from "../lib/auth.ts";
@@ -15,8 +15,18 @@ export function JoinPage({ token }: { token: string }) {
   } | null>(null);
   const [error, setError] = useState("");
   const [familyName, setFamilyName] = useState("");
+  const [firstName, setFirstName] = useState(me?.user?.name ?? "");
   const [fieldError, setFieldError] = useState("");
+  const [firstNameError, setFirstNameError] = useState("");
   const [busy, setBusy] = useState(false);
+  const firstInput = useRef<HTMLInputElement>(null);
+  const familyInput = useRef<HTMLInputElement>(null);
+
+  // The session may load after this page: fill in a name we already know.
+  const knownName = me?.user?.name ?? "";
+  useEffect(() => {
+    if (knownName) setFirstName((current) => current || knownName);
+  }, [knownName]);
 
   useEffect(() => {
     api<{ library: { name: string; slug: string }; requireApproval: boolean }>(
@@ -32,14 +42,17 @@ export function JoinPage({ token }: { token: string }) {
 
   const join = async (event: FormEvent) => {
     event.preventDefault();
-    if (!familyName.trim()) {
-      setFieldError("Type your family name, for example your surname.");
-      return;
-    }
+    const missingFirst = !firstName.trim();
+    const missingFamily = !familyName.trim();
+    if (missingFirst) setFirstNameError("Type your first name.");
+    if (missingFamily) setFieldError("Type your family name, for example your surname.");
+    if (missingFirst) firstInput.current?.focus();
+    else if (missingFamily) familyInput.current?.focus();
+    if (missingFirst || missingFamily) return;
     setBusy(true);
     setError("");
     try {
-      await api("/join", { body: { token, familyName } });
+      await api("/join", { body: { token, familyName, firstName } });
       forgetTokens();
       await refresh();
       navigate(info?.library.slug ? `/${info.library.slug}/?joined=1` : "/?joined=1", {
@@ -75,7 +88,7 @@ export function JoinPage({ token }: { token: string }) {
         </p>
         <p>
           <strong>Step 1 of 2:</strong> sign in with an email address you check. We'll email you a
-          6-digit code: no password needed. Then you'll type your family name.
+          6-digit code: no password needed. Then you'll type your name.
         </p>
         <Button
           className="btn--block"
@@ -101,10 +114,24 @@ export function JoinPage({ token }: { token: string }) {
     <Layout title={`Join ${info.library.name}`}>
       <Alert>{error}</Alert>
       <p>
-        <strong>Step 2 of 2:</strong> your family name.
+        <strong>Step 2 of 2:</strong> your name.
       </p>
-      <form onSubmit={join} noValidate>
+      <form onSubmit={join} noValidate className="stack">
         <Field
+          ref={firstInput}
+          label="Your first name"
+          hint="So staff know who's who in your family."
+          autoComplete="given-name"
+          maxLength={40}
+          error={firstNameError}
+          value={firstName}
+          onChange={(e) => {
+            setFirstName(e.target.value);
+            setFirstNameError("");
+          }}
+        />
+        <Field
+          ref={familyInput}
           label="Family name"
           hint="What staff will know your family by, for example your surname. Nothing about your children is needed."
           autoComplete="family-name"
@@ -124,9 +151,10 @@ export function JoinPage({ token }: { token: string }) {
         </Button>
       </form>
       <p className="muted">
-        Signed in as {me.user.email}. Is your partner already a member? Ask staff to add you to your
-        family instead, so you share one list of books.
+        Is someone in your household already a member? Ask them to use "Add another adult" on their
+        Account page instead, so you share one list of books.
       </p>
+      <p className="muted">Signed in as {me.user.email}.</p>
     </Layout>
   );
 }
@@ -143,6 +171,10 @@ export function InvitePage({ token }: { token: string }) {
   } | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [firstName, setFirstName] = useState("");
+  const [firstNameError, setFirstNameError] = useState("");
+  const needsName = Boolean(me?.user && !me.user.name.trim());
+  const inviteNameInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     api<NonNullable<typeof info>>(`/invites/${encodeURIComponent(token)}`)
@@ -153,11 +185,19 @@ export function InvitePage({ token }: { token: string }) {
       .catch((e) => setError(errorMessage(e)));
   }, [token]);
 
-  const accept = async () => {
+  const accept = async (event?: FormEvent) => {
+    event?.preventDefault();
+    if (needsName && !firstName.trim()) {
+      setFirstNameError("Type your first name.");
+      inviteNameInput.current?.focus();
+      return;
+    }
     setBusy(true);
     setError("");
     try {
-      await api("/invites/accept", { body: { token } });
+      await api("/invites/accept", {
+        body: { token, firstName: needsName ? firstName : undefined },
+      });
       forgetTokens();
       await refresh();
       const home = info?.library.slug ? `/${info.library.slug}` : "";
@@ -226,9 +266,26 @@ export function InvitePage({ token }: { token: string }) {
           </Button>
         </>
       ) : (
-        <Button className="btn--block" onClick={accept} busy={busy} busyLabel="Joining…">
-          Accept the invitation
-        </Button>
+        <form onSubmit={accept} noValidate className="stack">
+          {needsName && (
+            <Field
+              ref={inviteNameInput}
+              label="Your first name"
+              hint="So the library knows who's who."
+              autoComplete="given-name"
+              maxLength={40}
+              error={firstNameError}
+              value={firstName}
+              onChange={(e) => {
+                setFirstName(e.target.value);
+                setFirstNameError("");
+              }}
+            />
+          )}
+          <Button type="submit" className="btn--block" busy={busy} busyLabel="Joining…">
+            Accept the invitation
+          </Button>
+        </form>
       )}
     </Layout>
   );

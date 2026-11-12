@@ -48,7 +48,7 @@ describe("sign-up link", () => {
     );
     const parent = await newcomer("new@example.com", { "x-join-token": token });
     const res = await parent.json<{ status: string }>("/api/join", {
-      body: { token, familyName: "Patel" },
+      body: { token, familyName: "Patel", firstName: "Priya" },
     });
     expect(res.body.status).toBe("active");
     const me = await parent.json<{ membership: { role: string; family: { name: string } } }>(
@@ -56,9 +56,10 @@ describe("sign-up link", () => {
     );
     expect(me.body.membership).toMatchObject({ role: "member", family: { name: "Patel" } });
     // Joining twice is refused.
-    expect((await parent.json("/api/join", { body: { token, familyName: "Patel" } })).status).toBe(
-      409,
-    );
+    expect(
+      (await parent.json("/api/join", { body: { token, familyName: "Patel", firstName: "Priya" } }))
+        .status,
+    ).toBe(409);
   });
 
   it("makes new families wait when approval is on, and staff can approve", async () => {
@@ -66,8 +67,11 @@ describe("sign-up link", () => {
     const token = await joinLink();
     const parent = await newcomer("new@example.com", { "x-join-token": token });
     expect(
-      (await parent.json<{ status: string }>("/api/join", { body: { token, familyName: "Patel" } }))
-        .body.status,
+      (
+        await parent.json<{ status: string }>("/api/join", {
+          body: { token, familyName: "Patel", firstName: "Priya" },
+        })
+      ).body.status,
     ).toBe("pending");
     const families = await staff.json<{ families: { id: string; status: string }[] }>(
       "/api/admin/families",
@@ -141,16 +145,22 @@ describe("CSV import and invites", () => {
 
     // Someone else signed in cannot accept it.
     const other = await person(ctx, { role: "none", email: "other@example.com" });
-    expect((await other.json("/api/invites/accept", { body: { token } })).body).toMatchObject({
+    expect(
+      (await other.json("/api/invites/accept", { body: { token, firstName: "Sam" } })).body,
+    ).toMatchObject({
       error: "wrong_email",
     });
 
     const anh = await newcomer("anh@example.com", { "x-invite-token": token });
-    expect((await anh.json("/api/invites/accept", { body: { token } })).status).toBe(200);
+    expect(
+      (await anh.json("/api/invites/accept", { body: { token, firstName: "Sam" } })).status,
+    ).toBe(200);
     const me = await anh.json<{ membership: { family: { name: string } } }>("/api/me");
     expect(me.body.membership.family.name).toBe("Nguyen");
     // The invite is used up, and its email address is no longer kept.
-    expect((await anh.json("/api/invites/accept", { body: { token } })).status).toBe(404);
+    expect(
+      (await anh.json("/api/invites/accept", { body: { token, firstName: "Sam" } })).status,
+    ).toBe(404);
     expect(
       await count("select count(*) as n from invitations where email = 'anh@example.com'"),
     ).toBe(0);
@@ -163,7 +173,7 @@ describe("CSV import and invites", () => {
     });
     const token = ctx.outbox.last("second@example.com")?.text.match(/\/invite\/(\S+)/)?.[1] ?? "";
     const second = await newcomer("second@example.com", { "x-invite-token": token });
-    await second.json("/api/invites/accept", { body: { token } });
+    await second.json("/api/invites/accept", { body: { token, firstName: "Sam" } });
     const me = await second.json<{ membership: { family: { id: string } } }>("/api/me");
     expect(me.body.membership.family.id).toBe(first.familyId);
   });
@@ -349,5 +359,183 @@ describe("review fixes", () => {
       );
     }
     expect(sent.filter(Boolean)).toHaveLength(30);
+  });
+});
+
+describe("one family, several adults", () => {
+  type FamiliesList = {
+    families: { id: string; name: string; adults: { name: string; email: string }[] }[];
+  };
+
+  it("asks for a first name when joining, and shows it to staff", async () => {
+    const token = await joinLink();
+    const parent = await newcomer("priya@example.com", { "x-join-token": token });
+    const missing = await parent.json("/api/join", { body: { token, familyName: "Lee" } });
+    expect(missing.status).toBe(422);
+    await parent.json("/api/join", { body: { token, familyName: "Lee", firstName: " Priya " } });
+    const list = await staff.json<FamiliesList>("/api/admin/families");
+    expect(list.body.families.find((f) => f.name === "Lee")?.adults).toEqual([
+      expect.objectContaining({ name: "Priya", email: "priya@example.com" }),
+    ]);
+  });
+
+  it("lets people change their first name, on one line", async () => {
+    const parent = await person(ctx, { role: "member" });
+    const bad = await parent.json("/api/account/name", {
+      method: "PUT",
+      body: { firstName: "Tom\nBcc: x@evil.test" },
+    });
+    expect(bad.status).toBe(422);
+    const ok = await parent.json("/api/account/name", {
+      method: "PUT",
+      body: { firstName: "Tom" },
+    });
+    expect(ok.status).toBe(200);
+    expect((await parent.json<{ user: { name: string } }>("/api/me")).body.user.name).toBe("Tom");
+  });
+
+  it("lets a parent add another adult, who joins the same family", async () => {
+    const first = await person(ctx, { role: "member", familyName: "Lee" });
+    const sent = await first.json("/api/family/invite", { body: { email: "tom@example.com" } });
+    expect(sent.status).toBe(201);
+    const listed = await first.json<{ invites: { email: string }[] }>("/api/family");
+    expect(listed.body.invites).toMatchObject([{ email: "tom@example.com" }]);
+
+    await ctx.settle();
+    const token = ctx.outbox.last("tom@example.com")?.text.match(/\/invite\/(\S+)/)?.[1] ?? "";
+    const tom = await newcomer("tom@example.com", { "x-invite-token": token });
+    // Someone new to the site has no name yet, so accepting asks for one.
+    expect((await tom.json("/api/invites/accept", { body: { token } })).status).toBe(422);
+    expect(
+      (await tom.json("/api/invites/accept", { body: { token, firstName: "Tom" } })).status,
+    ).toBe(200);
+    const family = await tom.json<{ adults: { name: string; you: boolean }[] }>("/api/family");
+    expect(family.body.adults).toHaveLength(2);
+    expect(family.body.adults.find((a) => a.you)?.name).toBe("Tom");
+    expect(await count("select count(*) as n from families where name = 'Lee'")).toBe(1);
+  });
+
+  it("refuses inviting a current member, and lets a parent cancel an invite", async () => {
+    const first = await person(ctx, { role: "member", familyName: "Lee" });
+    const other = await person(ctx, { role: "member", email: "taken@example.com" });
+    const taken = await first.json("/api/family/invite", { body: { email: "taken@example.com" } });
+    expect(taken.body).toMatchObject({ error: "already_member" });
+
+    await first.json("/api/family/invite", { body: { email: "oops@example.com" } });
+    const { body } = await first.json<{ invites: { id: string }[] }>("/api/family");
+    const id = body.invites[0]?.id ?? "";
+    // Another family can't cancel it.
+    expect((await other.json(`/api/family/invites/${id}`, { method: "DELETE" })).status).toBe(404);
+    expect((await first.json(`/api/family/invites/${id}`, { method: "DELETE" })).status).toBe(200);
+  });
+
+  it("waits for approval before a family can invite", async () => {
+    const first = await person(ctx, { role: "member", familyName: "Lee" });
+    await env.DB.prepare("update families set status = 'pending' where id = ?")
+      .bind(first.familyId)
+      .run();
+    const res = await first.json("/api/family/invite", { body: { email: "tom@example.com" } });
+    expect(res.body).toMatchObject({ error: "family_pending" });
+  });
+
+  it("merges two families that are one household, books and all", async () => {
+    const priya = await person(ctx, { role: "member", familyName: "Lee" });
+    const tom = await person(ctx, { role: "member", familyName: "Lee" });
+    const added = await staff.json<{ title: { copies: { shortCode: string }[] } }>(
+      "/api/catalog/titles",
+      { body: { title: "Owl Babies" } },
+    );
+    const code = added.body.title.copies[0]?.shortCode ?? "";
+    expect((await tom.json(`/api/copies/${code}/borrow`, { body: {} })).status).toBe(201);
+
+    const merged = await staff.json(`/api/admin/families/${tom.familyId}/merge`, {
+      body: { into: priya.familyId },
+    });
+    expect(merged.status).toBe(200);
+    expect(await count("select count(*) as n from families where name = 'Lee'")).toBe(1);
+    expect(await count("select count(*) as n from loans where family_id = ?", priya.familyId)).toBe(
+      1,
+    );
+    const me = await tom.json<{ membership: { family: { id: string } } }>("/api/me");
+    expect(me.body.membership.family.id).toBe(priya.familyId);
+  });
+
+  it("won't merge with a family in another library", async () => {
+    await createLibrary(env, { id: "lib-2" });
+    const here = await person(ctx, { role: "member", familyName: "Lee" });
+    const there = await person(ctx, { role: "member", libraryId: "lib-2", familyName: "Lee" });
+    const res = await staff.json(`/api/admin/families/${here.familyId}/merge`, {
+      body: { into: there.familyId },
+    });
+    expect(res.status).toBe(404);
+    expect(await count("select count(*) as n from families")).toBeGreaterThanOrEqual(2);
+  });
+
+  it("moves an adult to another family, but never the last one", async () => {
+    const priya = await person(ctx, { role: "member", familyName: "Lee" });
+    const tom = await person(ctx, { role: "member", familyId: priya.familyId });
+    const okafor = await person(ctx, { role: "member", familyName: "Okafor" });
+    const move = (from: string | null, who: string, to: string | null) =>
+      staff.json(`/api/admin/families/${from}/adults/${who}/move`, { body: { to } });
+
+    expect((await move(priya.familyId, tom.userId, okafor.familyId)).status).toBe(200);
+    const me = await tom.json<{ membership: { family: { name: string } } }>("/api/me");
+    expect(me.body.membership.family.name).toBe("Okafor");
+    // Priya is now the only adult in the Lee family.
+    const last = await move(priya.familyId, priya.userId, okafor.familyId);
+    expect(last.body).toMatchObject({ error: "last_adult" });
+    // Someone not in that family.
+    expect((await move(priya.familyId, okafor.userId, okafor.familyId)).status).toBe(404);
+  });
+
+  it("keeps to 3 waiting invitations, even when sent all at once", async () => {
+    const first = await person(ctx, { role: "member", familyName: "Lee" });
+    const results = await Promise.all(
+      ["a", "b", "c", "d", "a"].map((x) =>
+        first.json("/api/family/invite", { body: { email: `${x}@example.com` } }),
+      ),
+    );
+    expect(results.filter((r) => r.status === 201)).toHaveLength(3);
+    expect(
+      await count("select count(*) as n from invitations where family_id = ?", first.familyId),
+    ).toBe(3);
+  });
+
+  it("limits how many addresses a parent can try in a day", async () => {
+    const first = await person(ctx, { role: "member", familyName: "Lee" });
+    await person(ctx, { role: "member", email: "member@example.com" });
+    const statuses: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      const res = await first.json("/api/family/invite", { body: { email: "member@example.com" } });
+      statuses.push(res.status);
+    }
+    expect(statuses.slice(0, 5)).toEqual([409, 409, 409, 409, 409]);
+    expect(statuses[5]).toBe(429);
+  });
+
+  it("leaves a made-up family name out of the invitation email", async () => {
+    const first = await person(ctx, { role: "member", familyName: "Prize at evil.example" });
+    await first.json("/api/family/invite", { body: { email: "x@example.com" } });
+    await ctx.settle();
+    expect(ctx.outbox.last("x@example.com")?.text).not.toContain("evil.example");
+  });
+
+  it("refuses names with invisible or direction-changing characters", async () => {
+    const parent = await person(ctx, { role: "member" });
+    const res = await parent.json("/api/account/name", {
+      method: "PUT",
+      body: { firstName: "Tom\u202Emoc" },
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it("doesn't change the name when an invitation can't be used", async () => {
+    const someone = await person(ctx, { role: "none", email: "late@example.com" });
+    await someone.json("/api/account/name", { method: "PUT", body: { firstName: "Lin" } });
+    const res = await someone.json("/api/invites/accept", {
+      body: { token: "x".repeat(40), firstName: "Mallory" },
+    });
+    expect(res.status).toBe(404);
+    expect((await someone.json<{ user: { name: string } }>("/api/me")).body.user.name).toBe("Lin");
   });
 });

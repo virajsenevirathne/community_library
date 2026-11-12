@@ -283,10 +283,29 @@ export const ROUTES: {
   { route: "GET /api/family/reminders", rule: "loans:own" },
   { route: "PUT /api/family/reminders", rule: "loans:own", body: { on: true } },
   { route: "GET /api/join/:token", rule: "public", request: "/api/join/x" },
-  { route: "POST /api/join", rule: "user", body: { token: "x", familyName: "X" } },
+  { route: "POST /api/join", rule: "user", body: { token: "x", familyName: "X", firstName: "A" } },
   { route: "GET /api/invites/:token", rule: "public", request: "/api/invites/x" },
   { route: "POST /api/invites/accept", rule: "user", body: { token: "x" } },
   { route: "GET /api/admin/families", rule: "families:manage" },
+  { route: "GET /api/family", rule: "loans:own" },
+  { route: "POST /api/family/invite", rule: "borrower", body: { email: "new@example.com" } },
+  {
+    route: "DELETE /api/family/invites/:id",
+    rule: "loans:own",
+    request: "/api/family/invites/missing",
+  },
+  {
+    route: "POST /api/admin/families/:id/merge",
+    rule: "families:manage",
+    request: "/api/admin/families/missing/merge",
+    body: { into: "other" },
+  },
+  {
+    route: "POST /api/admin/families/:id/adults/:userId/move",
+    rule: "families:manage",
+    request: "/api/admin/families/missing/adults/missing/move",
+    body: { to: "other" },
+  },
   {
     route: "POST /api/admin/families/:id/status",
     rule: "families:manage",
@@ -331,6 +350,7 @@ export const ROUTES: {
   },
   { route: "POST /api/admin/join-link", rule: "library:admin", body: { enabled: "no" } },
   // Any signed-in person may start deleting their own account; a code is needed to finish.
+  { route: "PUT /api/account/name", rule: "user", body: { firstName: "Sam" } },
   { route: "POST /api/account/delete/start", rule: "user", body: {} },
   { route: "POST /api/account/delete/confirm", rule: "user", body: { code: "abc" } },
 ];

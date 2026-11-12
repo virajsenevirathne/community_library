@@ -7,6 +7,7 @@ import {
   canGrantRole,
   isPlatformOwner,
   memberFor,
+  requireBorrower,
   requirePermission,
 } from "../access.ts";
 import { authSecret } from "../config.ts";
@@ -17,7 +18,7 @@ import { approvedEmail, deleteCodeEmail, goodbyeEmail, inviteEmail } from "../em
 import { libraryById, libraryHome } from "../library.ts";
 import { consume } from "../limiter.ts";
 import type { Priority, QuotaMailer } from "../mailer.ts";
-import { name } from "./account.ts";
+import { firstNameField, name } from "./account.ts";
 
 /*
  * How families join (a sign-up link or QR code, or an invite from a CSV
@@ -167,6 +168,14 @@ async function inviteByToken(c: AppContext, token: string) {
     }>();
 }
 
+function setFirstName(DB: D1Database, userId: string, firstName: string) {
+  return DB.prepare("update users set name = ?, updated_at = ? where id = ?").bind(
+    firstName,
+    Date.now(),
+    userId,
+  );
+}
+
 export function event(
   DB: D1Database,
   libraryId: string,
@@ -312,7 +321,11 @@ export const familyRoutes = new Hono<AppEnv>()
     const user = requireUser(c);
     const body = await readBody(
       c,
-      z.object({ token: z.string().max(100), familyName: name("Family name", 60) }),
+      z.object({
+        token: z.string().max(100),
+        familyName: name("Family name", 60),
+        firstName: firstNameField,
+      }),
     );
     const library = await libraryForJoinToken(c, body.token);
     if (!library) {
@@ -337,6 +350,7 @@ export const familyRoutes = new Hono<AppEnv>()
       DB.prepare(
         "insert into memberships (id, library_id, user_id, role, family_id) values (?, ?, ?, 'member', ?)",
       ).bind(newId(), library.id, user.id, familyId),
+      setFirstName(DB, user.id, body.firstName),
       event(DB, library.id, user.id, "family_joined", { familyId, via: "link", status }),
     ]);
     return c.json({ status }, 201);
@@ -370,7 +384,13 @@ export const familyRoutes = new Hono<AppEnv>()
   /** Accept an invite. The signed-in address must be the invited one. */
   .post("/invites/accept", async (c) => {
     const user = requireUser(c);
-    const body = await readBody(c, z.object({ token: z.string().max(100) }));
+    const body = await readBody(
+      c,
+      z.object({ token: z.string().max(100), firstName: firstNameField.optional() }),
+    );
+    if (!body.firstName && !user.name?.trim()) {
+      fail(422, "invalid_input", "First name is required.");
+    }
     const invite = await inviteByToken(c, body.token);
     const library = c.get("library");
     if (!invite || !library || invite.acceptedAt || !invite.email) {
@@ -444,12 +464,127 @@ export const familyRoutes = new Hono<AppEnv>()
     ]);
     if (changed?.meta.changes !== 1)
       fail(409, "bad_invite", "This invitation was just used or replaced.");
+    // Only once the invitation is really accepted.
+    if (body.firstName) await setFirstName(DB, user.id, body.firstName).run();
+    return c.json({ ok: true });
+  })
+
+  // ------------------------------------------------------ your family
+
+  /** Your family: the adults in it and anyone invited to join it. */
+  .get("/family", async (c) => {
+    const actor = await requireFamily(c);
+    const DB = c.env.DB;
+    const [adults, invites] = await Promise.all([
+      DB.prepare(
+        `select u.id as userId, u.name as name, u.email as email from memberships m
+         join users u on u.id = m.user_id where m.library_id = ? and m.family_id = ?
+         order by m.created_at`,
+      )
+        .bind(actor.library.id, actor.family.id)
+        .all<{ userId: string; name: string; email: string }>(),
+      openFamilyInvites(DB, actor.library.id, actor.family.id),
+    ]);
+    const now = Date.now();
+    return c.json({
+      family: { name: actor.family.name, status: actor.family.status },
+      adults: adults.results.map((a) => ({
+        name: a.name,
+        email: a.email,
+        you: a.userId === actor.userId,
+      })),
+      invites: invites.map((i) => ({
+        id: i.id,
+        email: i.email,
+        state: i.sentAt === null ? "queued" : i.expiresAt < now ? "expired" : "sent",
+      })),
+    });
+  })
+
+  /**
+   * Invite another adult into your family (a partner, a grandparent), so
+   * you share one list of books instead of the library having two families.
+   */
+  .post("/family/invite", async (c) => {
+    // Only an approved, active family can bring someone in.
+    const actor = await requireBorrower(c);
+    const body = await readBody(c, z.object({ email: emailField }));
+    const DB = c.env.DB;
+    const lib = actor.library.id;
+    // Budget first, so the answers below can't be used to test address after
+    // address. Parents get a small budget of their own, so they can't use up
+    // the invitations the library's staff need.
+    const secret = authSecret(c.env);
+    for (const [key, rule] of [
+      [`family-invites:${actor.family.id}`, { window: 86_400, max: 5 }],
+      [`family-invites-library:${lib}`, { window: 86_400, max: 30 }],
+    ] as const) {
+      if (!(await consume(DB, secret, key, rule)).allowed) {
+        fail(
+          429,
+          "too_many_invites",
+          "That's a lot of invitations for today. Please try again tomorrow.",
+        );
+      }
+    }
+    await assertInviteBudget(c, lib, actor.userId);
+    await assertNotMember(c, actor, body.email, true);
+    const id = newId();
+    const now = Date.now();
+    // One statement: the cap and the one-invite-per-address rule hold even
+    // when two requests arrive together.
+    const [inserted] = await DB.batch([
+      DB.prepare(
+        `insert into invitations (id, library_id, family_id, email, role, token_hash, expires_at)
+         select ?1, ?2, ?3, ?4, 'member', ?5, 0
+         where (select count(*) from invitations where library_id = ?2 and family_id = ?3
+                  and accepted_at is null and email is not null and (sent_at is null or expires_at > ?6)) < ?7
+           and not exists (select 1 from invitations where library_id = ?2 and lower(email) = ?4
+                  and accepted_at is null and (sent_at is null or expires_at > ?6))`,
+      ).bind(id, lib, actor.family.id, body.email, `unsent:${id}`, now, MAX_FAMILY_INVITES),
+      DB.prepare(
+        `insert into events (id, library_id, actor_user_id, type, payload)
+         select ?, ?, ?, 'invite_created', ? where changes() = 1`,
+      ).bind(
+        newId(),
+        lib,
+        actor.userId,
+        JSON.stringify({ familyId: actor.family.id, role: "member", by: "family" }),
+      ),
+    ]);
+    if (inserted?.meta.changes !== 1) {
+      fail(
+        409,
+        "too_many_invites",
+        `Your family can have ${MAX_FAMILY_INVITES} invitations waiting at once. Cancel one first.`,
+      );
+    }
+    const sent = await sendInvite(
+      { env: c.env, email: c.get("email") as QuotaMailer, origin: c.get("origin") },
+      // The family name goes in the email only when it's plain words, so a
+      // made-up "family name" can't carry a link or a message to a stranger.
+      { id, email: body.email, role: "member", familyName: plainWords(actor.family.name) },
+      actor.library,
+      "routine",
+    );
+    return c.json({ sent }, 201);
+  })
+
+  /** Cancel an invitation to your family (for example a mistyped address). */
+  .delete("/family/invites/:id", async (c) => {
+    const actor = await requireFamily(c);
+    const result = await c.env.DB.prepare(
+      "delete from invitations where id = ? and library_id = ? and family_id = ? and role = 'member' and accepted_at is null",
+    )
+      .bind(c.req.param("id"), actor.library.id, actor.family.id)
+      .run();
+    if (result.meta.changes !== 1) fail(404, "not_found", "That invitation was not found.");
     return c.json({ ok: true });
   })
 
   // ------------------------------------------------------------- staff
 
-  /** Families with their parents, books out and open invites. */
+  /** Families with their adults, books out and open invites. */
   .get("/admin/families", async (c) => {
     const actor = await requirePermission(c, "families:manage");
     const DB = c.env.DB;
@@ -463,11 +598,12 @@ export const familyRoutes = new Hono<AppEnv>()
         .bind(lib)
         .all<{ id: string; name: string; status: string; createdAt: number; booksOut: number }>(),
       DB.prepare(
-        `select m.family_id as familyId, u.email as email, m.role as role from memberships m
-         join users u on u.id = m.user_id where m.library_id = ? and m.family_id is not null`,
+        `select m.family_id as familyId, u.id as userId, u.name as name, u.email as email
+         from memberships m join users u on u.id = m.user_id
+         where m.library_id = ? and m.family_id is not null order by m.created_at`,
       )
         .bind(lib)
-        .all<{ familyId: string; email: string; role: string }>(),
+        .all<{ familyId: string; userId: string; name: string; email: string }>(),
       DB.prepare(
         `select id, family_id as familyId, email, role, sent_at as sentAt, expires_at as expiresAt from invitations
          where library_id = ? and accepted_at is null and email is not null order by created_at`,
@@ -482,11 +618,11 @@ export const familyRoutes = new Hono<AppEnv>()
           expiresAt: number;
         }>(),
       DB.prepare(
-        `select u.id as userId, u.email as email, m.role as role from memberships m join users u on u.id = m.user_id
+        `select u.id as userId, u.name as name, u.email as email, m.role as role from memberships m join users u on u.id = m.user_id
          where m.library_id = ? and m.role in ('staff', 'admin') order by m.role, u.email`,
       )
         .bind(lib)
-        .all<{ userId: string; email: string; role: string }>(),
+        .all<{ userId: string; name: string; email: string; role: string }>(),
     ]);
     const now = Date.now();
     const inviteView = (i: (typeof invites.results)[number]) => ({
@@ -498,7 +634,9 @@ export const familyRoutes = new Hono<AppEnv>()
     return c.json({
       families: families.results.map((f) => ({
         ...f,
-        parents: parents.results.filter((p) => p.familyId === f.id).map((p) => p.email),
+        adults: parents.results
+          .filter((p) => p.familyId === f.id)
+          .map((p) => ({ userId: p.userId, name: p.name, email: p.email })),
         invites: invites.results.filter((i) => i.familyId === f.id).map(inviteView),
       })),
       staff: staff.results,
@@ -571,6 +709,101 @@ export const familyRoutes = new Hono<AppEnv>()
       );
     }
     return c.json({ status: body.status });
+  })
+
+  /**
+   * Merge two families that are really one household (for example when the
+   * second parent joined with the sign-up link instead of being added): the
+   * adults, books, invitations and history move into the other family, which
+   * keeps its name, status and settings.
+   */
+  .post("/admin/families/:id/merge", async (c) => {
+    const actor = await requirePermission(c, "families:manage");
+    const body = await readBody(c, z.object({ into: z.string().max(100) }));
+    const DB = c.env.DB;
+    const lib = actor.library.id;
+    const from = c.req.param("id");
+    if (from === body.into) fail(422, "invalid_input", "Choose a different family to merge with.");
+    const { results } = await DB.prepare(
+      "select id from families where library_id = ? and id in (?, ?)",
+    )
+      .bind(lib, from, body.into)
+      .all<{ id: string }>();
+    if (results.length !== 2) fail(404, "not_found", "That family was not found.");
+    const move = (table: "memberships" | "loans" | "invitations" | "notifications") =>
+      DB.prepare(
+        `update ${table} set family_id = ?3 where library_id = ?1 and family_id = ?2`,
+      ).bind(lib, from, body.into);
+    try {
+      await DB.batch([
+        move("memberships"),
+        move("loans"),
+        move("invitations"),
+        move("notifications"),
+        DB.prepare(
+          `update events set payload = json_set(payload, '$.familyId', ?3)
+           where library_id = ?1 and json_valid(payload) and json_extract(payload, '$.familyId') = ?2`,
+        ).bind(lib, from, body.into),
+        DB.prepare("delete from families where library_id = ? and id = ?").bind(lib, from),
+        event(DB, lib, actor.userId, "families_merged", { familyId: body.into, mergedFrom: from }),
+      ]);
+    } catch (error) {
+      if (!isOpenLoanConflict(error)) throw error;
+      fail(
+        409,
+        "busy",
+        "One of those families changed a moment ago. Reload the page and try again.",
+      );
+    }
+    return c.json({ ok: true });
+  })
+
+  /**
+   * Move one adult to another family (they joined the wrong one). The last
+   * adult in a family can't be moved: merge the families instead.
+   */
+  .post("/admin/families/:id/adults/:userId/move", async (c) => {
+    const actor = await requirePermission(c, "families:manage");
+    const body = await readBody(c, z.object({ to: z.string().max(100) }));
+    const DB = c.env.DB;
+    const lib = actor.library.id;
+    const from = c.req.param("id");
+    const userId = c.req.param("userId");
+    if (from === body.to) fail(422, "invalid_input", "Choose a different family.");
+    const target = await DB.prepare("select 1 from families where library_id = ? and id = ?")
+      .bind(lib, body.to)
+      .first();
+    if (!target) fail(404, "not_found", "That family was not found.");
+    const [moved] = await DB.batch([
+      // Only while someone else stays behind, so no family is left without an adult.
+      DB.prepare(
+        `update memberships set family_id = ?3 where library_id = ?1 and family_id = ?2 and user_id = ?4
+           and (select count(*) from memberships where library_id = ?1 and family_id = ?2) > 1`,
+      ).bind(lib, from, body.to, userId),
+      DB.prepare(
+        `insert into events (id, library_id, actor_user_id, type, payload)
+         select ?, ?, ?, 'adult_moved', ? where changes() = 1`,
+      ).bind(
+        newId(),
+        lib,
+        actor.userId,
+        JSON.stringify({ familyId: body.to, movedFrom: from, userId }),
+      ),
+    ]);
+    if (moved?.meta.changes !== 1) {
+      const there = await DB.prepare(
+        "select 1 from memberships where library_id = ? and family_id = ? and user_id = ?",
+      )
+        .bind(lib, from, userId)
+        .first();
+      if (!there) fail(404, "not_found", "That person isn't in this family.");
+      fail(
+        409,
+        "last_adult",
+        "They're the only adult in this family. Merge the two families instead.",
+      );
+    }
+    return c.json({ ok: true });
   })
 
   /** Invite another parent into a family (for example the second parent). */
@@ -1058,14 +1291,49 @@ export const familyRoutes = new Hono<AppEnv>()
     return c.json({ deleted: true });
   });
 
+/** Invitations a family can have waiting at once, when parents send them. */
+const MAX_FAMILY_INVITES = 3;
+
+/** The text when it's only letters, spaces, apostrophes and hyphens; otherwise null. */
+function plainWords(text: string): string | null {
+  return /^[\p{L}\p{M}][\p{L}\p{M} '’-]*$/u.test(text) ? text : null;
+}
+
+/** The signed-in member and their family, or a 404 when they have none here. */
+async function requireFamily(c: AppContext) {
+  const actor = await requirePermission(c, "loans:own");
+  if (!actor.family) fail(404, "no_family", "Your sign-in isn't connected to a family.");
+  return actor as Actor & { family: NonNullable<Actor["family"]> };
+}
+
+/** A family's invitations that haven't been accepted yet. */
+async function openFamilyInvites(DB: D1Database, libraryId: string, familyId: string) {
+  const { results } = await DB.prepare(
+    `select id, email, sent_at as sentAt, expires_at as expiresAt from invitations
+     where library_id = ? and family_id = ? and accepted_at is null and email is not null
+     order by created_at`,
+  )
+    .bind(libraryId, familyId)
+    .all<{ id: string; email: string; sentAt: number | null; expiresAt: number }>();
+  return results;
+}
+
 /** Refuses to invite someone who already belongs to the library. */
-async function assertNotMember(c: AppContext, actor: Actor, email: string) {
+async function assertNotMember(c: AppContext, actor: Actor, email: string, byFamily = false) {
   const member = await c.env.DB.prepare(
     `select 1 from memberships m join users u on u.id = m.user_id where m.library_id = ? and lower(u.email) = ?`,
   )
     .bind(actor.library.id, email)
     .first();
-  if (member) fail(409, "already_member", `${email} is already a member of this library.`);
+  if (member) {
+    fail(
+      409,
+      "already_member",
+      byFamily
+        ? `${email} already uses this library, perhaps as a separate family. Ask the library staff to put you in one family.`
+        : `${email} is already a member of this library.`,
+    );
+  }
   // One open invite per address: use "Resend" rather than stacking new ones.
   const open = await c.env.DB.prepare(
     "select 1 from invitations where library_id = ? and lower(email) = ? and accepted_at is null and (sent_at is null or expires_at > ?)",

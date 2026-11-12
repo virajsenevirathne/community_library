@@ -35,7 +35,7 @@ async function acceptInvite(email: string) {
   const code = await client.requestCode({ "x-invite-token": token });
   if (!code) throw new Error(`no code for ${email}`);
   await client.request("/api/auth/sign-in/email-otp", { body: { email, otp: code } });
-  const accepted = await client.json("/api/invites/accept", { body: { token } });
+  const accepted = await client.json("/api/invites/accept", { body: { token, firstName: "Sam" } });
   return { client, accepted };
 }
 
@@ -215,7 +215,7 @@ describe("protecting the site", () => {
     });
     await ctx.settle();
     const token = ctx.outbox.last("owner@example.com")?.text.match(/\/invite\/(\S+)/)?.[1] ?? "";
-    const res = await owner.json("/api/invites/accept", { body: { token } });
+    const res = await owner.json("/api/invites/accept", { body: { token, firstName: "Sam" } });
     expect(res.status).toBe(200);
     owner.library = "brown-bears";
     expect((await owner.json("/api/me")).body).toMatchObject({
@@ -237,7 +237,9 @@ describe("protecting the site", () => {
 
     const newcomer = await person(ctx, { role: "none", email: "new@example.com" });
     newcomer.library = null;
-    const join = await newcomer.json("/api/join", { body: { token: joinToken, familyName: "Ng" } });
+    const join = await newcomer.json("/api/join", {
+      body: { token: joinToken, familyName: "Ng", firstName: "Lin" },
+    });
     expect(join.body).toMatchObject({ error: "library_paused" });
 
     await ctx.settle();
@@ -245,7 +247,9 @@ describe("protecting the site", () => {
       ctx.outbox.last("sam@example.com")?.text.match(/\/invite\/(\S+)/)?.[1] ?? "";
     const sam = await person(ctx, { role: "none", email: "sam@example.com" });
     sam.library = null;
-    const accept = await sam.json("/api/invites/accept", { body: { token: inviteToken } });
+    const accept = await sam.json("/api/invites/accept", {
+      body: { token: inviteToken, firstName: "Sam" },
+    });
     expect(accept.body).toMatchObject({ error: "library_paused" });
   });
 });

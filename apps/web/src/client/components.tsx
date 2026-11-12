@@ -355,14 +355,20 @@ const ALERT_ICONS = {
  */
 export function Alert({
   kind = "error",
+  live = true,
   children,
 }: {
   kind?: "error" | "warning" | "info" | "success";
+  /** False for a message that's part of the page, not news: it isn't read out on each change. */
+  live?: boolean;
   children: ReactNode;
 }) {
   if (!children) return null;
   return (
-    <div className={`alert alert--${kind}`} role={kind === "error" ? "alert" : "status"}>
+    <div
+      className={`alert alert--${kind}`}
+      role={live ? (kind === "error" ? "alert" : "status") : undefined}
+    >
       <Icon name={ALERT_ICONS[kind]} className="alert__icon" />
       <div className="alert__body">{children}</div>
     </div>

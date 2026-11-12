@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Button, Field, Layout, LibraryList, Loading, LoadingPage } from "../components.tsx";
 import { ApiError, api, errorMessage } from "../lib/api.ts";
 import { authClient, isPasskeyCancel, passkeyHint, passkeysSupported } from "../lib/auth.ts";
@@ -78,7 +78,6 @@ export function AccountPage() {
           <p>
             Signed in as <strong>{me.user?.email}</strong>
           </p>
-          {me.membership?.family && <p className="muted">Family: {me.membership.family.name}</p>}
         </div>
         <Button
           variant="secondary"
@@ -89,6 +88,10 @@ export function AccountPage() {
           Sign out
         </Button>
       </section>
+
+      <NameSetting />
+
+      {me.membership?.family && <FamilySection />}
 
       <section className="card" aria-labelledby="passkeys-heading">
         <h2 id="passkeys-heading" className="section-title">
@@ -187,6 +190,235 @@ const DATE = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 function describe(passkey: PasskeyRow): string {
   const name = passkey.name || "Passkey";
   return passkey.createdAt ? `${name}, added ${DATE.format(new Date(passkey.createdAt))}` : name;
+}
+
+/** Your first name, as your family and the library's staff see it. */
+function NameSetting() {
+  const { state, refresh } = useSession();
+  const saved = state.status === "ready" ? (state.me.user?.name ?? "") : "";
+  const [value, setValue] = useState(saved);
+  const [dirty, setDirty] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  // Follow the saved name, unless the person is in the middle of changing it.
+  useEffect(() => {
+    if (!dirty) setValue(saved);
+  }, [saved, dirty]);
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!value.trim()) {
+      setError("Type your first name.");
+      input.current?.focus();
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await api("/account/name", { method: "PUT", body: { firstName: value } });
+      setDirty(false);
+      await refresh();
+      setMessage("Saved.");
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card" aria-labelledby="name-heading">
+      <h2 id="name-heading" className="section-title">
+        Your name
+      </h2>
+      <form onSubmit={save} noValidate className="inline-form inline-form--flush">
+        <Field
+          ref={input}
+          label="First name"
+          hint={
+            saved
+              ? "Shown to your family and your library's staff."
+              : "Add your first name so your family and the library staff can tell who's who."
+          }
+          autoComplete="given-name"
+          maxLength={40}
+          error={error}
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setDirty(true);
+            setError("");
+            setMessage("");
+          }}
+        />
+        <Button
+          type="submit"
+          variant="secondary"
+          disabled={value.trim() === saved}
+          busy={busy}
+          busyLabel="Saving…"
+        >
+          Save name
+        </Button>
+        <p className="muted" role="status">
+          {message}
+        </p>
+      </form>
+    </section>
+  );
+}
+
+interface FamilyData {
+  family: { name: string; status: "active" | "pending" | "deactivated" };
+  adults: { name: string; email: string; you: boolean }[];
+  invites: { id: string; email: string; state: "queued" | "sent" | "expired" }[];
+}
+
+/** The adults in your family, and a way to add another (a partner, a grandparent). */
+function FamilySection() {
+  const [data, setData] = useState<FamilyData | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const emailInput = useRef<HTMLInputElement>(null);
+  const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setData(await api<FamilyData>("/family"));
+      setLoadError("");
+    } catch (e) {
+      setLoadError(errorMessage(e));
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const invite = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!email.trim()) {
+      setEmailError("Type their email address.");
+      emailInput.current?.focus();
+      return;
+    }
+    setBusy("invite");
+    setEmailError("");
+    setNotice("");
+    try {
+      const res = await api<{ sent: boolean }>("/family/invite", { body: { email } });
+      setNotice(
+        res.sent
+          ? `Invitation sent to ${email}. Once they accept, you'll share one list of books.`
+          : `Invitation for ${email} saved; it will be emailed shortly.`,
+      );
+      setEmail("");
+      await load();
+    } catch (e) {
+      setEmailError(errorMessage(e));
+      emailInput.current?.focus();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const cancel = async (id: string, to: string) => {
+    setBusy(id);
+    setNotice("");
+    setActionError("");
+    try {
+      await api(`/family/invites/${id}`, { method: "DELETE" });
+      setNotice(`Invitation to ${to} cancelled.`);
+      await load();
+    } catch (e) {
+      setActionError(errorMessage(e));
+    } finally {
+      setBusy(null);
+      // The row (and its button) may be gone: carry on from the email box.
+      emailInput.current?.focus();
+    }
+  };
+
+  if (!data) {
+    return (
+      <section className="card" aria-label="Your family">
+        {loadError ? (
+          <Alert>
+            Could not load your family. {loadError}{" "}
+            <Button variant="link" onClick={() => void load()}>
+              Try again
+            </Button>
+          </Alert>
+        ) : (
+          <Loading label="Loading your family…" />
+        )}
+      </section>
+    );
+  }
+
+  return (
+    <section className="card" aria-labelledby="family-heading">
+      <h2 id="family-heading" className="section-title">
+        The {data.family.name} family
+      </h2>
+      <Alert>{actionError}</Alert>
+      <Alert kind="success">{notice}</Alert>
+      <ul className="plain">
+        {data.adults.map((a) => (
+          <li key={a.email}>
+            {a.name.trim() || a.email}{" "}
+            <span className="muted">{a.you ? "(you)" : `· ${a.email}`}</span>
+          </li>
+        ))}
+        {data.invites.map((i) => (
+          <li key={i.id} className="invite-row muted">
+            <span>
+              {i.email} · {i.state === "expired" ? "invitation expired" : "invited"}
+            </span>
+            <Button
+              variant="link"
+              onClick={() => cancel(i.id, i.email)}
+              busy={busy === i.id}
+              aria-label={`Cancel invitation to ${i.email}`}
+            >
+              Cancel invitation
+            </Button>
+          </li>
+        ))}
+      </ul>
+      {data.family.status === "active" ? (
+        <form onSubmit={invite} noValidate className="inline-form">
+          <Field
+            ref={emailInput}
+            label="Add another adult to your family"
+            hint="Their email. They get their own sign-in, and you share one list of books."
+            type="email"
+            autoComplete="off"
+            error={emailError}
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              setEmailError("");
+            }}
+          />
+          <Button type="submit" variant="secondary" busy={busy === "invite"} busyLabel="Sending…">
+            Send invitation
+          </Button>
+        </form>
+      ) : (
+        <p className="muted">
+          {data.family.status === "pending"
+            ? "Once staff approve your family, you can add another adult here."
+            : "Borrowing is paused for your family. Please ask the library staff."}
+        </p>
+      )}
+    </section>
+  );
 }
 
 /** Turn the family's due-date reminder emails on or off. */
