@@ -44,7 +44,7 @@ function SiteChecklist({ items }: { items: ChecklistItem[] }) {
       <p className="muted">
         {missing === 0
           ? "Everything the site needs is set up."
-          : `${plural(missing, "thing still needs", "things still need")} setting up. Secrets are set with npx wrangler secret put NAME; the rest is in wrangler.jsonc. See docs/setup.md.`}
+          : `${plural(missing, "thing still needs", "things still need")} setting up. Secrets are set with npx wrangler secret put NAME (in apps/web); the rest is in wrangler.jsonc. See docs/setup.md.`}
       </p>
       <ul className="plain checklist">
         {items.map((item) => (

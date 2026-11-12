@@ -8,7 +8,6 @@ are welcome: a typo, a translation, a bug report, a new feature.
 - **Small fixes** (typos, wording, an obvious bug): open a pull request.
 - **Anything bigger:** open an issue first and describe what you'd like to
   change, so we can agree on the approach before you spend time on it.
-- Issues labelled **good first issue** are a friendly way in.
 
 ## Running it on your computer
 
@@ -16,13 +15,20 @@ You need Node.js 24 or later.
 
 ```bash
 npm install
-npm run dev                                   # http://localhost:5173
-npm run demo-data -w @community-library/web   # optional: a library with books and families
+cp apps/web/.dev.vars.example apps/web/.dev.vars
+# Put any long random text after BETTER_AUTH_SECRET= in apps/web/.dev.vars, for example from:
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+npm run db:migrate:local -w @community-library/web   # create the local database
+npm run demo-data -w @community-library/web          # optional: a demo library to explore
+npm run dev
 ```
 
 No Cloudflare account is needed: the database is local, and emails (sign-in
-codes included) are printed in the terminal instead of being sent. Sign in
-with `admin@demo.test` to explore the demo library at `/demo-owls`.
+codes included) are printed in the terminal instead of being sent. Open
+http://localhost:5173 and sign in with `admin@demo.test` to explore the demo
+library at `/demo-owls`. (On an empty database the demo admin also becomes the
+site's owner, so the first-run setup page is skipped. To try setup itself,
+delete `apps/web/.wrangler` and start again without the demo data.)
 
 ## Checks
 
@@ -69,8 +75,10 @@ Things that matter here:
 
 ## Reporting a security problem
 
-Please don't open a public issue. Email the maintainer (the address on the
-GitHub profile) with the details, and allow time for a fix before sharing.
+Please don't open a public issue. Report it privately through GitHub
+(**Security › Report a vulnerability** on the repository), or email the
+maintainer (the address on the GitHub profile), and allow time for a fix before
+sharing.
 
 ## Code of conduct
 

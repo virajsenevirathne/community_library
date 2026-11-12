@@ -2,6 +2,16 @@ import { useEffect } from "react";
 
 const KEY = "theme:";
 
+/** The colour this browser last saw for a library, until its own arrives. */
+export function storedTheme(slug: string | null): string | undefined {
+  if (!slug) return undefined;
+  try {
+    return localStorage.getItem(KEY + slug) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * The library's colour on the whole page (green, the default, outside a
  * library). Each library's colour is remembered, so its pages open in it

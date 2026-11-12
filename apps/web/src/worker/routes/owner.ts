@@ -81,6 +81,16 @@ async function inviteAdmin(c: AppContext, libraryId: string, email: string, owne
  * whoever runs the deployment can change (secrets and wrangler.jsonc). Says
  * only whether each is set, never a value.
  */
+/** The host of an https address, or null when it isn't one (a typo in APP_URL). */
+function hostOf(address: string): string | null {
+  try {
+    const url = new URL(address);
+    return url.protocol === "https:" ? url.hostname : null;
+  } catch {
+    return null;
+  }
+}
+
 function siteChecklist(env: Env, requestUrl: string) {
   const s = secrets(env);
   const appUrl = env.APP_URL?.trim() ?? "";
@@ -102,8 +112,7 @@ function siteChecklist(env: Env, requestUrl: string) {
     {
       id: "app-url",
       // Local development uses whatever address it's opened on.
-      done:
-        isLocalHost(host) || (appUrl.startsWith("https://") && new URL(appUrl).hostname === host),
+      done: isLocalHost(host) || hostOf(appUrl) === host,
       label: "The site's address is set (passkeys depend on it)",
       fix: `Set APP_URL in wrangler.jsonc to https://${host}.`,
     },

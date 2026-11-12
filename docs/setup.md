@@ -6,11 +6,14 @@ Allow about 30 minutes, plus waiting time for your domain's email checks.
 
 You need:
 
-- A computer with [Node.js](https://nodejs.org) 24 or later.
+- A computer with [Node.js](https://nodejs.org) 24 or later and
+  [git](https://git-scm.com/downloads). On Windows, use PowerShell.
 - A free [Cloudflare](https://dash.cloudflare.com/sign-up) account (hosting
   and the database).
-- A domain name, such as `library.example.org`, added to Cloudflare. Buying it
-  through Cloudflare Registrar is the simplest.
+- A domain name, such as `library.example.org`, added to Cloudflare and showing
+  as **Active** there. Buying it through Cloudflare Registrar is the simplest.
+  The site is published on that domain only (not on a `workers.dev` address),
+  so this has to be in place before you deploy.
 - A free [Resend](https://resend.com) account, for email.
 
 ## 1. Get the code
@@ -22,7 +25,16 @@ npm install
 npx wrangler login
 ```
 
-`wrangler login` opens your browser to connect to your Cloudflare account.
+`npm install` takes a few minutes. `wrangler login` opens your browser to
+connect to your Cloudflare account: choose **Allow**.
+
+Every command from here on runs in the `apps/web` folder:
+
+```bash
+cd apps/web
+```
+
+If you open a new terminal later, go back to it first (`cd community_library/apps/web`).
 
 ## 2. Choose your address, and create the database
 
@@ -30,12 +42,13 @@ Choose the address people will use, and keep it: passkeys (Face ID sign-in)
 only work on the address they were saved on.
 
 ```bash
-cd apps/web
 # "oc" puts the database near Australia and New Zealand. Others: wnam, enam, weur, eeur, apac.
 npx wrangler d1 create community-library --location oc
 ```
 
-Open `apps/web/wrangler.jsonc` and change:
+Open `apps/web/wrangler.jsonc`. It comes with the values of the original site
+(readingjoey.com): **change every one of these**, or the deploy goes to someone
+else's address.
 
 | Setting                        | Change it to                                             |
 | ------------------------------ | -------------------------------------------------------- |
@@ -48,8 +61,9 @@ Open `apps/web/wrangler.jsonc` and change:
 
 ## 3. Set up email
 
-1. In Resend, add your domain and follow its steps to add the DNS records in
-   Cloudflare. Wait until Resend says the domain is verified.
+1. In Resend, add your domain and follow its steps to add the DNS records.
+   With the domain on Cloudflare, Resend can add them for you. Checking them
+   can take from minutes to a few hours: wait until Resend says **Verified**.
 2. Create an API key in Resend, then:
 
    ```bash
@@ -59,18 +73,21 @@ Open `apps/web/wrangler.jsonc` and change:
    Paste the key when asked. (Optional: a free Mailjet account as a backup,
    with `MAILJET_API_KEY` and `MAILJET_API_SECRET`.)
 
-Gmail can't be used: the site sends email through these services' web
-interfaces, which Gmail doesn't offer.
+Gmail can't be used: the site sends its email through Resend (or Mailjet), not
+through an email account. Email has to work before step 6, since signing in
+needs an emailed code.
 
 ## 4. Set the other secrets
 
 ```bash
-# Signs everyone's sign-in. Any long random text:
-openssl rand -base64 32          # copy what it prints, then:
+# Prints long random text, for the secrets below:
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+
+# Signs everyone's sign-in: paste random text when asked.
 npx wrangler secret put BETTER_AUTH_SECRET
 
-# A one-time code that lets only you set the site up. 16 characters or more:
-openssl rand -base64 18          # copy it, then:
+# A one-time code that lets only you set the site up (16 characters or more;
+# a shorter one stops setup). Paste fresh random text when asked.
 npx wrangler secret put SETUP_CODE
 ```
 
@@ -88,8 +105,9 @@ npx wrangler secret put VAPID_PRIVATE_KEY
 npm run deploy
 ```
 
-This builds the site, brings the database up to date and publishes it. Run the
-same command whenever you update the code.
+This builds the site, brings the database up to date and publishes it. The
+first time, it asks whether to apply the database changes: answer **yes**. Run
+the same command whenever you update the code.
 
 ## 6. Set up the site, then your first library
 
@@ -108,7 +126,10 @@ same command whenever you update the code.
    ![A library's settings](images/settings.png)
 
 4. The admin adds books (scan the barcode on the back), prints the QR stickers
-   (Labels), and shares the sign-up link or poster with families.
+   (Labels), and shares the sign-up link or poster with families. The
+   dashboard then shows what's out and what's late:
+
+   ![A library's dashboard](images/dashboard.png)
 
 Families then scan a sticker with their phone camera to borrow:
 
@@ -124,10 +145,12 @@ Families then scan a sticker with their phone camera to borrow:
 
 ## Updating
 
+From the `community_library` folder:
+
 ```bash
 git pull
 npm install
-cd apps/web && npm run deploy
+npm run deploy -w @community-library/web
 ```
 
 ## If something goes wrong

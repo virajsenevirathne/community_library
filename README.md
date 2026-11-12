@@ -38,13 +38,18 @@ Requires Node.js 24 or later.
 
 ```bash
 npm install
+cp apps/web/.dev.vars.example apps/web/.dev.vars
+# Put any long random text after BETTER_AUTH_SECRET= in apps/web/.dev.vars, for example from:
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+npm run db:migrate:local -w @community-library/web   # create the local database
+npm run demo-data -w @community-library/web          # optional: a demo library to explore
 npm run dev
-npm run demo-data -w @community-library/web   # optional: a demo library to explore
 ```
 
 Open the address Vite prints (usually http://localhost:5173). The API is under `/api`,
 for example `/api/health`. Local development uses a local D1 database, so no Cloudflare
-account is needed.
+account is needed. Emails, sign-in codes included, are printed in the terminal.
+After a `git pull`, run `npm run db:migrate:local -w @community-library/web` again.
 
 Before opening a pull request:
 

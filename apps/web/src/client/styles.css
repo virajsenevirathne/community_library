@@ -1201,7 +1201,7 @@ fieldset.field {
   font-weight: 600;
 }
 .ok {
-  color: var(--accent);
+  color: var(--success);
   font-weight: 600;
 }
 

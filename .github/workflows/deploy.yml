@@ -33,7 +33,6 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: Apply database migrations
-        run: npm run db:migrate:remote -w @community-library/web
+      # Builds, brings the database up to date, then publishes.
       - name: Build and deploy
         run: npm run deploy
