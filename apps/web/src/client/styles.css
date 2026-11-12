@@ -333,6 +333,8 @@ a {
     font-size: 0.75rem;
     font-weight: 600;
     text-decoration: none;
+    white-space: nowrap;
+    letter-spacing: -0.01em;
     border-top: 3px solid transparent;
   }
   .tabbar a[aria-current="page"] {
@@ -1520,6 +1522,9 @@ kbd {
 }
 .inline-form {
   margin-top: 1rem;
+}
+.inline-form--flush {
+  margin-top: 0;
 }
 .table-wrap {
   overflow-x: auto;

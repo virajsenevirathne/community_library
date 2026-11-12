@@ -222,7 +222,9 @@ export async function requirePermission(c: AppContext, permission: Permission): 
  * For borrowing: a member of an active family. Staff without a family can
  * still manage loans, but cannot borrow.
  */
-export async function requireBorrower(c: AppContext): Promise<Actor & { family: { id: string } }> {
+export async function requireBorrower(
+  c: AppContext,
+): Promise<Actor & { family: NonNullable<Actor["family"]> }> {
   const actor = await requirePermission(c, "loans:own");
   const family = actor.family;
   if (!family) {

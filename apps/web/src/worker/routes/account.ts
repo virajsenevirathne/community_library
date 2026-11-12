@@ -15,8 +15,19 @@ export const name = (label: string, max: number) =>
     .trim()
     .min(1, `${label} is required.`)
     .max(max, `${label} must be ${max} characters or fewer.`)
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point
-    .refine((v) => !/[\u0000-\u001f\u007f]/.test(v), `${label} must be on one line.`);
+    .refine(
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point
+      (v) => !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(v),
+      `${label} must be on one line.`,
+    )
+    // Invisible and text-direction characters could make one name look like another.
+    .refine(
+      (v) => !/[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/.test(v),
+      `${label} has a character that can't be used.`,
+    );
+
+/** A person's first name: how staff and the rest of the family know them. */
+export const firstNameField = name("First name", 40);
 
 /** Shortest SETUP_CODE accepted on a real deployment, so it cannot be guessed. */
 const MIN_SETUP_CODE = 16;
@@ -93,6 +104,16 @@ export const accountRoutes = new Hono<AppEnv>()
       setupCodeRequired: setupNeeded && Boolean(secrets(c.env).SETUP_CODE),
       membership: actor ? { role: actor.role, family: actor.family } : null,
     });
+  })
+
+  /** Change your first name. It's shown to your family and your library's staff. */
+  .put("/account/name", async (c) => {
+    const user = requireUser(c);
+    const body = await readBody(c, z.object({ firstName: firstNameField }));
+    await c.env.DB.prepare("update users set name = ?, updated_at = ? where id = ?")
+      .bind(body.firstName, Date.now(), user.id)
+      .run();
+    return c.json({ firstName: body.firstName });
   })
 
   /** First run: the first person to sign in creates the library and becomes its admin. */
