@@ -59,6 +59,7 @@ describe("migrations", () => {
       "kiosk_devices",
       "kiosk_people",
       "libraries",
+      "library_webhooks",
       "loans",
       "memberships",
       "notifications",
@@ -70,6 +71,7 @@ describe("migrations", () => {
       "titles",
       "users",
       "verifications",
+      "webhook_deliveries",
     ]);
   });
 });

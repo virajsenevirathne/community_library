@@ -385,6 +385,15 @@ export const ROUTES: {
     body: {},
   },
   { route: "GET /api/admin/kiosks", rule: "library:admin" },
+  { route: "GET /api/admin/webhook", rule: "library:admin" },
+  {
+    route: "PUT /api/admin/webhook",
+    rule: "library:admin",
+    body: { url: "https://hooks.example.org/x", events: ["loan.created"] },
+  },
+  { route: "POST /api/admin/webhook/secret", rule: "library:admin", body: {} },
+  { route: "DELETE /api/admin/webhook", rule: "library:admin" },
+  { route: "POST /api/admin/webhook/test", rule: "library:admin", body: {} },
   {
     route: "GET /api/admin/export/:kind",
     rule: "library:admin",

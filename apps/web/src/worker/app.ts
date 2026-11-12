@@ -25,6 +25,7 @@ import { familyRoutes } from "./routes/families.ts";
 import { kioskRoutes } from "./routes/kiosk.ts";
 import { loanRoutes } from "./routes/loans.ts";
 import { ownerRoutes } from "./routes/owner.ts";
+import { webhookRoutes } from "./routes/webhooks.ts";
 
 export type { AppEnv } from "./context.ts";
 
@@ -33,6 +34,8 @@ export interface AppOptions {
   email?: (env: Env) => EmailSender;
   /** Replaces the book lookup services, for tests. */
   metadata?: MetadataProvider[];
+  /** Replaces fetch for webhooks, for tests. */
+  fetch?: typeof fetch;
   /** Replaces the web push sender, for tests. */
   push?: (env: Env) => PushSender | null;
   /** Replaces ExecutionContext.waitUntil, so tests can wait for background work. */
@@ -103,6 +106,7 @@ export function createApp(options: AppOptions = {}) {
       new QuotaMailer(c.env.DB, configuredSenders(c.env, libraryName, new URL(origin).hostname));
     c.set("email", email);
     c.set("push", options.push ? options.push(c.env) : pushSender(c.env));
+    c.set("fetch", options.fetch ?? ((input, init) => fetch(input, init)));
     c.set(
       "metadata",
       options.metadata ?? [
@@ -207,6 +211,7 @@ export function createApp(options: AppOptions = {}) {
   app.route("/", familyRoutes);
   app.route("/", kioskRoutes);
   app.route("/", exportRoutes);
+  app.route("/", webhookRoutes);
 
   app.notFound((c) => c.json({ error: "not_found", message: "Not found." }, 404));
   app.onError((err, c) => {

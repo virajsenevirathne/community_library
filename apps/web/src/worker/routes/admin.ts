@@ -18,8 +18,9 @@ import { JOB_NAME, nudgesOffUrl, STALE_AFTER_MS } from "../jobs/reminders.ts";
 import { libraryById, libraryHome } from "../library.ts";
 import { clientIp, consume } from "../limiter.ts";
 import { PROVIDER_LIMITS, type QuotaMailer } from "../mailer.ts";
+import { emitWebhook } from "../webhooks.ts";
 import { name } from "./account.ts";
-import { extendLinkToken, extendLoan, tellWaitingFamily } from "./loans.ts";
+import { extendLinkToken, extendLoan, tellWaitingFamily, webhookDeps } from "./loans.ts";
 
 /*
  * Staff screens: the dashboard ("who has what, and what is late"), the loans
@@ -478,6 +479,17 @@ export const adminRoutes = new Hono<AppEnv>()
     ]);
     if (closed?.meta.changes !== 1)
       fail(409, "changed_meanwhile", "This loan just changed. Please refresh.");
+    const book = await DB.prepare(
+      "select t.title as title, c.short_code as code from copies c join titles t on t.id = c.title_id and t.library_id = c.library_id where c.id = ? and c.library_id = ?",
+    )
+      .bind(loan.copyId, actor.library.id)
+      .first<{ title: string; code: string }>();
+    await emitWebhook(webhookDeps(c), actor.library, "loan.returned", {
+      loanId: loan.id,
+      book,
+      outcome: body.outcome,
+      via: "staff",
+    });
     if (body.outcome === "returned") {
       const copy = await DB.prepare(
         "select title_id as titleId from copies where id = ? and library_id = ?",
