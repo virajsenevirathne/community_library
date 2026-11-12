@@ -198,7 +198,18 @@ export class WebPushSender implements PushSender {
     if (!isPushEndpoint(subscription.endpoint)) {
       return { ok: false, gone: true, status: 0 };
     }
-    const body = await encryptPayload(subscription, bytes(JSON.stringify(message)));
+    const plaintext = bytes(JSON.stringify(message));
+    // Push services take up to about 4 KB; reminders are far smaller.
+    if (plaintext.length > 3000) {
+      return { ok: false, gone: false, status: 0, error: "Message too long" };
+    }
+    let body: Uint8Array<ArrayBuffer>;
+    try {
+      body = await encryptPayload(subscription, plaintext);
+    } catch {
+      // The browser's keys are broken: this subscription can never work.
+      return { ok: false, gone: true, status: 0 };
+    }
     let res: Response;
     try {
       res = await this.fetchImpl(subscription.endpoint, {
@@ -216,13 +227,20 @@ export class WebPushSender implements PushSender {
         },
         body,
         redirect: "manual",
+        // A slow push service mustn't hold up everyone else's reminders.
+        signal: AbortSignal.timeout(5000),
       });
     } catch (error) {
       return { ok: false, gone: false, status: 0, error: String(error).slice(0, 100) };
     }
+    // Nothing in the answer is needed: let the connection go.
+    await res.body?.cancel().catch(() => undefined);
     if (res.status === 201 || res.status === 200 || res.status === 202) return { ok: true };
-    if (res.status === 404 || res.status === 410)
+    // 404/410: unsubscribed or expired. 401/403: made with other keys (the
+    // site's keys changed), so it will never work again either.
+    if ([401, 403, 404, 410].includes(res.status)) {
       return { ok: false, gone: true, status: res.status };
+    }
     return { ok: false, gone: false, status: res.status, error: `HTTP ${res.status}` };
   }
 }

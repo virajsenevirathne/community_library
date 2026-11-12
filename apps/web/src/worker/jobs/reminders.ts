@@ -155,6 +155,13 @@ async function runForLibrary(deps: JobDeps, now: Date, budget: Budget, library: 
   await sendFamilyReminders(deps, library, local.date, budget);
 }
 
+/** Notifications one hourly run may send, across every library. */
+const PUSHES_PER_RUN = 300;
+const pushCounts = new WeakMap<JobDeps, number>();
+const pushesLeft = (deps: JobDeps) => PUSHES_PER_RUN - (pushCounts.get(deps) ?? 0);
+const spendPushes = (deps: JobDeps, n: number) =>
+  pushCounts.set(deps, (pushCounts.get(deps) ?? 0) + n);
+
 /**
  * Sends a reminder as a phone notification to each of the person's devices.
  * Devices that are gone (unsubscribed, app removed) are forgotten. True when
@@ -187,10 +194,26 @@ async function pushReminder(
     tag: `reminder-${library.slug}`,
   };
   let delivered = false;
-  for (const device of devices) {
-    const result = await deps.push
-      .send(device, message)
-      .catch((error): PushResult => ({ ok: false, gone: false, status: 0, error: String(error) }));
+  const push = deps.push;
+  // A person's devices at once; a limit per run keeps the job inside its time.
+  const sendable = devices.slice(0, Math.max(0, pushesLeft(deps)));
+  spendPushes(deps, sendable.length);
+  const results = await Promise.all(
+    sendable.map((device) =>
+      push
+        .send(device, message)
+        .catch(
+          (error): PushResult => ({ ok: false, gone: false, status: 0, error: String(error) }),
+        ),
+    ),
+  );
+  for (const [i, device] of sendable.entries()) {
+    const result: PushResult = results[i] ?? {
+      ok: false,
+      gone: false,
+      status: 0,
+      error: "missing",
+    };
     if (result.ok) {
       delivered = true;
       await deps.DB.prepare("update push_subscriptions set last_sent_at = ? where id = ?")
@@ -394,16 +417,32 @@ async function sendFamilyReminders(deps: JobDeps, library: Library, today: strin
       }
       if (claimed.length === 0) continue;
 
-      // Phone notifications first, for people who chose them.
-      const pushed =
-        parent.notifyBy !== "email"
-          ? await pushReminder(
-              deps,
-              library,
-              parent.userId,
-              claimed.map((c) => c.line),
-            )
-          : false;
+      // Notifications first, for people who chose them. Each reminder stage is
+      // pushed once (its own claim), even when its email has to be retried.
+      let pushed = false;
+      if (parent.notifyBy !== "email" && deps.push) {
+        const fresh: { key: string; line: ReminderLine }[] = [];
+        for (const c of claimed) {
+          if (await claim(DB, library, `${c.key}:push`, "push", familyId)) fresh.push(c);
+          // Claimed before: pushed in an earlier run (or being pushed now).
+          else pushed = true;
+        }
+        if (fresh.length > 0) {
+          const delivered = await pushReminder(
+            deps,
+            library,
+            parent.userId,
+            fresh.map((c) => c.line),
+          );
+          await settle(
+            DB,
+            fresh.map((c) => `${c.key}:push`),
+            delivered,
+            "push",
+          );
+          pushed = pushed || delivered;
+        }
+      }
       if (parent.notifyBy === "push" && pushed) {
         await settle(
           DB,

@@ -53,27 +53,51 @@ export async function currentSubscription(): Promise<PushSubscription | null> {
  * Asks to show notifications, subscribes, and tells the server. Returns why
  * not when it couldn't ("denied": the person said no, or blocked it before).
  */
-export async function turnOnPush(publicKey: string): Promise<"on" | "denied" | "failed"> {
+export async function turnOnPush(
+  publicKey: string,
+): Promise<"on" | "denied" | "dismissed" | "failed"> {
   if (!pushSupported()) return "failed";
   const permission = await Notification.requestPermission();
+  // "default": the question was closed without an answer; it can be asked again.
+  if (permission === "default") return "dismissed";
   if (permission !== "granted") return "denied";
   const registration = (await registerServiceWorker()) ?? null;
   if (!registration) return "failed";
   await navigator.serviceWorker.ready;
+  let made: PushSubscription | null = null;
   try {
-    const subscription =
+    made =
       (await registration.pushManager.getSubscription()) ??
       (await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: keyBytes(publicKey),
       }));
-    const json = subscription.toJSON();
-    await api("/push/subscriptions", {
-      body: { endpoint: json.endpoint, keys: json.keys },
-    });
+    await saveSubscription(made);
     return "on";
   } catch {
+    // Don't leave this browser subscribed when the library doesn't know it.
+    await made?.unsubscribe().catch(() => undefined);
     return "failed";
+  }
+}
+
+async function saveSubscription(subscription: PushSubscription) {
+  const json = subscription.toJSON();
+  await api("/push/subscriptions", { body: { endpoint: json.endpoint, keys: json.keys } });
+}
+
+/**
+ * This browser has notifications on, but the library doesn't know it for the
+ * person signed in now (a shared phone, or an earlier save failed): tell it.
+ */
+export async function claimThisDevice(): Promise<boolean> {
+  const subscription = await currentSubscription().catch(() => null);
+  if (!subscription) return false;
+  try {
+    await saveSubscription(subscription);
+    return true;
+  } catch {
+    return false;
   }
 }
 

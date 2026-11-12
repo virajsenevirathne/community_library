@@ -3,6 +3,7 @@ import { RemindersSetting } from "../components/PushReminders.tsx";
 import { Alert, Button, Field, Layout, LibraryList, Loading, LoadingPage } from "../components.tsx";
 import { ApiError, api, errorMessage } from "../lib/api.ts";
 import { authClient, isPasskeyCancel, passkeyHint, passkeysSupported } from "../lib/auth.ts";
+import { turnOffPush } from "../lib/push.ts";
 import { Link, navigate } from "../lib/router.tsx";
 import { useSession } from "../lib/session.tsx";
 import { deviceName } from "./SignIn.tsx";
@@ -67,6 +68,8 @@ export function AccountPage() {
 
   const signOut = async () => {
     setBusy("signout");
+    // A signed-out phone shouldn't keep showing this person's reminders.
+    await turnOffPush().catch(() => undefined);
     await authClient.signOut();
     await refresh();
     navigate("/signin", { replace: true });

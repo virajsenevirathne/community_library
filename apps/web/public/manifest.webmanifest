@@ -1,5 +1,7 @@
 {
+  "id": "/",
   "name": "Reading Joey",
+  "lang": "en-AU",
   "short_name": "Reading Joey",
   "description": "Borrow a book. Scan. Read together.",
   "start_url": "/",

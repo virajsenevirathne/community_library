@@ -19,23 +19,37 @@ self.addEventListener("push", (event) => {
       icon: "/icon-192.png",
       badge: "/icon-192.png",
       tag: typeof data.tag === "string" ? data.tag : undefined,
-      data: { url: typeof data.url === "string" && data.url.startsWith("/") ? data.url : "/" },
+      // Only a page on this site: "/path", never "//elsewhere".
+      data: {
+        url:
+          typeof data.url === "string" && data.url.startsWith("/") && !data.url.startsWith("//")
+            ? data.url
+            : "/",
+      },
     }),
   );
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = new URL(event.notification.data?.url ?? "/", self.location.origin).href;
+  const url = new URL(event.notification.data?.url ?? "/", self.location.origin);
+  if (url.origin !== self.location.origin) return;
   event.waitUntil(
     (async () => {
       const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      const open = windows.find((w) => new URL(w.url).origin === self.location.origin);
+      // The window in front, if the site is open: show the page there.
+      const open =
+        windows.find((w) => w.focused) ?? windows.find((w) => w.visibilityState === "visible");
       if (open) {
-        await open.focus();
-        return open.navigate(url);
+        try {
+          await open.focus();
+          if (new URL(open.url).pathname !== url.pathname) await open.navigate(url.href);
+          return;
+        } catch {
+          // A window this worker can't steer: open a new one instead.
+        }
       }
-      return self.clients.openWindow(url);
+      await self.clients.openWindow(url.href);
     })(),
   );
 });

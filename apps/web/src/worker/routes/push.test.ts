@@ -11,7 +11,20 @@ let ctx: ReturnType<typeof createTestApp>;
 let staff: Person;
 let parent: Person;
 
-const KEYS = { p256dh: `B${"A".repeat(86)}`, auth: "A".repeat(22) };
+/** A real browser key: the server checks it's a P-256 point. */
+async function browserKeys() {
+  const pair = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, [
+    "deriveBits",
+  ])) as CryptoKeyPair;
+  const raw = new Uint8Array((await crypto.subtle.exportKey("raw", pair.publicKey)) as ArrayBuffer);
+  const b64 = (bytes: Uint8Array) =>
+    btoa(String.fromCharCode(...bytes))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  return { p256dh: b64(raw), auth: b64(crypto.getRandomValues(new Uint8Array(16))) };
+}
+let KEYS: { p256dh: string; auth: string };
 const ENDPOINT = "https://fcm.googleapis.com/fcm/send/phone-1";
 
 beforeEach(async () => {
@@ -25,6 +38,7 @@ beforeEach(async () => {
   });
   staff = await person(ctx, { role: "staff" });
   parent = await person(ctx, { role: "member", familyName: "Lee" });
+  KEYS = await browserKeys();
 });
 afterEach(() => dispose());
 
@@ -36,6 +50,43 @@ describe("phone notifications", () => {
     const me = await parent.json<{ pushKey: string; user: { notifyBy: string } }>("/api/me");
     expect(me.body.pushKey).toBe("BPublicKeyForTests");
     expect(me.body.user.notifyBy).toBe("email");
+  });
+
+  it("refuses a browser key that isn't a real key", async () => {
+    const res = await parent.request("/api/push/subscriptions", {
+      body: { endpoint: ENDPOINT, keys: { p256dh: `B${"A".repeat(86)}`, auth: KEYS.auth } },
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it("pushes each reminder once, even when its email is retried", async () => {
+    await subscribe(parent);
+    const res = await staff.json<{ title: { copies: { shortCode: string }[] } }>(
+      "/api/catalog/titles",
+      { body: { title: "Owl Babies", copies: 1 } },
+    );
+    await parent.request(`/api/copies/${res.body.title.copies[0]?.shortCode}/borrow`, { body: {} });
+    const loan = await env.DB.prepare("select due_on as dueOn from loans").first<{
+      dueOn: string;
+    }>();
+    const at = new Date(`${loan?.dueOn}T01:00:00Z`);
+    at.setUTCDate(at.getUTCDate() - 2);
+    // Email keeps failing ("both" sends both), so the reminder is retried.
+    const failing = {
+      send: async () => ({ ok: false as const, provider: "x", retryable: true, error: "down" }),
+    };
+    for (const hour of [0, 1, 2]) {
+      const now = new Date(at.getTime() + hour * 3_600_000);
+      await runHourlyJob({
+        DB: env.DB,
+        env,
+        mailer: failing,
+        push: ctx.push,
+        siteUrl: "https://l.test",
+        now,
+      });
+    }
+    expect(ctx.pushed).toHaveLength(1);
   });
 
   it("accepts only push service addresses", async () => {

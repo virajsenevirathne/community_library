@@ -30,6 +30,19 @@ export const name = (label: string, max: number) =>
 /** A person's first name: how staff and the rest of the family know them. */
 export const firstNameField = name("First name", 40);
 
+/** True when a browser's push key is a real P-256 point (else every send would fail). */
+async function validBrowserKey(p256dh: string) {
+  try {
+    const raw = Uint8Array.from(atob(p256dh.replace(/-/g, "+").replace(/_/g, "/") + "="), (ch) =>
+      ch.charCodeAt(0),
+    );
+    await crypto.subtle.importKey("raw", raw, { name: "ECDH", namedCurve: "P-256" }, false, []);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Shortest SETUP_CODE accepted on a real deployment, so it cannot be guessed. */
 const MIN_SETUP_CODE = 16;
 
@@ -170,8 +183,9 @@ export const accountRoutes = new Hono<AppEnv>()
       z.object({
         endpoint: z.string().max(1000).refine(isPushEndpoint, "That isn't a push service address."),
         keys: z.object({
-          p256dh: z.string().regex(/^[A-Za-z0-9_-]{86,88}$/, "That browser key isn't valid."),
-          auth: z.string().regex(/^[A-Za-z0-9_-]{21,24}$/, "That browser key isn't valid."),
+          // A P-256 public key (65 bytes) and a 16-byte secret, base64url.
+          p256dh: z.string().regex(/^[A-Za-z0-9_-]{87}$/, "That browser key isn't valid."),
+          auth: z.string().regex(/^[A-Za-z0-9_-]{22}$/, "That browser key isn't valid."),
         }),
       }),
     );
@@ -180,7 +194,15 @@ export const accountRoutes = new Hono<AppEnv>()
       max: 20,
     });
     if (!limit.allowed) fail(429, "too_many_attempts", "Please try again tomorrow.");
+    if (!(await validBrowserKey(body.keys.p256dh))) {
+      fail(422, "invalid_input", "That browser key isn't valid.");
+    }
     const DB = c.env.DB;
+    const previous = await DB.prepare(
+      "select user_id as userId from push_subscriptions where endpoint = ?",
+    )
+      .bind(body.endpoint)
+      .first<{ userId: string }>();
     await DB.batch([
       // The same browser again (or now for someone else on a shared device): it's this person's now.
       DB.prepare(
@@ -197,6 +219,11 @@ export const accountRoutes = new Hono<AppEnv>()
       DB.prepare(
         "update users set notify_by = 'both', updated_at = ? where id = ? and notify_by = 'email'",
       ).bind(Date.now(), user.id),
+      // The device was someone else's (a shared phone): with none left, their reminders go by email.
+      DB.prepare(
+        `update users set notify_by = 'email', updated_at = ? where id = ? and id != ?
+           and not exists (select 1 from push_subscriptions where user_id = users.id)`,
+      ).bind(Date.now(), previous?.userId ?? "", user.id),
     ]);
     return c.json({ ok: true }, 201);
   })
