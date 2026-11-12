@@ -5,7 +5,12 @@ import { libraryBase } from "../../lib/router.tsx";
 const FILES = [
   { kind: "catalog", label: "Catalog", detail: "Every book and copy, with its code and shelf" },
   { kind: "families", label: "Families", detail: "Families and their adults, with emails" },
-  { kind: "loans", label: "Loans", detail: "Every loan still on record, out and returned" },
+  {
+    kind: "loans",
+    label: "Loans",
+    detail:
+      "Every loan, out and returned (older ones without the family, after your history period)",
+  },
 ] as const;
 
 /**
@@ -37,9 +42,13 @@ export function DataExport() {
       const link = document.createElement("a");
       link.href = url;
       link.download = name;
+      document.body.append(link);
       link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
-      setDone(`${label} downloaded as ${name}.`);
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      setDone(
+        `Your ${label.toLowerCase()} file is ready. Look in your Downloads, or the share menu on a phone.`,
+      );
     } catch (e) {
       setError(
         e instanceof TypeError

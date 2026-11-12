@@ -42,16 +42,22 @@ export function parseCsv(text: string): string[][] {
 /**
  * Writes rows as CSV that spreadsheets open safely: every cell is quoted,
  * CRLF line ends and a byte-order mark (so Excel reads accents right), and a
- * cell that starts like a formula (=, +, -, @, tab or return) is prefixed
- * with ' so a spreadsheet shows it as text instead of running it.
+ * cell that starts like a formula (=, +, -, @, tab or a line break, also
+ * after spaces, since some programs trim them) is prefixed with ' so a
+ * spreadsheet shows it as text instead of running it.
  */
-export function toCsv(rows: (string | number | null | undefined)[][]): string {
+export function toCsv(
+  rows: (string | number | null | undefined)[][],
+  /** False for the later parts of a file written in pieces. */
+  withBom = true,
+): string {
   const cell = (value: string | number | null | undefined) => {
     let text = value === null || value === undefined ? "" : String(value);
-    if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+    if (/^[\s]*[=+\-@]|^[\t\r\n]/.test(text)) text = `'${text}`;
     return `"${text.replace(/"/g, '""')}"`;
   };
-  return `\uFEFF${rows.map((row) => row.map(cell).join(",")).join("\r\n")}\r\n`;
+  if (rows.length === 0) return withBom ? "\uFEFF" : "";
+  return `${withBom ? "\uFEFF" : ""}${rows.map((row) => row.map(cell).join(",")).join("\r\n")}\r\n`;
 }
 
 // A plain address only: no display names, quotes or angle brackets.

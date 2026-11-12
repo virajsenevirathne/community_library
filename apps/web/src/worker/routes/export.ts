@@ -103,62 +103,89 @@ export const exportRoutes = new Hono<AppEnv>().get("/admin/export/:kind", async 
       ]),
     ];
   } else {
-    const { results } = await DB.prepare(
-      `select t.title as title, c.short_code as code, f.name as family,
-              l.borrowed_at as borrowedAt, l.due_on as dueOn, l.returned_at as returnedAt,
-              l.outcome as outcome, l.extended_count as extended,
-              l.kiosk_device_id is not null as kiosk
-       from loans l
-       join copies c on c.id = l.copy_id and c.library_id = l.library_id
-       join titles t on t.id = c.title_id and t.library_id = c.library_id
-       left join families f on f.id = l.family_id and f.library_id = l.library_id
-       where l.library_id = ? order by l.borrowed_at desc`,
-    )
-      .bind(lib)
-      .all<{
-        title: string;
-        code: string;
-        family: string | null;
-        borrowedAt: number;
-        dueOn: string;
-        returnedAt: number | null;
-        outcome: string | null;
-        extended: number;
-        kiosk: number;
-      }>();
-    rows = [
-      [
-        "Book",
-        "Copy code",
-        "Family",
-        "Borrowed",
-        "Due",
-        "Returned",
-        "Outcome",
-        "Extended",
-        "At the kiosk",
-      ],
-      ...results.map((r) => [
-        r.title,
-        r.code,
-        // Forgotten after the library's history period, or a removed family.
-        r.family ?? "",
-        day(r.borrowedAt),
-        r.dueOn,
-        day(r.returnedAt),
-        r.outcome ?? "out",
-        r.extended,
-        r.kiosk ? "yes" : "no",
-      ]),
+    // Loans can run to tens of thousands: read and send them a page at a
+    // time, so the whole file is never held in memory at once.
+    await event(DB, lib, actor.userId, "data_exported", { kind }).run();
+    const header = [
+      "Book",
+      "Copy code",
+      "Family",
+      "Borrowed",
+      "Due",
+      "Returned",
+      "Outcome",
+      "Extended",
+      "At the kiosk",
     ];
+    let after: { at: number; id: string } | null = null;
+    let first = true;
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        const page: LoanRow[] = (
+          await DB.prepare(
+            `select l.id as id, t.title as title, c.short_code as code, f.name as family,
+                    l.borrowed_at as borrowedAt, l.due_on as dueOn, l.returned_at as returnedAt,
+                    l.outcome as outcome, l.extended_count as extended,
+                    l.kiosk_device_id is not null as kiosk
+             from loans l
+             join copies c on c.id = l.copy_id and c.library_id = l.library_id
+             join titles t on t.id = c.title_id and t.library_id = c.library_id
+             left join families f on f.id = l.family_id and f.library_id = l.library_id
+             where l.library_id = ?1
+               and (?2 is null or l.borrowed_at < ?2 or (l.borrowed_at = ?2 and l.id < ?3))
+             order by l.borrowed_at desc, l.id desc limit ?4`,
+          )
+            .bind(lib, after?.at ?? null, after?.id ?? "", LOANS_PAGE)
+            .all<LoanRow>()
+        ).results;
+        const rows = page.map((r) => [
+          r.title,
+          r.code,
+          // Forgotten after the library's history period, or a removed family.
+          r.family ?? "",
+          day(r.borrowedAt),
+          r.dueOn,
+          day(r.returnedAt),
+          r.outcome ?? "out",
+          r.extended,
+          r.kiosk ? "yes" : "no",
+        ]);
+        controller.enqueue(encoder.encode(toCsv(first ? [header, ...rows] : rows, first)));
+        first = false;
+        const last = page.at(-1);
+        if (page.length < LOANS_PAGE || !last) controller.close();
+        else after = { at: last.borrowedAt, id: last.id };
+      },
+    });
+    return new Response(stream, { headers: csvHeaders(actor.library.slug, kind, tz) });
   }
 
   await event(DB, lib, actor.userId, "data_exported", { kind }).run();
-  const stamp = localParts(new Date(), tz).date;
-  return new Response(toCsv(rows), {
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${actor.library.slug}-${kind}-${stamp}.csv"`,
-    },
-  });
+  return new Response(toCsv(rows), { headers: csvHeaders(actor.library.slug, kind, tz) });
 });
+
+const LOANS_PAGE = 2000;
+
+interface LoanRow {
+  id: string;
+  title: string;
+  code: string;
+  family: string | null;
+  borrowedAt: number;
+  dueOn: string;
+  returnedAt: number | null;
+  outcome: string | null;
+  extended: number;
+  kiosk: number;
+}
+
+/** A download that is never kept by the browser or anything in between: it holds emails. */
+function csvHeaders(slug: string, kind: Kind, tz: string) {
+  const stamp = localParts(new Date(), tz).date;
+  return {
+    "Content-Type": "text/csv; charset=utf-8",
+    "Content-Disposition": `attachment; filename="${slug}-${kind}-${stamp}.csv"`,
+    "Cache-Control": "no-store",
+  };
+}

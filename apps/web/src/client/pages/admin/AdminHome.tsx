@@ -300,6 +300,8 @@ export function AdminHomePage() {
                 <p className="muted">
                   {plural(data.neverBorrowed.total, "book has", "books have")} never been borrowed.
                   Try them on a display shelf.
+                  {data.neverBorrowed.total > data.neverBorrowed.titles.length &&
+                    ` The ${data.neverBorrowed.titles.length} added longest ago:`}
                 </p>
                 <ul className="count-list">
                   {data.neverBorrowed.titles.map((t) => (
@@ -314,16 +316,20 @@ export function AdminHomePage() {
             {data.borrowSpeed && (
               <section className="card" aria-labelledby="speed-heading">
                 <h2 id="speed-heading" className="section-title">
-                  Borrowing speed
+                  How quickly books go out
                 </h2>
+                <p className="muted">
+                  Last 30 days, {plural(data.borrowSpeed.borrows, "borrow", "borrows")}
+                </p>
                 <p>
-                  <strong>{Math.round(data.borrowSpeed.withinGoal * 100)}%</strong> of borrows took
-                  under {data.borrowSpeed.goalSeconds} seconds, from opening the book to done.
+                  9 in 10 borrows took <strong>{data.borrowSpeed.p90Seconds} seconds</strong> or
+                  less, from opening the book to “Enjoy the book!”.
                 </p>
                 <p className="muted">
-                  9 in 10 took {data.borrowSpeed.p90Seconds} seconds or less. Last 30 days,{" "}
-                  {plural(data.borrowSpeed.borrows, "borrow", "borrows")}. The goal is 9 in 10 under{" "}
-                  {data.borrowSpeed.goalSeconds} seconds.
+                  {Math.floor(data.borrowSpeed.withinGoal * 100)}% were done within{" "}
+                  {data.borrowSpeed.goalSeconds} seconds; the goal is 90%.
+                  {data.borrowSpeed.withinGoal < 0.9 &&
+                    " If borrowing feels slow, check the Wi-Fi by the shelf and that stickers aren't worn."}
                 </p>
               </section>
             )}

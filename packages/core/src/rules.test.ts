@@ -216,6 +216,7 @@ describe("toCsv", () => {
       ['Say "hi"', '=HYPERLINK("http://x")'],
       ["+61 400", null],
       ["a, b", 3],
+      ["  =1+1", "\tx"],
     ]);
     expect(csv.startsWith("﻿")).toBe(true);
     expect(csv).toContain('"Say ""hi"""');
@@ -224,6 +225,7 @@ describe("toCsv", () => {
       ['Say "hi"', '\'=HYPERLINK("http://x")'],
       ["'+61 400", ""],
       ["a, b", "3"],
+      ["'  =1+1", "'\tx"],
     ]);
   });
 });

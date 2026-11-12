@@ -34,6 +34,7 @@ async function csv(kind: string) {
   const res = await admin.request(`/api/admin/export/${kind}`);
   expect(res.status).toBe(200);
   expect(res.headers.get("Content-Type")).toMatch(/text\/csv/);
+  expect(res.headers.get("Cache-Control")).toBe("no-store");
   expect(res.headers.get("Content-Disposition")).toMatch(
     new RegExp(`attachment; filename="lib-1-${kind}-\\d{4}-\\d{2}-\\d{2}\\.csv"`),
   );
@@ -89,6 +90,26 @@ describe("exporting the library's data", () => {
     expect(families.flat()).not.toContain("Secret family");
     expect((await admin.request("/api/admin/export/users")).status).toBe(404);
   });
+});
+
+describe("exporting many loans", () => {
+  it("sends every loan, a page at a time", async () => {
+    const code = await addBook("Busy book");
+    const copy = await env.DB.prepare("select id from copies where short_code = ?")
+      .bind(code)
+      .first<{ id: string }>();
+    // 2,100 old loans of one copy: more than one page.
+    const statements = Array.from({ length: 2100 }, (_, i) =>
+      env.DB.prepare(
+        "insert into loans (id, library_id, copy_id, family_id, borrowed_at, due_on, returned_at, outcome) values (?, 'lib-1', ?, ?, ?, '2026-01-01', ?, 'returned')",
+      ).bind(`old-${String(i).padStart(5, "0")}`, copy?.id, parent.familyId, 1000 + (i % 7), 2000),
+    );
+    for (let i = 0; i < statements.length; i += 500)
+      await env.DB.batch(statements.slice(i, i + 500));
+    const rows = await csv("loans");
+    expect(rows).toHaveLength(2101);
+    expect(rows.filter((r) => r[0] === "Book")).toHaveLength(1);
+  }, 60_000);
 });
 
 describe("the dashboard", () => {

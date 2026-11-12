@@ -1745,6 +1745,12 @@ kbd {
     max-height: calc(100vh - var(--header-h) - 4.5rem);
     overflow: auto;
   }
+  /* A side column of several cards scrolls with the page, not on its own. */
+  .split > aside.stack {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
 }
 /* Families: the sign-up link comes first until there's room beside the list. */
 @media (max-width: 63.99rem) {
