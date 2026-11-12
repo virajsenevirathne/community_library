@@ -159,9 +159,10 @@ async function tidyUp(DB: D1Database, library: Library, now: Date) {
   const cutoff = monthsBefore(now, library.settings.historyMonths).getTime();
   await DB.batch([
     DB.prepare(
-      `update loans set family_id = null, borrowed_by = null, returned_by = null
+      `update loans set family_id = null, borrowed_by = null, returned_by = null, kiosk_person_id = null
        where library_id = ? and returned_at is not null and returned_at < ?
-         and (family_id is not null or borrowed_by is not null or returned_by is not null)`,
+         and (family_id is not null or borrowed_by is not null or returned_by is not null
+              or kiosk_person_id is not null)`,
     ).bind(library.id, cutoff),
     DB.prepare(
       `update events set payload = json_remove(payload, '$.familyId'), actor_user_id = null

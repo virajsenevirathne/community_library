@@ -160,9 +160,10 @@ describe("scoped queries", () => {
  * - user: anyone signed in
  * - member: any member of the library
  * - borrower: a member of an active family
+ * - kiosk: only a kiosk tablet's pass, never a person's sign-in (routes/kiosk.test.ts)
  * - a Permission: the roles in PERMISSIONS
  */
-export type RouteRule = "public" | "user" | "owner" | "member" | "borrower" | Permission;
+export type RouteRule = "public" | "user" | "owner" | "member" | "borrower" | "kiosk" | Permission;
 
 export const ROUTES: {
   route: `${"GET" | "POST" | "PATCH" | "PUT" | "DELETE"} /api/${string}`;
@@ -352,6 +353,66 @@ export const ROUTES: {
   // Any signed-in person may start deleting their own account; a code is needed to finish.
   { route: "PUT /api/account/name", rule: "user", body: { firstName: "Sam" } },
   { route: "POST /api/account/delete/start", rule: "user", body: {} },
+  // The kiosk tablet's own routes.
+  { route: "GET /api/kiosk", rule: "kiosk" },
+  { route: "GET /api/kiosk/copies/:code", rule: "kiosk", request: "/api/kiosk/copies/ZZZZ" },
+  {
+    route: "POST /api/kiosk/copies/:code/borrow",
+    rule: "kiosk",
+    request: "/api/kiosk/copies/ZZZZ/borrow",
+    body: { code: "123456" },
+  },
+  {
+    route: "POST /api/kiosk/copies/:code/return",
+    rule: "kiosk",
+    request: "/api/kiosk/copies/ZZZZ/return",
+    body: {},
+  },
+  { route: "GET /api/admin/kiosks", rule: "library:admin" },
+  { route: "POST /api/admin/kiosks", rule: "library:admin", body: { name: "Front desk" } },
+  {
+    route: "POST /api/admin/kiosks/:id/off",
+    rule: "library:admin",
+    request: "/api/admin/kiosks/missing/off",
+    body: {},
+  },
+  {
+    route: "POST /api/admin/kiosks/:id/unlock",
+    rule: "library:admin",
+    request: "/api/admin/kiosks/missing/unlock",
+    body: {},
+  },
+  { route: "GET /api/family/kiosk-code", rule: "loans:own" },
+  { route: "POST /api/family/kiosk-code", rule: "loans:own", body: {} },
+  { route: "DELETE /api/family/kiosk-code", rule: "loans:own" },
+  {
+    route: "POST /api/admin/families/:id/kiosk-people",
+    rule: "families:manage",
+    request: "/api/admin/families/missing/kiosk-people",
+    body: { firstName: "Nana" },
+  },
+  {
+    route: "POST /api/admin/kiosk-people/:id/renew",
+    rule: "families:manage",
+    request: "/api/admin/kiosk-people/missing/renew",
+    body: {},
+  },
+  {
+    route: "POST /api/admin/kiosk-people/:id/off",
+    rule: "families:manage",
+    request: "/api/admin/kiosk-people/missing/off",
+    body: {},
+  },
+  {
+    route: "DELETE /api/admin/kiosk-people/:id",
+    rule: "families:manage",
+    request: "/api/admin/kiosk-people/missing",
+  },
+  {
+    route: "POST /api/admin/families/kiosk-only",
+    rule: "families:manage",
+    body: { familyName: "Okafor", firstName: "Nana" },
+  },
   { route: "POST /api/account/delete/confirm", rule: "user", body: { code: "abc" } },
 ];
 
@@ -361,6 +422,8 @@ type Who = "signedOut" | "nonMember" | "pendingMember" | "member" | "staff" | "a
 // Book pages answer members of other libraries with "not found" instead; see
 // routes/libraries.test.ts. The non-member here belongs to no library at all.
 function expectedFor(rule: RouteRule, who: Who): "allowed" | 401 | 403 {
+  // Nobody here holds a kiosk pass, whatever their role.
+  if (rule === "kiosk") return 401;
   if (rule === "public") return "allowed";
   if (who === "signedOut") return 401;
   if (rule === "user") return "allowed";

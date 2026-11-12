@@ -50,6 +50,13 @@
       "when": 1794400464068,
       "tag": "0006_owner_and_library_status",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1794485972805,
+      "tag": "0007_kiosk",
+      "breakpoints": true
     }
   ]
 }

@@ -122,15 +122,24 @@ export function checkoutEmail(options: {
   siteUrl: string;
   borrowed: { title: string; dueOn: string };
   booksOut: { title: string; dueOn: string }[];
+  /** Borrowed at the library's kiosk tablet, with this person's code. */
+  kiosk?: { personName: string };
 }): EmailMessage {
   const library = cleanHeader(options.libraryName);
   const due = formatDueDate(options.borrowed.dueOn);
   const list = options.booksOut.map((b) => `- ${b.title} (due ${formatDueDate(b.dueOn)})`);
+  const who = options.kiosk ? cleanHeader(options.kiosk.personName).slice(0, 40) : null;
+  const notYou = "If nobody in your family borrowed it, please tell the library staff.";
   return {
     to: options.to,
-    subject: `You borrowed ${cleanHeader(options.borrowed.title).slice(0, 80)}, due ${due}`,
+    subject: who
+      ? `${who} borrowed ${cleanHeader(options.borrowed.title).slice(0, 80)} at the kiosk, due ${due}`
+      : `You borrowed ${cleanHeader(options.borrowed.title).slice(0, 80)}, due ${due}`,
     text: [
-      `You borrowed "${options.borrowed.title}" from ${library}. Please bring it back by ${due}.`,
+      who
+        ? `${who} borrowed "${options.borrowed.title}" at the ${library} kiosk. Please bring it back by ${due}.`
+        : `You borrowed "${options.borrowed.title}" from ${library}. Please bring it back by ${due}.`,
+      ...(who ? ["", notYou] : []),
       "",
       `Your family has ${options.booksOut.length} ${options.booksOut.length === 1 ? "book" : "books"} out:`,
       ...list,
@@ -138,14 +147,56 @@ export function checkoutEmail(options: {
       `See your books: ${options.siteUrl}/`,
     ].join("\n"),
     html: htmlEmail(library, {
-      title: "You borrowed a book",
+      title: who ? "Borrowed at the kiosk" : "You borrowed a book",
       preheader: `Due ${due}`,
       paragraphs: [
-        `You borrowed <strong>${escapeHtml(options.borrowed.title)}</strong>. Please bring it back by <strong>${escapeHtml(due)}</strong>.`,
+        who
+          ? `${escapeHtml(who)} borrowed <strong>${escapeHtml(options.borrowed.title)}</strong> at the kiosk. Please bring it back by <strong>${escapeHtml(due)}</strong>.`
+          : `You borrowed <strong>${escapeHtml(options.borrowed.title)}</strong>. Please bring it back by <strong>${escapeHtml(due)}</strong>.`,
+        ...(who ? [escapeHtml(notYou)] : []),
         `Your family has ${options.booksOut.length} ${options.booksOut.length === 1 ? "book" : "books"} out:`,
         `<ul style="margin:0;padding-left:20px">${options.booksOut
           .map((b) => `<li>${escapeHtml(b.title)}, due ${escapeHtml(formatDueDate(b.dueOn))}</li>`)
           .join("")}</ul>`,
+        `<a href="${escapeHtml(options.siteUrl)}/" style="color:#1f6f5c;font-weight:600;text-decoration:underline">See your books</a>`,
+      ],
+    }),
+  };
+}
+
+/**
+ * Tells a family a book of theirs was brought back at the kiosk tablet
+ * (no code is needed to return), so a mistake or a prank is noticed.
+ */
+export function kioskReturnEmail(options: {
+  libraryName: string;
+  to: string;
+  title: string;
+  /** The library checks returns in: the book waits in the basket for staff. */
+  handedBack: boolean;
+  siteUrl: string;
+}): EmailMessage {
+  const library = cleanHeader(options.libraryName);
+  const done = options.handedBack
+    ? "It's in the returns basket, and staff will check it in."
+    : "It's off your family's list now.";
+  const notYou = "If it's still at home with you, please tell the library staff.";
+  return {
+    to: options.to,
+    subject: `"${cleanHeader(options.title).slice(0, 80)}" was returned at the kiosk`,
+    text: [
+      `"${options.title}" was returned at the ${library} kiosk. ${done}`,
+      "",
+      notYou,
+      "",
+      `See your books: ${options.siteUrl}/`,
+    ].join("\n"),
+    html: htmlEmail(library, {
+      title: "Returned at the kiosk",
+      preheader: done,
+      paragraphs: [
+        `<strong>${escapeHtml(options.title)}</strong> was returned at the kiosk. ${escapeHtml(done)}`,
+        escapeHtml(notYou),
         `<a href="${escapeHtml(options.siteUrl)}/" style="color:#1f6f5c;font-weight:600;text-decoration:underline">See your books</a>`,
       ],
     }),

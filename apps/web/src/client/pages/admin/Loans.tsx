@@ -12,6 +12,10 @@ interface Loan {
   titleId: string;
   familyId: string | null;
   familyName: string;
+  /** Borrowed at the kiosk: who typed their code. */
+  kioskName: string | null;
+  /** The family can be emailed (families without email borrow only at the kiosk). */
+  hasEmail: boolean;
   dueOn: string;
   overdueDays: number;
   needsStaff: boolean;
@@ -446,7 +450,12 @@ function LoanCard({
         </Link>{" "}
         <span className="muted code">{loan.code}</span>
       </p>
-      <p className="loan-family">{loan.familyName}</p>
+      <p className="loan-family">
+        {loan.familyName}
+        {loan.kioskName !== null && (
+          <span className="muted"> · Kiosk{loan.kioskName ? ` · ${loan.kioskName}` : ""}</span>
+        )}
+      </p>
       <p className="meta-row">
         <span className={late ? "late" : ""}>
           {late ? `${late} (due ${formatDate(loan.dueOn)})` : `Due ${formatDate(loan.dueOn)}`}
@@ -514,22 +523,27 @@ function LoanCard({
             </div>
           ) : (
             <div className="row">
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  act(
-                    "remind",
-                    () => api(`/admin/loans/${loan.id}/remind`, { body: {} }),
-                    `Reminder sent to the ${loan.familyName} family.`,
-                  )
-                }
-                busy={busy === "remind"}
-                busyLabel="Sending…"
-                disabled={locked && busy !== "remind"}
-                aria-label={`Send reminder: ${loan.title}`}
-              >
-                Send reminder
-              </Button>
+              {!loan.hasEmail && loan.familyId && (
+                <span className="muted">No email: remind them in person.</span>
+              )}
+              {loan.hasEmail && (
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    act(
+                      "remind",
+                      () => api(`/admin/loans/${loan.id}/remind`, { body: {} }),
+                      `Reminder sent to the ${loan.familyName} family.`,
+                    )
+                  }
+                  busy={busy === "remind"}
+                  busyLabel="Sending…"
+                  disabled={locked && busy !== "remind"}
+                  aria-label={`Send reminder: ${loan.title}`}
+                >
+                  Send reminder
+                </Button>
+              )}
               {loan.canExtend && (
                 <Button
                   variant="secondary"

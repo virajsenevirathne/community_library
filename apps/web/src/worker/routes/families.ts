@@ -231,7 +231,8 @@ async function deletionBlockers(c: AppContext, actor: Actor | null) {
   const lib = actor.library.id;
   const counts = await DB.prepare(
     `select (select count(*) from memberships where library_id = ?1 and role = 'admin' and user_id != ?2) as otherAdmins,
-            (select count(*) from memberships where library_id = ?1 and family_id = ?3 and user_id != ?2) as otherParents`,
+            (select count(*) from memberships where library_id = ?1 and family_id = ?3 and user_id != ?2)
+              + (select count(*) from kiosk_people where library_id = ?1 and family_id = ?3 and user_id is null) as otherParents`,
   )
     .bind(lib, actor.userId, actor.family?.id ?? null)
     .first<{ otherAdmins: number; otherParents: number }>();
@@ -265,7 +266,7 @@ function removeFamilyStatements(DB: D1Database, libraryId: string, familyId: str
     // Only closed loans lose the family. An open loan (borrowed a moment ago)
     // keeps it, so the family delete below fails and nothing is changed.
     DB.prepare(
-      "update loans set family_id = null where library_id = ? and family_id = ? and returned_at is not null",
+      "update loans set family_id = null, kiosk_person_id = null where library_id = ? and family_id = ? and returned_at is not null",
     ).bind(libraryId, familyId),
     DB.prepare(
       `update events set payload = json_remove(payload, '$.familyId')
@@ -589,7 +590,7 @@ export const familyRoutes = new Hono<AppEnv>()
     const actor = await requirePermission(c, "families:manage");
     const DB = c.env.DB;
     const lib = actor.library.id;
-    const [families, parents, invites, staff] = await Promise.all([
+    const [families, parents, invites, staff, kioskPeople, kiosks] = await Promise.all([
       DB.prepare(
         `select f.id as id, f.name as name, f.status as status, f.created_at as createdAt,
                 (select count(*) from loans l where l.library_id = f.library_id and l.family_id = f.id and l.returned_at is null) as booksOut
@@ -623,6 +624,29 @@ export const familyRoutes = new Hono<AppEnv>()
       )
         .bind(lib)
         .all<{ userId: string; name: string; email: string; role: string }>(),
+      // Kiosk codes: adults who sign in (by their family now) and adults without email.
+      DB.prepare(
+        `select k.id as id, k.user_id as userId, coalesce(nullif(u.name, ''), k.first_name, '') as name,
+                case when k.user_id is null then k.family_id else m.family_id end as familyId,
+                k.code_set_at as codeSetAt
+         from kiosk_people k
+         left join users u on u.id = k.user_id
+         left join memberships m on m.user_id = k.user_id and m.library_id = k.library_id
+         where k.library_id = ? order by k.created_at`,
+      )
+        .bind(lib)
+        .all<{
+          id: string;
+          userId: string | null;
+          name: string;
+          familyId: string | null;
+          codeSetAt: number | null;
+        }>(),
+      DB.prepare(
+        "select count(*) as n from kiosk_devices where library_id = ? and revoked_at is null",
+      )
+        .bind(lib)
+        .first<number>("n"),
     ]);
     const now = Date.now();
     const inviteView = (i: (typeof invites.results)[number]) => ({
@@ -638,7 +662,16 @@ export const familyRoutes = new Hono<AppEnv>()
           .filter((p) => p.familyId === f.id)
           .map((p) => ({ userId: p.userId, name: p.name, email: p.email })),
         invites: invites.results.filter((i) => i.familyId === f.id).map(inviteView),
+        kioskPeople: kioskPeople.results
+          .filter((k) => k.familyId === f.id)
+          .map((k) => ({
+            id: k.id,
+            userId: k.userId,
+            name: k.name,
+            hasCode: k.codeSetAt !== null,
+          })),
       })),
+      kioskInUse: (kiosks ?? 0) > 0,
       staff: staff.results,
       staffInvites: invites.results.filter((i) => i.familyId === null).map(inviteView),
       joinUrl: await joinUrl(
@@ -730,7 +763,9 @@ export const familyRoutes = new Hono<AppEnv>()
       .bind(lib, from, body.into)
       .all<{ id: string }>();
     if (results.length !== 2) fail(404, "not_found", "That family was not found.");
-    const move = (table: "memberships" | "loans" | "invitations" | "notifications") =>
+    const move = (
+      table: "memberships" | "loans" | "invitations" | "notifications" | "kiosk_people",
+    ) =>
       DB.prepare(
         `update ${table} set family_id = ?3 where library_id = ?1 and family_id = ?2`,
       ).bind(lib, from, body.into);
@@ -740,6 +775,7 @@ export const familyRoutes = new Hono<AppEnv>()
         move("loans"),
         move("invitations"),
         move("notifications"),
+        move("kiosk_people"),
         DB.prepare(
           `update events set payload = json_set(payload, '$.familyId', ?3)
            where library_id = ?1 and json_valid(payload) and json_extract(payload, '$.familyId') = ?2`,
@@ -789,6 +825,11 @@ export const familyRoutes = new Hono<AppEnv>()
         actor.userId,
         JSON.stringify({ familyId: body.to, movedFrom: from, userId }),
       ),
+      // Their kiosk code goes with them (only when the move happened).
+      DB.prepare(
+        `update kiosk_people set family_id = ?3 where library_id = ?1 and family_id = ?2 and user_id = ?4
+           and exists (select 1 from memberships where library_id = ?1 and family_id = ?3 and user_id = ?4)`,
+      ).bind(lib, from, body.to, userId),
     ]);
     if (moved?.meta.changes !== 1) {
       const there = await DB.prepare(

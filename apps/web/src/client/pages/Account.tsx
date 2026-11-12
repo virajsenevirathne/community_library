@@ -93,6 +93,8 @@ export function AccountPage() {
 
       {me.membership?.family && <FamilySection />}
 
+      {me.membership?.family && <KioskCodeSection />}
+
       <section className="card" aria-labelledby="passkeys-heading">
         <h2 id="passkeys-heading" className="section-title">
           Quick sign-in (passkeys)
@@ -267,6 +269,126 @@ function NameSetting() {
           {message}
         </p>
       </form>
+    </section>
+  );
+}
+
+const MADE_ON = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
+
+/**
+ * Your own code for the library's kiosk tablet. It's shown once, when it's
+ * made; a forgotten code is replaced, not looked up. Only shown when the
+ * library has a kiosk (or you already have a code).
+ */
+function KioskCodeSection() {
+  const [status, setStatus] = useState<{
+    kioskInUse: boolean;
+    code: { setAt: number } | null;
+  } | null>(null);
+  const [shown, setShown] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState<"make" | "off" | null>(null);
+  const codeRef = useRef<HTMLParagraphElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setStatus(await api("/family/kiosk-code"));
+    } catch {
+      // Not worth an error box: the kiosk is an extra.
+      setStatus(null);
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  useEffect(() => {
+    if (shown) codeRef.current?.focus();
+  }, [shown]);
+
+  if (!status || (!status.kioskInUse && !status.code)) return null;
+
+  const make = async () => {
+    setBusy("make");
+    setError("");
+    setNotice("");
+    try {
+      const res = await api<{ code: string }>("/family/kiosk-code", { body: {} });
+      setShown(res.code);
+      await load();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const turnOff = async () => {
+    setBusy("off");
+    setError("");
+    try {
+      await api("/family/kiosk-code", { method: "DELETE" });
+      setShown(null);
+      setNotice("Your kiosk code is turned off.");
+      await load();
+      headingRef.current?.focus();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <section className="card stack" aria-labelledby="kiosk-code-heading">
+      <h2 id="kiosk-code-heading" className="section-title" ref={headingRef} tabIndex={-1}>
+        Kiosk code
+      </h2>
+      <p className="muted">
+        Borrow at the library's kiosk tablet without your phone: type your own 6-digit code on its
+        keypad. Returning needs no code.
+      </p>
+      <Alert>{error}</Alert>
+      <Alert kind="success">{notice}</Alert>
+      {shown && (
+        <div className="kiosk-code">
+          <p className="kiosk-code__digits" ref={codeRef} tabIndex={-1}>
+            <span className="visually-hidden">Your kiosk code is </span>
+            {shown.split("").join(" ")}
+          </p>
+          <p>
+            Remember it, or write it down somewhere safe. It's only shown now; if you forget it,
+            make a new one here.
+          </p>
+        </div>
+      )}
+      {status.code ? (
+        <>
+          {!shown && (
+            <p>
+              You have a kiosk code, made {MADE_ON.format(status.code.setAt)}. Forgotten it? Make a
+              new one, and the old one stops working.
+            </p>
+          )}
+          <div className="row">
+            <Button variant="secondary" busy={busy === "make"} busyLabel="Making…" onClick={make}>
+              Make a new code
+            </Button>
+            <Button
+              variant="secondary"
+              busy={busy === "off"}
+              busyLabel="Turning off…"
+              onClick={turnOff}
+            >
+              Turn my code off
+            </Button>
+          </div>
+        </>
+      ) : (
+        <Button busy={busy === "make"} busyLabel="Making…" onClick={make}>
+          Get my kiosk code
+        </Button>
+      )}
     </section>
   );
 }

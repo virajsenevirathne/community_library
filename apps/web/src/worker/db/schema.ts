@@ -198,12 +198,6 @@ export const families = sqliteTable(
       .references(() => libraries.id, { onDelete: "cascade" }),
     /** What staff call the family, e.g. "Nguyen". Nothing about children is stored. */
     name: text("name").notNull(),
-    /**
-     * Kiosk PIN (kiosk mode is a later phase). Must be a salted slow hash
-     * (PBKDF2 or scrypt) with attempt limits, because a 4-digit PIN is easy to
-     * brute-force from a fast hash.
-     */
-    kioskPinHash: text("kiosk_pin_hash"),
     status: text("status", { enum: FAMILY_STATUSES }).notNull().default("active"),
     /** Set when a parent turns off reminder nudges. Checkout confirmations still go out. */
     nudgesOff: integer("nudges_off", { mode: "boolean" }).notNull().default(false),
@@ -304,6 +298,71 @@ export const copies = sqliteTable(
   ],
 );
 
+/**
+ * A shared tablet by the shelf where families borrow with a personal code.
+ * The tablet holds a random pass (a cookie); only its hash is stored here.
+ * Turned off, never deleted, so loans keep pointing at it.
+ */
+export const kioskDevices = sqliteTable(
+  "kiosk_devices",
+  {
+    id: text("id").primaryKey(),
+    libraryId: text("library_id")
+      .notNull()
+      .references(() => libraries.id, { onDelete: "cascade" }),
+    /** What staff call it, such as "Front desk tablet". */
+    name: text("name").notNull(),
+    /** SHA-256 of the tablet's pass. */
+    tokenHash: text("token_hash").notNull().unique(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }),
+    revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [
+    index("kiosk_devices_library_idx").on(t.libraryId),
+    index("kiosk_devices_created_by_idx").on(t.createdBy),
+  ],
+);
+
+/**
+ * One adult's 6-digit kiosk code. An adult with a phone sign-in has a user
+ * (and their family is their membership's); an adult without email (a
+ * grandparent, a nanny) has only a first name. The code is stored as a keyed
+ * hash (HMAC with the server secret), unique within the library, and shown
+ * only when it is made. Turning a code off clears the hash.
+ */
+export const kioskPeople = sqliteTable(
+  "kiosk_people",
+  {
+    id: text("id").primaryKey(),
+    libraryId: text("library_id")
+      .notNull()
+      .references(() => libraries.id, { onDelete: "cascade" }),
+    familyId: text("family_id").notNull(),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    /** For adults without a sign-in. Adults with one go by their account's first name. */
+    firstName: text("first_name"),
+    codeHash: text("code_hash"),
+    codeSetAt: integer("code_set_at", { mode: "timestamp_ms" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("kiosk_people_code_idx")
+      .on(t.libraryId, t.codeHash)
+      .where(sql`code_hash is not null`),
+    uniqueIndex("kiosk_people_user_idx").on(t.libraryId, t.userId).where(sql`user_id is not null`),
+    index("kiosk_people_family_idx").on(t.familyId),
+    index("kiosk_people_user_id_idx").on(t.userId),
+    foreignKey({
+      name: "kiosk_people_family_fk",
+      columns: [t.familyId, t.libraryId],
+      foreignColumns: [families.id, families.libraryId],
+    }).onDelete("cascade"),
+    check("kiosk_people_named_check", sql`user_id is not null or first_name is not null`),
+  ],
+);
+
 export const LOAN_OUTCOMES = ["returned", "lost", "damaged", "found"] as const;
 export type LoanOutcome = (typeof LOAN_OUTCOMES)[number];
 
@@ -329,6 +388,14 @@ export const loans = sqliteTable(
      */
     returnRequestedAt: integer("return_requested_at", { mode: "timestamp_ms" }),
     extendedCount: integer("extended_count").notNull().default(0),
+    /** Borrowed at a kiosk tablet: who typed their code. Cleared with the family's history. */
+    kioskPersonId: text("kiosk_person_id").references(() => kioskPeople.id, {
+      onDelete: "set null",
+    }),
+    /** Borrowed at a kiosk tablet: which one. */
+    kioskDeviceId: text("kiosk_device_id").references(() => kioskDevices.id, {
+      onDelete: "set null",
+    }),
   },
   (t) => [
     // At most one open loan per copy, enforced by the database.
@@ -338,6 +405,8 @@ export const loans = sqliteTable(
     index("loans_library_open_idx").on(t.libraryId, t.returnedAt, t.dueOn),
     index("loans_borrowed_by_idx").on(t.borrowedBy),
     index("loans_returned_by_idx").on(t.returnedBy),
+    index("loans_kiosk_person_idx").on(t.kioskPersonId),
+    index("loans_kiosk_device_idx").on(t.kioskDeviceId),
     foreignKey({
       name: "loans_copy_fk",
       columns: [t.copyId, t.libraryId],

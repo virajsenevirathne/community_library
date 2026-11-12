@@ -2377,3 +2377,193 @@ kbd {
     grid-row: 1 / span 2;
   }
 }
+
+/* ------------------------------------------------------------------ kiosk */
+
+/*
+ * The kiosk fills a tablet's screen: no header or tab bar, big type and big
+ * targets for small hands, and a quiet corner for staff.
+ */
+.kiosk {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  padding: var(--s-4) var(--gutter) var(--s-5);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 1.125rem;
+}
+.kiosk__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  min-height: var(--tap);
+}
+.kiosk__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.25rem;
+}
+.kiosk__panel {
+  width: 100%;
+  max-width: var(--w-narrow);
+  margin: 0 auto;
+  flex: 1;
+}
+.kiosk__title {
+  font-family: var(--font-display);
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  line-height: 1.15;
+  margin: 0;
+}
+.kiosk__title:focus {
+  outline: none;
+}
+.kiosk__book {
+  display: flex;
+  gap: var(--s-4);
+  align-items: center;
+}
+.kiosk__book-title {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 0;
+}
+.kiosk__type label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: var(--s-2);
+}
+.kiosk__type .row {
+  flex-wrap: nowrap;
+}
+.kiosk__type input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap);
+  font-size: 1.25rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0 var(--s-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+}
+.kiosk__code {
+  display: grid;
+  gap: var(--s-5);
+}
+@media (min-width: 900px) {
+  .kiosk__panel:has(.kiosk__code) {
+    max-width: var(--w-wide);
+  }
+  .kiosk__code {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+}
+.kiosk__dots {
+  display: flex;
+  justify-content: center;
+  gap: var(--s-3);
+  padding: var(--s-3) 0;
+}
+.kiosk__dot {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+}
+.kiosk__dot--on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.kiosk__keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--s-3);
+  max-width: 24rem;
+  width: 100%;
+  margin: 0 auto;
+}
+.kiosk__key {
+  min-height: 4.5rem;
+  font-size: 2rem;
+  font-weight: 700;
+  font-family: var(--font-display);
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.kiosk__key--small {
+  font-size: 1.125rem;
+}
+.kiosk__key:active:not(:disabled) {
+  transform: translateY(1px);
+  background: var(--accent-soft);
+}
+.kiosk__key:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.kiosk__key:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+.kiosk__done .alert p {
+  margin: 0;
+  font-size: 1.25rem;
+}
+.kiosk__done .alert p + p {
+  margin-top: var(--s-2);
+}
+.kiosk__staff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s-3);
+  font-size: 0.9375rem;
+  color: var(--muted);
+}
+.kiosk__staff-link {
+  color: var(--muted);
+  min-height: var(--tap);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--s-2);
+}
+body.kiosk-mode {
+  padding-bottom: 0;
+}
+
+/* A kiosk code, shown once on the Account page or to staff. */
+.kiosk-code {
+  padding: var(--s-4);
+  border-radius: var(--r-lg);
+  background: var(--accent-soft);
+}
+.kiosk-code__digits {
+  margin: 0 0 var(--s-2);
+  font-family: var(--font-display);
+  font-size: 2.25rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.kiosk-code__digits:focus {
+  outline: none;
+}

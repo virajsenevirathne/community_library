@@ -27,6 +27,7 @@ import { type Db, newId, schema } from "../db/client.ts";
 import { checkoutEmail, foundEmail } from "../email.ts";
 import { libraryHome } from "../library.ts";
 import { consume } from "../limiter.ts";
+import type { Priority, QuotaMailer } from "../mailer.ts";
 
 /*
  * Borrowing and returning. The page for a book is reached by scanning its
@@ -62,7 +63,7 @@ async function copyLibraryGate(c: AppContext, next: () => Promise<void>) {
 }
 
 /** Finds a copy by the code on its sticker, in the actor's library, with its open loan. */
-async function findCopy(db: Db, actor: Actor, rawCode: string) {
+export async function findCopy(db: Db, actor: Actor, rawCode: string) {
   const code = normalizeShortCode(rawCode);
   const notFound = copyNotFound;
   if (!code) notFound();
@@ -196,8 +197,69 @@ async function copyView(db: Db, actor: Actor, row: CopyRow) {
   };
 }
 
+/**
+ * A new loan, only when the family is active and under its limit and the
+ * copy can be lent, all in one statement. With the unique index on open
+ * loans, two people borrowing at once can neither both get a copy nor pass
+ * their family's limit. Shared by phones and the kiosk.
+ */
+export function insertLoan(
+  DB: D1Database,
+  loan: {
+    loanId: string;
+    libraryId: string;
+    copyId: string;
+    familyId: string;
+    borrowedBy: string | null;
+    borrowedAt: number;
+    dueOn: string;
+    maxLoans: number;
+    kioskPersonId?: string;
+    kioskDeviceId?: string;
+  },
+) {
+  return DB.prepare(
+    `insert into loans (id, library_id, copy_id, family_id, borrowed_by, borrowed_at, due_on,
+                        kiosk_person_id, kiosk_device_id)
+     select ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?10, ?11
+     where (select count(*) from loans
+            where library_id = ?2 and family_id = ?4 and returned_at is null
+              and (return_requested_at is null or return_requested_at < ?9)) < ?8
+       and exists (select 1 from copies where id = ?3 and library_id = ?2 and status = 'available')
+       and exists (select 1 from families where id = ?4 and library_id = ?2 and status = 'active')`,
+  ).bind(
+    loan.loanId,
+    loan.libraryId,
+    loan.copyId,
+    loan.familyId,
+    loan.borrowedBy,
+    loan.borrowedAt,
+    loan.dueOn,
+    loan.maxLoans,
+    handBackCutoff(),
+    loan.kioskPersonId ?? null,
+    loan.kioskDeviceId ?? null,
+  );
+}
+
+/**
+ * "Tapped Return by mistake": the family keeps a book it handed back. Only
+ * while it is under its limit, so hand-backs can't be used to borrow more.
+ */
+export function undoHandBack(
+  DB: D1Database,
+  loan: { loanId: string; libraryId: string; familyId: string; maxLoans: number },
+) {
+  return DB.prepare(
+    `update loans set return_requested_at = null
+     where id = ?1 and library_id = ?2 and returned_at is null and return_requested_at is not null
+       and (select count(*) from loans where library_id = ?2 and family_id = ?3 and returned_at is null
+            and (return_requested_at is null or return_requested_at < ?4)) < ?5`,
+  ).bind(loan.loanId, loan.libraryId, loan.familyId, handBackCutoff(), loan.maxLoans);
+}
+
 /** Emails of every parent in a family (each family member with a sign-in). */
-async function familyEmails(db: Db, actor: Actor, familyId: string) {
+export async function familyEmails(db: Db, actor: Actor, familyId: string) {
   const rows = await db
     .select({ email: schema.users.email })
     .from(schema.memberships)
@@ -207,11 +269,15 @@ async function familyEmails(db: Db, actor: Actor, familyId: string) {
   return rows.map((r) => r.email);
 }
 
-/** Tells every parent in the family what they borrowed, with all their books out. */
-async function sendCheckoutEmails(
+/**
+ * Tells every parent in the family what they borrowed, with all their books
+ * out. For a kiosk borrow, says who borrowed it there.
+ */
+export async function sendCheckoutEmails(
   c: AppContext,
   actor: Actor & { family: { id: string } },
   borrowed: { title: string; dueOn: string },
+  kiosk?: { personName: string },
 ) {
   const db = c.get("db");
   const s = scope(actor);
@@ -250,14 +316,21 @@ async function sendCheckoutEmails(
         siteUrl: libraryHome(c.get("origin"), actor.library),
         borrowed,
         booksOut,
+        ...(kiosk ? { kiosk } : {}),
       }),
     ),
   );
 }
 
 /** Sends each message on its own, so one failure (or a provider error) never skips the others. */
-async function sendEach(c: AppContext, kind: string, messages: EmailMessage[]) {
-  const results = await Promise.allSettled(messages.map((m) => c.get("email").send(m)));
+export async function sendEach(
+  c: AppContext,
+  kind: string,
+  messages: EmailMessage[],
+  priority: Priority = "urgent",
+) {
+  const mailer = c.get("email") as Pick<QuotaMailer, "send">;
+  const results = await Promise.allSettled(messages.map((m) => mailer.send(m, priority)));
   for (const result of results) {
     if (result.status === "rejected")
       console.error(`${kind} email failed: ${String(result.reason)}`);
@@ -268,7 +341,7 @@ async function sendEach(c: AppContext, kind: string, messages: EmailMessage[]) {
 }
 
 /** Runs background work, logging instead of losing an error. */
-function inBackground(c: AppContext, work: Promise<unknown>) {
+export function inBackground(c: AppContext, work: Promise<unknown>) {
   c.get("waitUntil")(work.catch((error) => console.error("Background work failed:", error)));
 }
 
@@ -316,18 +389,12 @@ export const loanRoutes = new Hono<AppEnv>()
         // family is under its limit, so hand-backs can't be used to borrow more.
         const DB = c.env.DB;
         const [undone] = await DB.batch([
-          DB.prepare(
-            `update loans set return_requested_at = null
-             where id = ?1 and library_id = ?2 and returned_at is null and return_requested_at is not null
-               and (select count(*) from loans where library_id = ?2 and family_id = ?3 and returned_at is null
-                    and (return_requested_at is null or return_requested_at < ?4)) < ?5`,
-          ).bind(
-            row.loanId,
-            actor.library.id,
-            actor.family.id,
-            handBackCutoff(),
-            actor.library.settings.maxLoans,
-          ),
+          undoHandBack(DB, {
+            loanId: row.loanId,
+            libraryId: actor.library.id,
+            familyId: actor.family.id,
+            maxLoans: actor.library.settings.maxLoans,
+          }),
           DB.prepare(
             `insert into events (id, library_id, actor_user_id, type, payload)
              select ?, ?, ?, 'loan_handback_undone', ? where changes() = 1`,
@@ -368,24 +435,16 @@ export const loanRoutes = new Hono<AppEnv>()
       const DB = c.env.DB;
       // D1's own batch: one transaction, so the event only exists if the loan does.
       const [result] = await DB.batch([
-        DB.prepare(
-          `insert into loans (id, library_id, copy_id, family_id, borrowed_by, borrowed_at, due_on)
-           select ?1, ?2, ?3, ?4, ?5, ?6, ?7
-           where (select count(*) from loans
-                  where library_id = ?2 and family_id = ?4 and returned_at is null
-                    and (return_requested_at is null or return_requested_at < ?9)) < ?8
-             and exists (select 1 from copies where id = ?3 and library_id = ?2 and status = 'available')`,
-        ).bind(
+        insertLoan(DB, {
           loanId,
-          actor.library.id,
-          row.copyId,
-          actor.family.id,
-          actor.userId,
-          now.getTime(),
-          due,
-          settings.maxLoans,
-          handBackCutoff(),
-        ),
+          libraryId: actor.library.id,
+          copyId: row.copyId,
+          familyId: actor.family.id,
+          borrowedBy: actor.userId,
+          borrowedAt: now.getTime(),
+          dueOn: due,
+          maxLoans: settings.maxLoans,
+        }),
         eventIf(
           DB,
           actor,

@@ -17,6 +17,7 @@ import { WelcomePage } from "./pages/admin/Welcome.tsx";
 import { CodeEntryPage, CopyPage } from "./pages/Copy.tsx";
 import { HomePage } from "./pages/Home.tsx";
 import { InvitePage, JoinPage } from "./pages/Join.tsx";
+import { KioskPage } from "./pages/Kiosk.tsx";
 import { OwnerPage } from "./pages/Owner.tsx";
 import { FrontPage, PrivacyPage, TermsPage } from "./pages/Public.tsx";
 import { RemindersOffPage } from "./pages/RemindersOff.tsx";
@@ -47,6 +48,9 @@ function Routes() {
   const { state, refresh } = useSession();
   const { path, base } = useLocation();
 
+  // A kiosk tablet has its own pass, not a person's sign-in, so it doesn't
+  // wait for (or depend on) the session.
+  if (base && path === "/kiosk") return <KioskPage />;
   if (state.status === "loading") return <LoadingPage label="Opening the library…" />;
   if (state.status === "error") return <Unavailable message={state.message} retry={refresh} />;
   const me = state.me;
