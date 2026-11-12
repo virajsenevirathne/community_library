@@ -3,13 +3,14 @@ import {
   GoogleBooksProvider,
   type MetadataProvider,
   OpenLibraryProvider,
+  type PushSender,
 } from "@community-library/adapters";
 import { isEmail } from "@community-library/core";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { isPlatformOwner } from "./access.ts";
 import { type Auth, createAuth } from "./auth.ts";
-import { authSecret, secrets } from "./config.ts";
+import { authSecret, pushSender, secrets } from "./config.ts";
 import { type AppEnv, fail } from "./context.ts";
 import { createDb } from "./db/client.ts";
 import { configuredSenders } from "./email.ts";
@@ -32,6 +33,8 @@ export interface AppOptions {
   email?: (env: Env) => EmailSender;
   /** Replaces the book lookup services, for tests. */
   metadata?: MetadataProvider[];
+  /** Replaces the web push sender, for tests. */
+  push?: (env: Env) => PushSender | null;
   /** Replaces ExecutionContext.waitUntil, so tests can wait for background work. */
   waitUntil?: (promise: Promise<unknown>) => void;
 }
@@ -99,6 +102,7 @@ export function createApp(options: AppOptions = {}) {
       options.email?.(c.env) ??
       new QuotaMailer(c.env.DB, configuredSenders(c.env, libraryName, new URL(origin).hostname));
     c.set("email", email);
+    c.set("push", options.push ? options.push(c.env) : pushSender(c.env));
     c.set(
       "metadata",
       options.metadata ?? [

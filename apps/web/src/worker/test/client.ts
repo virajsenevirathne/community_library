@@ -32,16 +32,31 @@ export function createTestApp(env: Env) {
     name: "fake",
     lookup: async (isbn) => (isbn === UNAVAILABLE_ISBN ? "unavailable" : (books.get(isbn) ?? null)),
   };
+  // Phone notifications go to a list instead of a push service.
+  const pushed: { endpoint: string; title: string; body: string; url: string }[] = [];
+  const push = {
+    gone: new Set<string>(),
+    send: async (
+      sub: { endpoint: string },
+      message: { title: string; body: string; url: string },
+    ) => {
+      if (push.gone.has(sub.endpoint))
+        return { ok: false as const, gone: true as const, status: 410 };
+      pushed.push({ endpoint: sub.endpoint, ...message });
+      return { ok: true as const };
+    },
+  };
   const app = createApp({
     email: () => outbox,
     metadata: [metadata],
+    push: () => push,
     waitUntil: (p) => pending.push(p),
   });
   /** Waits for background work (such as sending email) started by earlier requests. */
   const settle = async () => {
     while (pending.length > 0) await Promise.all(pending.splice(0));
   };
-  return { app, outbox, env, settle };
+  return { app, outbox, env, settle, push, pushed };
 }
 
 /** A browser-like client for one person: keeps cookies between requests. */

@@ -1,4 +1,4 @@
-import type { EmailSender, MetadataProvider } from "@community-library/adapters";
+import type { EmailSender, MetadataProvider, PushSender } from "@community-library/adapters";
 import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { z } from "zod";
@@ -19,6 +19,8 @@ export type AppEnv = {
     /** Created on first use; most API calls only need the session. */
     auth: () => Auth;
     email: EmailSender;
+    /** Phone notifications, or null when the site has no web push keys. */
+    push: PushSender | null;
     user: SessionUser | null;
     /** Keeps work (such as sending email) running after the response is sent. */
     waitUntil: (promise: Promise<unknown>) => void;

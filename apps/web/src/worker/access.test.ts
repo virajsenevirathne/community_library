@@ -361,6 +361,13 @@ export const ROUTES: {
   { route: "POST /api/admin/join-link", rule: "library:admin", body: { enabled: "no" } },
   // Any signed-in person may start deleting their own account; a code is needed to finish.
   { route: "PUT /api/account/name", rule: "user", body: { firstName: "Sam" } },
+  { route: "PUT /api/account/notify-by", rule: "user", body: { notifyBy: "email" } },
+  {
+    route: "POST /api/push/subscriptions",
+    rule: "user",
+    body: { endpoint: "https://fcm.googleapis.com/x", keys: { p256dh: "x", auth: "y" } },
+  },
+  { route: "DELETE /api/push/subscriptions", rule: "user", body: { endpoint: "x" } },
   { route: "POST /api/account/delete/start", rule: "user", body: {} },
   // The kiosk tablet's own routes.
   { route: "GET /api/kiosk", rule: "kiosk" },

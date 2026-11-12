@@ -1,4 +1,4 @@
-import type { EmailMessage, SendResult } from "@community-library/adapters";
+import type { EmailMessage, PushResult, PushSender, SendResult } from "@community-library/adapters";
 import {
   daysOverdue,
   handBackCutoff,
@@ -45,6 +45,8 @@ export interface JobDeps {
   DB: D1Database;
   env: Env;
   mailer: JobMailer;
+  /** Phone notifications, when the site has web push keys. */
+  push?: PushSender | null;
   siteUrl: string;
   now?: Date;
 }
@@ -151,6 +153,56 @@ async function runForLibrary(deps: JobDeps, now: Date, budget: Budget, library: 
   if (local.weekday === 1) await sendWeeklyDigest(deps, library, local.date, now, budget);
   if (isClosed(local.date, settings)) return;
   await sendFamilyReminders(deps, library, local.date, budget);
+}
+
+/**
+ * Sends a reminder as a phone notification to each of the person's devices.
+ * Devices that are gone (unsubscribed, app removed) are forgotten. True when
+ * at least one device got it; otherwise the email goes as usual.
+ */
+async function pushReminder(
+  deps: JobDeps,
+  library: Library,
+  userId: string,
+  lines: ReminderLine[],
+): Promise<boolean> {
+  if (!deps.push) return false;
+  const { results: devices } = await deps.DB.prepare(
+    "select id, endpoint, p256dh, auth from push_subscriptions where user_id = ?",
+  )
+    .bind(userId)
+    .all<{ id: string; endpoint: string; p256dh: string; auth: string }>();
+  if (devices.length === 0) return false;
+  const overdue = lines.some((l) => l.kind === "overdue");
+  // Like the email subject, the notification never names a book on the lock screen.
+  const message = {
+    title: overdue ? "A library book to bring back" : "A library book is due back soon",
+    body:
+      lines.length === 1
+        ? overdue
+          ? "It's past its due date. Tap to see it."
+          : "Tap to see it, or keep it longer."
+        : `${lines.length} books need attention. Tap to see them.`,
+    url: `/${library.slug}/`,
+    tag: `reminder-${library.slug}`,
+  };
+  let delivered = false;
+  for (const device of devices) {
+    const result = await deps.push
+      .send(device, message)
+      .catch((error): PushResult => ({ ok: false, gone: false, status: 0, error: String(error) }));
+    if (result.ok) {
+      delivered = true;
+      await deps.DB.prepare("update push_subscriptions set last_sent_at = ? where id = ?")
+        .bind(Date.now(), device.id)
+        .run();
+    } else if (result.gone) {
+      await deps.DB.prepare("delete from push_subscriptions where id = ?").bind(device.id).run();
+    } else {
+      console.error(`Reminder notification not sent: ${result.error}`);
+    }
+  }
+  return delivered;
 }
 
 /**
@@ -300,12 +352,12 @@ async function sendFamilyReminders(deps: JobDeps, library: Library, today: strin
   if (plan.size === 0) return;
 
   const { results: parents } = await DB.prepare(
-    `select m.family_id as familyId, u.id as userId, u.email as email
+    `select m.family_id as familyId, u.id as userId, u.email as email, u.notify_by as notifyBy
      from memberships m join users u on u.id = m.user_id
      where m.library_id = ? and m.family_id is not null`,
   )
     .bind(library.id)
-    .all<{ familyId: string; userId: string; email: string }>();
+    .all<{ familyId: string; userId: string; email: string; notifyBy: string }>();
 
   for (const [familyId, reminders] of plan) {
     const offUrl = await nudgesOffUrl(deps.env, deps.siteUrl, familyId);
@@ -341,6 +393,26 @@ async function sendFamilyReminders(deps: JobDeps, library: Library, today: strin
         });
       }
       if (claimed.length === 0) continue;
+
+      // Phone notifications first, for people who chose them.
+      const pushed =
+        parent.notifyBy !== "email"
+          ? await pushReminder(
+              deps,
+              library,
+              parent.userId,
+              claimed.map((c) => c.line),
+            )
+          : false;
+      if (parent.notifyBy === "push" && pushed) {
+        await settle(
+          DB,
+          claimed.map((c) => c.key),
+          true,
+          "push",
+        );
+        continue;
+      }
 
       let result: SendResult;
       try {

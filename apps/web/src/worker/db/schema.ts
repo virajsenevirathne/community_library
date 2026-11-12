@@ -37,9 +37,13 @@ const createdAt = () =>
 
 // ---------------------------------------------------------------- sign-in
 
+export const NOTIFY_CHANNELS = ["email", "push", "both"] as const;
+
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  /** How this person gets reminders: email, phone notifications (push), or both. */
+  notifyBy: text("notify_by", { enum: NOTIFY_CHANNELS }).notNull().default("email"),
   email: text("email").notNull().unique(),
   emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
   image: text("image"),
@@ -120,6 +124,26 @@ export const passkeys = sqliteTable(
     index("passkeys_user_idx").on(t.userId),
     uniqueIndex("passkeys_credential_idx").on(t.credentialID),
   ],
+);
+
+/**
+ * Browsers that may show this person's reminders (web push). Each phone or
+ * computer that allowed notifications has its own row.
+ */
+export const pushSubscriptions = sqliteTable(
+  "push_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    endpoint: text("endpoint").notNull().unique(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    createdAt: createdAt(),
+    lastSentAt: integer("last_sent_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [index("push_subscriptions_user_idx").on(t.userId)],
 );
 
 /** Sign-in rate limits, kept in D1 so they hold across Worker instances. */

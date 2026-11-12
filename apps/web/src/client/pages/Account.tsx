@@ -1,4 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { RemindersSetting } from "../components/PushReminders.tsx";
 import { Alert, Button, Field, Layout, LibraryList, Loading, LoadingPage } from "../components.tsx";
 import { ApiError, api, errorMessage } from "../lib/api.ts";
 import { authClient, isPasskeyCancel, passkeyHint, passkeysSupported } from "../lib/auth.ts";
@@ -90,6 +91,8 @@ export function AccountPage() {
       </section>
 
       <NameSetting />
+
+      <RemindersSetting />
 
       {me.membership?.family && <FamilySection />}
 

@@ -64,6 +64,7 @@ describe("migrations", () => {
       "notifications",
       "passkeys",
       "platform_admins",
+      "push_subscriptions",
       "rate_limits",
       "sessions",
       "titles",

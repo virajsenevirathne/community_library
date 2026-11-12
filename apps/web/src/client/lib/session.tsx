@@ -11,7 +11,18 @@ export interface LibraryLink {
 }
 
 export interface Me {
-  user: { id: string; email: string; name: string; hasPasskey: boolean } | null;
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    hasPasskey: boolean;
+    /** How reminders reach this person. */
+    notifyBy: "email" | "push" | "both";
+    /** Devices showing this person's notifications. */
+    pushDevices: number;
+  } | null;
+  /** The site's web push key; null when phone notifications are off. */
+  pushKey?: string | null;
   /** The library this page belongs to, or null on site-wide pages. */
   library: {
     name: string;
