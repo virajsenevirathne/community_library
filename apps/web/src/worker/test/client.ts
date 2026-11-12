@@ -46,7 +46,15 @@ export function createTestApp(env: Env) {
       return { ok: true as const };
     },
   };
+  // Webhook posts go to a list; an address with "down" in it fails.
+  const hooks: { url: string; headers: Headers; body: string }[] = [];
+  const hookFetch: typeof fetch = async (input, init) => {
+    const url = String(input);
+    hooks.push({ url, headers: new Headers(init?.headers), body: String(init?.body) });
+    return new Response(null, { status: url.includes("down") ? 500 : 204 });
+  };
   const app = createApp({
+    fetch: hookFetch,
     email: () => outbox,
     metadata: [metadata],
     push: () => push,
@@ -56,7 +64,7 @@ export function createTestApp(env: Env) {
   const settle = async () => {
     while (pending.length > 0) await Promise.all(pending.splice(0));
   };
-  return { app, outbox, env, settle, push, pushed };
+  return { app, outbox, env, settle, push, pushed, hooks, hookFetch };
 }
 
 /** A browser-like client for one person: keeps cookies between requests. */

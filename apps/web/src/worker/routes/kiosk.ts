@@ -11,6 +11,7 @@ import { newId } from "../db/client.ts";
 import { kioskReturnEmail } from "../email.ts";
 import { type LibraryInfo, libraryById, libraryHome } from "../library.ts";
 import { consume, lock, lockedFor, refund, reset } from "../limiter.ts";
+import { emitWebhook } from "../webhooks.ts";
 import { firstNameField, name } from "./account.ts";
 import { event } from "./families.ts";
 import {
@@ -23,6 +24,7 @@ import {
   tellWaitingFamily,
   timing,
   undoHandBack,
+  webhookDeps,
 } from "./loans.ts";
 
 /*
@@ -479,6 +481,12 @@ export const kioskRoutes = new Hono<AppEnv>()
         { personName: person.name || "Someone in your family" },
       ),
     );
+    await emitWebhook(webhookDeps(c), kiosk.library, "loan.created", {
+      loanId,
+      book: { title: row.title, code: row.shortCode },
+      dueOn: due,
+      via: "kiosk",
+    });
     return c.json(
       { borrowed: { title: row.title, dueOn: due, name: person.name, family: family.name } },
       201,
@@ -557,6 +565,12 @@ export const kioskRoutes = new Hono<AppEnv>()
     if (closed?.meta.changes !== 1) return c.json({ title: row.title, alreadyReturned: true });
     tellFamily(c, kiosk, row, false);
     tellWaitingFamily(c, kiosk.library, row.titleId);
+    await emitWebhook(webhookDeps(c), kiosk.library, "loan.returned", {
+      loanId: row.loanId,
+      book: { title: row.title, code: row.shortCode },
+      outcome: "returned",
+      via: "kiosk",
+    });
     return c.json({ title: row.title, returned: true, overdueDays: late });
   })
 

@@ -18,7 +18,9 @@ import { approvedEmail, deleteCodeEmail, goodbyeEmail, inviteEmail } from "../em
 import { libraryById, libraryHome } from "../library.ts";
 import { consume } from "../limiter.ts";
 import type { Priority, QuotaMailer } from "../mailer.ts";
+import { emitWebhook } from "../webhooks.ts";
 import { firstNameField, name } from "./account.ts";
+import { webhookDeps } from "./loans.ts";
 
 /*
  * How families join (a sign-up link or QR code, or an invite from a CSV
@@ -1165,6 +1167,10 @@ export const familyRoutes = new Hono<AppEnv>()
         `The ${family.name} family borrowed a book a moment ago. Please try again.`,
       );
     }
+    await emitWebhook(webhookDeps(c), actor.library, "account.deleted", {
+      familyRemoved: true,
+      byStaff: true,
+    });
     return c.json({ ok: true });
   })
 
@@ -1327,6 +1333,11 @@ export const familyRoutes = new Hono<AppEnv>()
     } catch (error) {
       if (!isOpenLoanConflict(error)) throw error;
       fail(409, "books_out", "Your family borrowed a book a moment ago. Please return it first.");
+    }
+    for (const [i, actor] of blockers.actors.entries()) {
+      await emitWebhook(webhookDeps(c), actor.library, "account.deleted", {
+        familyRemoved: blockers.each[i]?.lastParent ?? false,
+      });
     }
     c.get("waitUntil")(
       c

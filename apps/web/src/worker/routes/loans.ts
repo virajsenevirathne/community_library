@@ -30,6 +30,7 @@ import { ELIGIBLE, notifyNextHold } from "../holds.ts";
 import { libraryHome } from "../library.ts";
 import { consume } from "../limiter.ts";
 import type { Priority, QuotaMailer } from "../mailer.ts";
+import { emitWebhook } from "../webhooks.ts";
 
 /*
  * Borrowing and returning. The page for a book is reached by scanning its
@@ -387,6 +388,11 @@ export async function othersWaiting(
   return row !== null;
 }
 
+/** What a route needs to send webhooks in the background. */
+export function webhookDeps(c: AppContext) {
+  return { DB: c.env.DB, waitUntil: c.get("waitUntil"), fetch: c.get("fetch") };
+}
+
 /** A copy is back on the shelf: tell the next family waiting for it, if any. */
 export function tellWaitingFamily(c: AppContext, library: Actor["library"], titleId: string) {
   inBackground(
@@ -677,6 +683,12 @@ export const loanRoutes = new Hono<AppEnv>()
     }
 
     inBackground(c, sendCheckoutEmails(c, actor, { title: row.title, dueOn: due }));
+    await emitWebhook(webhookDeps(c), actor.library, "loan.created", {
+      loanId,
+      book: { title: row.title, code: row.shortCode },
+      dueOn: due,
+      via: "phone",
+    });
     const updated = await findCopy(db, actor, row.shortCode);
     return c.json({ copy: await copyView(db, actor, updated), dueOn: due, movedForClosure }, 201);
   })
@@ -751,7 +763,16 @@ export const loanRoutes = new Hono<AppEnv>()
         actor.userId,
       ),
     ]);
-    if (closed?.meta.changes === 1) tellWaitingFamily(c, actor.library, row.titleId);
+    if (closed?.meta.changes === 1) {
+      tellWaitingFamily(c, actor.library, row.titleId);
+      await emitWebhook(webhookDeps(c), actor.library, "loan.returned", {
+        loanId: row.loanId,
+        book: { title: row.title, code: row.shortCode },
+        outcome: "returned",
+        via:
+          allow(actor, "loans:manage") && row.loanFamilyId !== actor.family?.id ? "staff" : "phone",
+      });
+    }
     if (closed?.meta.changes !== 1) {
       // Someone else returned it a moment ago.
       const now = await findCopy(db, actor, row.shortCode);

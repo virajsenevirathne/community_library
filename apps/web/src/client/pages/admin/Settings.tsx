@@ -5,6 +5,7 @@ import { formatDate } from "../../lib/copies.ts";
 import { useSession } from "../../lib/session.tsx";
 import { DataExport } from "./DataExport.tsx";
 import { KioskSettings } from "./Kiosks.tsx";
+import { WebhookSettings } from "./WebhookSettings.tsx";
 
 interface Settings {
   loanDays: number;
@@ -402,6 +403,7 @@ export function SettingsPage() {
       </form>
       <KioskSettings />
       <DataExport />
+      <WebhookSettings />
       <section className="card settings-support" aria-labelledby="support-heading">
         <h2 id="support-heading" className="section-title">
           Site support visits

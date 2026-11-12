@@ -19,6 +19,8 @@ export type AppEnv = {
     /** Created on first use; most API calls only need the session. */
     auth: () => Auth;
     email: EmailSender;
+    /** Outgoing requests to libraries' own addresses (webhooks). Replaced in tests. */
+    fetch: typeof fetch;
     /** Phone notifications, or null when the site has no web push keys. */
     push: PushSender | null;
     user: SessionUser | null;

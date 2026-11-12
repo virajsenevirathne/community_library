@@ -536,6 +536,57 @@ export const invitations = sqliteTable(
   ],
 );
 
+export const WEBHOOK_EVENTS = [
+  "loan.created",
+  "loan.returned",
+  "loan.overdue",
+  "account.deleted",
+] as const;
+export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
+
+/**
+ * A library's webhook: an address of its own (a spreadsheet script, a
+ * school system) told about loans as they happen, signed with its secret.
+ */
+export const libraryWebhooks = sqliteTable("library_webhooks", {
+  libraryId: text("library_id")
+    .primaryKey()
+    .references(() => libraries.id, { onDelete: "cascade" }),
+  url: text("url").notNull(),
+  /** Signs each delivery (HMAC-SHA256), so the receiver knows it's genuine. */
+  secret: text("secret").notNull(),
+  /** JSON list of the events it wants. */
+  events: text("events").notNull().default("[]"),
+  createdAt: createdAt(),
+});
+
+export const WEBHOOK_DELIVERY_STATUSES = ["pending", "sent", "failed"] as const;
+
+/** Each webhook message, kept a while so failures are retried and admins can see them. */
+export const webhookDeliveries = sqliteTable(
+  "webhook_deliveries",
+  {
+    id: text("id").primaryKey(),
+    libraryId: text("library_id")
+      .notNull()
+      .references(() => libraries.id, { onDelete: "cascade" }),
+    event: text("event").notNull(),
+    /** The JSON body sent. Never holds names or emails. */
+    body: text("body").notNull(),
+    status: text("status", { enum: WEBHOOK_DELIVERY_STATUSES }).notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    /** The receiver's last answer (an HTTP status), or 0 when it couldn't be reached. */
+    lastStatus: integer("last_status"),
+    nextAttemptAt: integer("next_attempt_at", { mode: "timestamp_ms" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("webhook_deliveries_library_idx").on(t.libraryId, t.createdAt),
+    index("webhook_deliveries_due_idx").on(t.status, t.nextAttemptAt),
+    check("webhook_deliveries_status_check", oneOf("status", WEBHOOK_DELIVERY_STATUSES)),
+  ],
+);
+
 export const NOTIFICATION_STATUSES = ["pending", "sent", "failed", "deferred"] as const;
 
 /** One row per email the jobs send. The unique key stops a re-run sending twice. */

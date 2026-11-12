@@ -1,5 +1,6 @@
 import type { EmailMessage, PushResult, PushSender, SendResult } from "@community-library/adapters";
 import {
+  addDays,
   daysOverdue,
   handBackCutoff,
   isClosed,
@@ -17,6 +18,7 @@ import { libraryHome } from "../library.ts";
 import type { Priority } from "../mailer.ts";
 import { sendInvite, unsentInvites } from "../routes/families.ts";
 import { extendLinkToken } from "../routes/loans.ts";
+import { emitWebhook, retryWebhooks } from "../webhooks.ts";
 
 /*
  * The hourly job (Cron Trigger "0 * * * *"). Each library gets its reminders
@@ -45,6 +47,8 @@ export interface JobDeps {
   DB: D1Database;
   env: Env;
   mailer: JobMailer;
+  /** Outgoing requests for webhooks; replaced in tests. */
+  fetch?: typeof fetch | undefined;
   /** Phone notifications, when the site has web push keys. */
   push?: PushSender | null;
   siteUrl: string;
@@ -147,6 +151,13 @@ async function runForLibrary(deps: JobDeps, now: Date, budget: Budget, library: 
   if (library.status === "paused") return;
   await sendQueuedInvites(deps, library, budget);
   await tellWaitingFamilies(deps, library);
+  // A library's own system being down must never stop its families' reminders.
+  try {
+    await overdueWebhooks(deps, library, local.date);
+    await retryWebhooks({ DB: deps.DB, fetch: deps.fetch }, library.id, 30);
+  } catch (error) {
+    console.error("Webhooks for a library failed:", error);
+  }
 
   if (local.hour < settings.reminderHour) return;
   // Staff get the weekly summary on Monday even when the centre is closed.
@@ -229,6 +240,44 @@ async function pushReminder(
 }
 
 /**
+ * Tells the library's webhook once about each loan that has gone overdue.
+ * (The notifications table's unique key makes it once, across runs.)
+ */
+async function overdueWebhooks(deps: JobDeps, library: Library, today: string) {
+  const wanted = await deps.DB.prepare(
+    "select 1 from library_webhooks where library_id = ? and events like '%loan.overdue%'",
+  )
+    .bind(library.id)
+    .first();
+  if (!wanted) return;
+  const { results } = await deps.DB.prepare(
+    `select l.id as loanId, l.due_on as dueOn, t.title as title, c.short_code as code
+     from loans l
+     join copies c on c.id = l.copy_id and c.library_id = l.library_id
+     join titles t on t.id = c.title_id and t.library_id = c.library_id
+     where l.library_id = ?1 and l.returned_at is null and l.due_on < ?2 and l.due_on >= ?3
+       and not exists (select 1 from notifications n where n.dedupe_key = 'webhook-overdue:' || l.id)
+     limit 20`,
+  )
+    // Only loans that went overdue lately: turning the event on doesn't send years of history.
+    .bind(library.id, today, addDays(today, -7))
+    .all<{ loanId: string; dueOn: string; title: string; code: string }>();
+  for (const loan of results) {
+    if (!(await claim(deps.DB, library, `webhook-overdue:${loan.loanId}`, "webhook", null)))
+      continue;
+    // Recorded now, sent by the retry pass just after (in batches).
+    await emitWebhook(
+      { DB: deps.DB, fetch: deps.fetch },
+      library,
+      "loan.overdue",
+      { loanId: loan.loanId, book: { title: loan.title, code: loan.code }, dueOn: loan.dueOn },
+      true,
+    );
+    await settle(deps.DB, [`webhook-overdue:${loan.loanId}`], true, "webhook");
+  }
+}
+
+/**
  * Books on the shelf that someone is waiting for (a place lapsed, or a copy
  * came back without a return, such as a lost book found): tell the next
  * family. Normally a return tells them straight away.
@@ -259,6 +308,11 @@ async function tellWaitingFamilies(deps: JobDeps, library: Library) {
 async function tidyUp(DB: D1Database, library: Library, now: Date) {
   const cutoff = monthsBefore(now, library.settings.historyMonths).getTime();
   await DB.batch([
+    // Webhook deliveries are kept a month, for the admin's list.
+    DB.prepare("delete from webhook_deliveries where library_id = ? and created_at < ?").bind(
+      library.id,
+      now.getTime() - 30 * 86_400_000,
+    ),
     // Nothing left to wait for: no copy of the book can be lent any more.
     DB.prepare(
       `delete from holds where library_id = ? and not exists (
