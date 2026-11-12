@@ -140,11 +140,15 @@ function Kiosk({ info, onLost }: { info: KioskInfo; onLost: () => Promise<void> 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
+  const onLostRef = useRef(onLost);
+  onLostRef.current = onLost;
 
   const restart = useCallback(() => {
     setScreen({ kind: "start" });
     setError("");
     setBusy(false);
+    // Between families, check the kiosk is still on and the library's state.
+    void onLostRef.current();
   }, []);
 
   // Each new screen is announced by moving focus to its heading.
@@ -302,9 +306,15 @@ function Kiosk({ info, onLost }: { info: KioskInfo; onLost: () => Promise<void> 
                 kind: "done",
                 title: "Enjoy the book!",
                 lines: [
-                  <>
-                    Borrowed by <strong>{b.name || "your family"}</strong> · {b.family} family
-                  </>,
+                  b.name ? (
+                    <>
+                      Borrowed by <strong>{b.name}</strong> · {b.family} family
+                    </>
+                  ) : (
+                    <>
+                      Borrowed for the <strong>{b.family}</strong> family
+                    </>
+                  ),
                   b.dueOn ? (
                     <>
                       Due back <strong>{formatDate(b.dueOn)}</strong>
@@ -325,6 +335,9 @@ function Kiosk({ info, onLost }: { info: KioskInfo; onLost: () => Promise<void> 
             screen={screen}
             seconds={screen.tone === "error" ? PROBLEM_SECONDS : DONE_SECONDS}
             onDone={restart}
+            {...(screen.tone === "error" && screen.copy
+              ? { onRetry: () => setScreen({ kind: "book", copy: screen.copy as KioskCopy }) }
+              : {})}
           />
         )}
       </div>
@@ -354,19 +367,34 @@ function StartScreen({
   const [typed, setTyped] = useState("");
   const onCodeRef = useRef(onCode);
   onCodeRef.current = onCode;
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  // The camera reads a sticker again and again: once is enough for a while.
+  const lastScan = useRef({ code: "", at: 0 });
+  const onScan = (code: string) => {
+    const now = Date.now();
+    if (code === lastScan.current.code && now - lastScan.current.at < 5000) return;
+    lastScan.current = { code, at: now };
+    onCode(code);
+  };
 
   // A USB or Bluetooth scanner types the code quickly and presses Enter.
   useEffect(() => {
     let buffer = "";
     let last = 0;
     const onKey = (event: KeyboardEvent) => {
+      // Typing in the code box is the box's job. A focused button (after a
+      // tap) doesn't stop the scanner, but its Enter mustn't click it too.
       const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, select, button")) return;
+      if (target?.closest("input, textarea, select")) return;
       const now = Date.now();
       if (now - last > 300) buffer = "";
       last = now;
       if (event.key === "Enter") {
-        if (buffer.length >= 4) onCodeRef.current(buffer);
+        if (buffer.length >= 4) {
+          event.preventDefault();
+          if (!busyRef.current) onCodeRef.current(buffer);
+        }
         buffer = "";
       } else if (event.key.length === 1) buffer += event.key;
     };
@@ -394,13 +422,14 @@ function StartScreen({
             typeWhat="code"
             formats={["qr_code"]}
             accept={parseCopyCode}
-            onScan={onCode}
+            onScan={onScan}
             paused={busy}
             sound={false}
           />
           <Button
             variant="secondary"
-            onClick={() => {
+            onClick={(event) => {
+              event.currentTarget.blur();
               setCamera(false);
               saveCameraChoice(false);
             }}
@@ -411,7 +440,8 @@ function StartScreen({
       ) : (
         <Button
           variant="secondary"
-          onClick={() => {
+          onClick={(event) => {
+            event.currentTarget.blur();
             setCamera(true);
             saveCameraChoice(true);
           }}
@@ -529,6 +559,23 @@ function CodeScreen({
   const [now, setNow] = useState(Date.now());
   const wait = waitUntil ? Math.max(0, Math.ceil((waitUntil - now) / 1000)) : 0;
   const locked = wait > 0;
+  const firstKey = useRef<HTMLButtonElement>(null);
+  // A reply that arrives after the kiosk moved on (the idle reset) is dropped,
+  // so the next family never sees the last one's name.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  // After a wrong code, keyboard and switch users carry on from the keypad.
+  useEffect(() => {
+    if (error && !busy) {
+      if (locked) heading.current?.focus();
+      else firstKey.current?.focus();
+    }
+  }, [error, busy, locked, heading]);
 
   useEffect(() => {
     if (!waitUntil) return;
@@ -551,8 +598,9 @@ function CodeScreen({
         const res = await api<{
           borrowed: { name: string; family: string; dueOn: string | null };
         }>(`/kiosk/copies/${encodeURIComponent(copy.code)}/borrow`, { body: { code } });
-        onBorrowed(res.borrowed);
+        if (mounted.current) onBorrowed(res.borrowed);
       } catch (e) {
+        if (!mounted.current) return;
         setDigits("");
         if (e instanceof ApiError && e.code === "wrong_code") {
           signal("error");
@@ -567,7 +615,7 @@ function CodeScreen({
           onProblem(e);
         }
       } finally {
-        setBusy(false);
+        if (mounted.current) setBusy(false);
       }
     },
     [copy.code, onBorrowed, onProblem],
@@ -587,15 +635,30 @@ function CodeScreen({
     [busy, locked, digits, submit],
   );
 
-  // A keyboard works too.
+  // A keyboard works too. A barcode scanner types a whole burst of keys in a
+  // few milliseconds: a burst is a book being scanned, not a code, so it's dropped.
+  const pressRef = useRef(press);
+  pressRef.current = press;
   useEffect(() => {
+    let pending: string[] = [];
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const onKey = (event: KeyboardEvent) => {
-      if (/^\d$/.test(event.key)) press(event.key);
-      else if (event.key === "Backspace") press("delete");
+      const key = /^\d$/.test(event.key) ? event.key : event.key === "Backspace" ? "delete" : null;
+      if (key === null && event.key !== "Enter" && event.key.length !== 1) return;
+      pending.push(key ?? "");
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const keys = pending;
+        pending = [];
+        if (keys.length === 1 && keys[0]) pressRef.current(keys[0]);
+      }, 60);
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [press]);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, []);
 
   return (
     <div className="kiosk__code">
@@ -609,28 +672,31 @@ function CodeScreen({
         </p>
       </div>
       <div className="stack">
-        <output
-          className="kiosk__dots"
-          aria-label={`${digits.length} of ${CODE_LENGTH} digits typed`}
-        >
+        <output className="kiosk__dots">
+          <span className="visually-hidden">
+            {digits.length} of {CODE_LENGTH} digits typed
+          </span>
           {Array.from({ length: CODE_LENGTH }, (_, i) => (
             <span
               // biome-ignore lint/suspicious/noArrayIndexKey: fixed positions
               key={i}
+              aria-hidden="true"
               className={`kiosk__dot${i < digits.length ? " kiosk__dot--on" : ""}`}
             />
           ))}
         </output>
         {busy && <Loading label="Checking your code…" />}
-        {error && (
-          <Alert>
-            {locked ? `Too many wrong codes. Please wait ${wait} seconds, then try again.` : error}
-          </Alert>
+        {error && <Alert>{error}</Alert>}
+        {locked && (
+          <p className="muted" aria-hidden="true">
+            You can try again in {wait} seconds.
+          </p>
         )}
         <div className="kiosk__keypad">
           {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
             <button
               key={d}
+              ref={d === "1" ? firstKey : undefined}
               type="button"
               className="kiosk__key"
               onClick={() => press(d)}
@@ -644,6 +710,7 @@ function CodeScreen({
             className="kiosk__key kiosk__key--small"
             onClick={() => press("clear")}
             disabled={busy || locked || digits.length === 0}
+            aria-label="Clear all digits"
           >
             Clear
           </button>
@@ -675,20 +742,25 @@ function DoneScreen({
   screen,
   seconds,
   onDone,
+  onRetry,
 }: {
   heading: HeadingRef;
   screen: Extract<Screen, { kind: "done" }>;
   seconds: number;
   onDone: () => void;
+  /** For a problem: back to the book, to try again. */
+  onRetry?: () => void;
 }) {
   const [left, setLeft] = useState(seconds);
+  const [kept, setKept] = useState(false);
   useEffect(() => {
+    if (kept) return;
     const timer = setInterval(() => setLeft((s) => s - 1), 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [kept]);
   useEffect(() => {
-    if (left <= 0) onDone();
-  }, [left, onDone]);
+    if (left <= 0 && !kept) onDone();
+  }, [left, kept, onDone]);
 
   return (
     <div className="stack kiosk__done">
@@ -702,12 +774,26 @@ function DoneScreen({
           <p key={i}>{line}</p>
         ))}
       </Alert>
-      <Button className="btn--big btn--block" onClick={onDone}>
+      {onRetry && (
+        <Button className="btn--big btn--block" onClick={onRetry}>
+          Try again
+        </Button>
+      )}
+      <Button
+        className="btn--big btn--block"
+        variant={onRetry ? "secondary" : "primary"}
+        onClick={onDone}
+      >
         Done
       </Button>
-      <p className="muted" aria-hidden="true">
-        Starting again in {Math.max(0, left)} seconds.
-      </p>
+      {kept ? null : (
+        <p className="muted">
+          <span aria-hidden="true">Starting again in {Math.max(0, left)} seconds. </span>
+          <Button variant="link" onClick={() => setKept(true)}>
+            Keep this on screen
+          </Button>
+        </p>
+      )}
     </div>
   );
 }
@@ -722,12 +808,14 @@ function StaffCorner() {
   const slug = libraryBase();
   const settings = slug ? `/${slug}/admin/settings` : "/";
   const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
   return (
     <footer className="kiosk__staff">
       {user ? (
         <>
           <span>
-            {user.email} is signed in on this tablet. Sign out before leaving it as a kiosk.
+            {problem ||
+              "Someone from the staff is still signed in on this tablet. Sign out before leaving it as a kiosk."}
           </span>
           <Button
             variant="secondary"
@@ -735,9 +823,15 @@ function StaffCorner() {
             busyLabel="Signing out…"
             onClick={async () => {
               setBusy(true);
-              await authClient.signOut();
-              await refresh();
-              setBusy(false);
+              setProblem("");
+              try {
+                await authClient.signOut();
+                await refresh();
+              } catch {
+                setProblem("Couldn't sign out. Check the connection and try again.");
+              } finally {
+                setBusy(false);
+              }
             }}
           >
             Sign out

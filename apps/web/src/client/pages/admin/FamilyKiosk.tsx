@@ -56,6 +56,8 @@ function ShownCode({ name, code, onHide }: { name: string; code: string; onHide:
 export function FamilyKiosk({ family, notify }: { family: FamilyLike; notify: KioskNotify }) {
   const [shown, setShown] = useState<{ name: string; code: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  /** The person whose removal is waiting for confirmation. */
+  const [removing, setRemoving] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [nameError, setNameError] = useState("");
@@ -126,7 +128,14 @@ export function FamilyKiosk({ family, notify }: { family: FamilyLike; notify: Ki
   return (
     <div className="stack">
       <h3>Kiosk codes</h3>
-      {shown && <ShownCode name={shown.name} code={shown.code} onHide={() => setShown(null)} />}
+      {shown && (
+        <ShownCode
+          key={`${shown.name}-${shown.code}`}
+          name={shown.name}
+          code={shown.code}
+          onHide={() => setShown(null)}
+        />
+      )}
       <ul className="plain">
         {rows.map((row) => (
           <li key={row.key} className="staff-row">
@@ -154,13 +163,9 @@ export function FamilyKiosk({ family, notify }: { family: FamilyLike; notify: Ki
                         }),
                   )
                 }
-                aria-label={
-                  row.person?.hasCode
-                    ? `Make a new code for ${row.name}`
-                    : `Give ${row.name} a code`
-                }
               >
                 {row.person?.hasCode ? "New code" : "Give a code"}
+                <span className="visually-hidden"> for {row.name}</span>
               </Button>
               {row.person?.hasCode && (
                 <Button
@@ -173,27 +178,38 @@ export function FamilyKiosk({ family, notify }: { family: FamilyLike; notify: Ki
                       `${row.name}'s kiosk code is turned off.`,
                     )
                   }
-                  aria-label={`Turn off ${row.name}'s code`}
                 >
-                  Turn off
+                  Turn off<span className="visually-hidden"> {row.name}'s code</span>
                 </Button>
               )}
-              {row.userId === null && row.person && (
-                <Button
-                  variant="link"
-                  busy={busy === `remove-${row.key}`}
-                  onClick={() =>
-                    run(
-                      `remove-${row.key}`,
-                      () => api(`/admin/kiosk-people/${row.person?.id}`, { method: "DELETE" }),
-                      `${row.name} is no longer in the ${family.name} family.`,
-                    )
-                  }
-                  aria-label={`Remove ${row.name} from the family`}
-                >
-                  Remove
-                </Button>
-              )}
+              {row.userId === null &&
+                row.person &&
+                (removing === row.key ? (
+                  <>
+                    <Button
+                      variant="danger"
+                      autoFocus
+                      busy={busy === `remove-${row.key}`}
+                      busyLabel="Removing…"
+                      onClick={() =>
+                        run(
+                          `remove-${row.key}`,
+                          () => api(`/admin/kiosk-people/${row.person?.id}`, { method: "DELETE" }),
+                          `${row.name} is no longer in the ${family.name} family.`,
+                        )
+                      }
+                    >
+                      Remove {row.name}
+                    </Button>
+                    <Button variant="link" onClick={() => setRemoving(null)}>
+                      Keep
+                    </Button>
+                  </>
+                ) : (
+                  <Button variant="link" onClick={() => setRemoving(row.key)}>
+                    Remove<span className="visually-hidden"> {row.name}</span>
+                  </Button>
+                ))}
             </span>
           </li>
         ))}
@@ -213,7 +229,14 @@ export function FamilyKiosk({ family, notify }: { family: FamilyLike; notify: Ki
           <Button type="submit" busy={busy === "add"} busyLabel="Adding…">
             Add and make a code
           </Button>
-          <Button variant="secondary" onClick={() => setAdding(false)}>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setAdding(false);
+              setFirstName("");
+              setNameError("");
+            }}
+          >
             Cancel
           </Button>
         </form>
@@ -269,7 +292,14 @@ export function NoEmailFamilyCard({ notify }: { notify: KioskNotify }) {
         For a family that won't use email: they borrow at the kiosk with a code. They get no
         reminder emails, so follow up their late books from Loans.
       </p>
-      {shown && <ShownCode name={shown.name} code={shown.code} onHide={() => setShown(null)} />}
+      {shown && (
+        <ShownCode
+          key={`${shown.name}-${shown.code}`}
+          name={shown.name}
+          code={shown.code}
+          onHide={() => setShown(null)}
+        />
+      )}
       {open ? (
         <form onSubmit={submit} noValidate className="stack">
           <Alert>{errors.form}</Alert>
@@ -294,7 +324,15 @@ export function NoEmailFamilyCard({ notify }: { notify: KioskNotify }) {
             <Button type="submit" busy={busy} busyLabel="Adding…">
               Add the family and make a code
             </Button>
-            <Button variant="secondary" onClick={() => setOpen(false)}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setOpen(false);
+                setFamilyName("");
+                setFirstName("");
+                setErrors({});
+              }}
+            >
               Cancel
             </Button>
           </div>

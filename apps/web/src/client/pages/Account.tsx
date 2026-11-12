@@ -290,6 +290,7 @@ function KioskCodeSection() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState<"make" | "off" | null>(null);
   const codeRef = useRef<HTMLParagraphElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -330,6 +331,7 @@ function KioskCodeSection() {
       setShown(null);
       setNotice("Your kiosk code is turned off.");
       await load();
+      headingRef.current?.focus();
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -339,7 +341,7 @@ function KioskCodeSection() {
 
   return (
     <section className="card stack" aria-labelledby="kiosk-code-heading">
-      <h2 id="kiosk-code-heading" className="section-title">
+      <h2 id="kiosk-code-heading" className="section-title" ref={headingRef} tabIndex={-1}>
         Kiosk code
       </h2>
       <p className="muted">

@@ -47,16 +47,43 @@ export function KioskSettings() {
       setNameError("Give the kiosk a name, such as Front desk tablet.");
       return;
     }
+    const slug = libraryBase();
+    if (!slug) return;
     setNameError("");
     setError("");
+    setNotice("");
     setBusy("create");
     try {
       await api("/admin/kiosks", { body: { name: name.trim() } });
-      // A kiosk never keeps a person's sign-in: sign out, then open the kiosk.
-      await authClient.signOut();
-      window.location.assign(`/${libraryBase() ?? ""}/kiosk`);
     } catch (e) {
       setError(errorMessage(e));
+      setBusy(null);
+      return;
+    }
+    // A kiosk never keeps a person's sign-in: sign out, then open the kiosk.
+    try {
+      const result = await authClient.signOut();
+      if (result.error) throw new Error(result.error.message);
+    } catch {
+      setBusy(null);
+      setError(
+        "The kiosk is set up, but you're still signed in on this tablet. Sign out from the kiosk's corner before leaving it.",
+      );
+      await load();
+      return;
+    }
+    window.location.assign(`/${slug}/kiosk`);
+  };
+
+  const unlock = async (kiosk: Kiosk) => {
+    setBusy(`unlock-${kiosk.id}`);
+    setError("");
+    try {
+      await api(`/admin/kiosks/${kiosk.id}/unlock`, { body: {} });
+      setNotice(`${kiosk.name} is unlocked. Families can type their codes again.`);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
       setBusy(null);
     }
   };
@@ -124,6 +151,7 @@ export function KioskSettings() {
                   <div className="row">
                     <Button
                       variant="danger"
+                      autoFocus
                       busy={busy === kiosk.id}
                       busyLabel="Turning off…"
                       onClick={() => void turnOff(kiosk)}
@@ -135,13 +163,23 @@ export function KioskSettings() {
                     </Button>
                   </div>
                 ) : (
-                  <Button
-                    variant="secondary"
-                    onClick={() => setConfirmOff(kiosk.id)}
-                    aria-label={`Turn off: ${kiosk.name}`}
-                  >
-                    Turn off
-                  </Button>
+                  <div className="row">
+                    <Button
+                      variant="secondary"
+                      busy={busy === `unlock-${kiosk.id}`}
+                      busyLabel="Unlocking…"
+                      onClick={() => void unlock(kiosk)}
+                    >
+                      Unlock<span className="visually-hidden"> {kiosk.name}</span>
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => setConfirmOff(kiosk.id)}
+                      aria-label={`Turn off: ${kiosk.name}`}
+                    >
+                      Turn off
+                    </Button>
+                  </div>
                 )}
               </li>
             ))}
@@ -157,7 +195,8 @@ export function KioskSettings() {
 
       {thisTablet ? (
         <p>
-          This tablet is a kiosk. <a href={`/${libraryBase() ?? ""}/kiosk`}>Open the kiosk</a>
+          This tablet is a kiosk. <a href={`/${libraryBase() ?? ""}/kiosk`}>Open the kiosk</a>. It
+          stays a kiosk until it's turned off here.
         </p>
       ) : (
         <form className="stack" onSubmit={start} noValidate>

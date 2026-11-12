@@ -80,9 +80,23 @@ describe("kiosk tablets", () => {
     const list = await admin.json<{ kiosks: { id: string; on: boolean }[] }>("/api/admin/kiosks");
     const id = list.body.kiosks[0]?.id ?? "";
     expect((await admin.request(`/api/admin/kiosks/${id}/off`, { body: {} })).status).toBe(200);
-    const res = await tablet.json("/api/kiosk");
-    expect(res.status).toBe(401);
-    expect(res.body).toMatchObject({ error: "kiosk_off" });
+    const raw = await tablet.request("/api/kiosk");
+    expect(raw.status).toBe(401);
+    expect(await raw.json()).toMatchObject({ error: "kiosk_off" });
+    // The dead pass is cleared from the tablet.
+    expect(raw.headers.getSetCookie().join(";")).toMatch(/kiosk_pass=;.*Max-Age=0/i);
+  });
+
+  it("can set the same tablet up again when the library is at its kiosk limit", async () => {
+    const tablet = await kioskTablet();
+    for (let i = 0; i < 9; i++) await kioskTablet(`Extra ${i}`);
+    // Sign the tablet back in as an admin and set it up again.
+    await tablet.signIn();
+    const again = await tablet.json("/api/admin/kiosks", { body: { name: "Renamed" } });
+    expect(again.status).toBe(201);
+    const list = await admin.json<{ kiosks: { name: string; on: boolean }[] }>("/api/admin/kiosks");
+    expect(list.body.kiosks.filter((k) => k.on)).toHaveLength(10);
+    expect(list.body.kiosks.find((k) => k.name === "Front desk")?.on).toBe(false);
   });
 
   it("shows a book without saying which family has it", async () => {
@@ -166,6 +180,28 @@ describe("borrowing at the kiosk", () => {
     // Another tablet isn't locked.
     const other = await kioskTablet("Back room");
     expect((await borrow(other, book, code)).status).toBe(201);
+    // An admin can unlock the first one at once.
+    const list = await admin.json<{ kiosks: { id: string; name: string }[] }>("/api/admin/kiosks");
+    const id = list.body.kiosks.find((k) => k.name === "Front desk")?.id;
+    expect((await admin.request(`/api/admin/kiosks/${id}/unlock`, { body: {} })).status).toBe(200);
+    expect((await borrow(tablet, await addBook("Two"), code)).status).toBe(201);
+  });
+
+  it("keeps a book the family handed back by mistake", async () => {
+    await env.DB.prepare(
+      "update libraries set settings = json_set(settings, '$.returnsNeedCheckIn', json('true'))",
+    ).run();
+    const tablet = await kioskTablet();
+    const book = await addBook();
+    const code = await myCode(parent);
+    await borrow(tablet, book, code);
+    await tablet.request(`/api/kiosk/copies/${book}/return`, { body: {} });
+    const res = await borrow(tablet, book, code);
+    expect(res.status).toBe(200);
+    const open = await env.DB.prepare(
+      "select return_requested_at as handed from loans where returned_at is null",
+    ).first<{ handed: number | null }>();
+    expect(open?.handed).toBeNull();
   });
 
   it("counts guesses sent at the same moment", async () => {
@@ -336,6 +372,10 @@ describe("returning at the kiosk", () => {
     await parent.request(`/api/copies/${book}/borrow`, { body: {} });
     const res = await tablet.json(`/api/kiosk/copies/${book}/return`, { body: {} });
     expect(res.body).toMatchObject({ title: "Owl Babies", returned: true });
+    // The family hears about it, in case the book is still at home.
+    await ctx.settle();
+    const mail = ctx.outbox.sent.findLast((m) => m.to === parent.email);
+    expect(mail?.subject).toBe('"Owl Babies" was returned at the kiosk');
     const again = await tablet.json(`/api/kiosk/copies/${book}/return`, { body: {} });
     expect(again.body).toMatchObject({ alreadyReturned: true });
   });

@@ -164,6 +164,45 @@ export function checkoutEmail(options: {
   };
 }
 
+/**
+ * Tells a family a book of theirs was brought back at the kiosk tablet
+ * (no code is needed to return), so a mistake or a prank is noticed.
+ */
+export function kioskReturnEmail(options: {
+  libraryName: string;
+  to: string;
+  title: string;
+  /** The library checks returns in: the book waits in the basket for staff. */
+  handedBack: boolean;
+  siteUrl: string;
+}): EmailMessage {
+  const library = cleanHeader(options.libraryName);
+  const done = options.handedBack
+    ? "It's in the returns basket, and staff will check it in."
+    : "It's off your family's list now.";
+  const notYou = "If it's still at home with you, please tell the library staff.";
+  return {
+    to: options.to,
+    subject: `"${cleanHeader(options.title).slice(0, 80)}" was returned at the kiosk`,
+    text: [
+      `"${options.title}" was returned at the ${library} kiosk. ${done}`,
+      "",
+      notYou,
+      "",
+      `See your books: ${options.siteUrl}/`,
+    ].join("\n"),
+    html: htmlEmail(library, {
+      title: "Returned at the kiosk",
+      preheader: done,
+      paragraphs: [
+        `<strong>${escapeHtml(options.title)}</strong> was returned at the kiosk. ${escapeHtml(done)}`,
+        escapeHtml(notYou),
+        `<a href="${escapeHtml(options.siteUrl)}/" style="color:#1f6f5c;font-weight:600;text-decoration:underline">See your books</a>`,
+      ],
+    }),
+  };
+}
+
 /** Tells a family that someone found a book they have out. */
 export function foundEmail(options: {
   libraryName: string;

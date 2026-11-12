@@ -48,12 +48,12 @@ function Routes() {
   const { state, refresh } = useSession();
   const { path, base } = useLocation();
 
+  // A kiosk tablet has its own pass, not a person's sign-in, so it doesn't
+  // wait for (or depend on) the session.
+  if (base && path === "/kiosk") return <KioskPage />;
   if (state.status === "loading") return <LoadingPage label="Opening the library…" />;
   if (state.status === "error") return <Unavailable message={state.message} retry={refresh} />;
   const me = state.me;
-
-  // A kiosk tablet has its own pass, not a person's sign-in.
-  if (base && path === "/kiosk") return <KioskPage />;
 
   // ---- Site-wide pages: the same for every library.
   if (!base) {

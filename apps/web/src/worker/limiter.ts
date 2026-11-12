@@ -80,3 +80,10 @@ export async function lockedFor(
   const ends = row ? row.last_request + seconds * 1000 : 0;
   return ends > now ? Math.max(1, Math.ceil((ends - now) / 1000)) : null;
 }
+
+/** Clears `key` altogether: its count and any lock. */
+export async function reset(DB: D1Database, secret: string, key: string): Promise<void> {
+  await DB.prepare("delete from rate_limits where key = ?")
+    .bind(await hashKey(secret, key))
+    .run();
+}

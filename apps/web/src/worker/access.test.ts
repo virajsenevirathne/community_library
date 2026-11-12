@@ -376,6 +376,12 @@ export const ROUTES: {
     request: "/api/admin/kiosks/missing/off",
     body: {},
   },
+  {
+    route: "POST /api/admin/kiosks/:id/unlock",
+    rule: "library:admin",
+    request: "/api/admin/kiosks/missing/unlock",
+    body: {},
+  },
   { route: "GET /api/family/kiosk-code", rule: "loans:own" },
   { route: "POST /api/family/kiosk-code", rule: "loans:own", body: {} },
   { route: "DELETE /api/family/kiosk-code", rule: "loans:own" },

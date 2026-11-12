@@ -1,17 +1,27 @@
 import { daysOverdue, dueDateDetails, handBackCutoff, localParts } from "@community-library/core";
 import { type Context, Hono } from "hono";
-import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { getCookie, setCookie } from "hono/cookie";
+import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { type Actor, requirePermission } from "../access.ts";
 import { authSecret } from "../config.ts";
 import { type AppContext, type AppEnv, fail, readBody } from "../context.ts";
 import { hmacHex, randomToken, sha256Hex } from "../crypto.ts";
 import { newId } from "../db/client.ts";
-import { type LibraryInfo, libraryById } from "../library.ts";
-import { consume, lock, lockedFor, refund } from "../limiter.ts";
+import { kioskReturnEmail } from "../email.ts";
+import { type LibraryInfo, libraryById, libraryHome } from "../library.ts";
+import { consume, lock, lockedFor, refund, reset } from "../limiter.ts";
 import { firstNameField, name } from "./account.ts";
 import { event } from "./families.ts";
-import { findCopy, inBackground, sendCheckoutEmails } from "./loans.ts";
+import {
+  familyEmails,
+  findCopy,
+  inBackground,
+  insertLoan,
+  sendCheckoutEmails,
+  sendEach,
+  undoHandBack,
+} from "./loans.ts";
 
 /*
  * Kiosk mode: a shared tablet by the shelf where families borrow and return
@@ -23,8 +33,13 @@ import { findCopy, inBackground, sendCheckoutEmails } from "./loans.ts";
  * - Each adult has their own 6-digit code. Codes are made by the server,
  *   unique in the library, stored as a keyed hash (HMAC with the server
  *   secret) and shown only once.
- * - Wrong codes are limited per tablet (5 lock it for a minute, 20 an hour)
- *   and per library, and every kiosk borrow emails the family.
+ * - Wrong codes are limited per tablet (5 lock it for a minute, 20 an hour,
+ *   40 a day) and per library. Every kiosk borrow and return emails the
+ *   family's adults who have email (families without email get none).
+ *
+ * A code is looked up across the library, so each guess could match any of
+ * its codes: the daily cap keeps the odds of a lucky guess small, and the
+ * family is told by email about every kiosk borrow.
  */
 
 const COOKIE = "kiosk_pass";
@@ -33,6 +48,7 @@ const COOKIE_DAYS = 400;
 const LOCK_SECONDS = 60;
 const WRONG_PER_MINUTE = 5;
 const WRONG_PER_HOUR = 20;
+const WRONG_PER_DAY = 40;
 const WRONG_PER_LIBRARY_HOUR = 60;
 const MAX_KIOSKS = 10;
 
@@ -89,14 +105,31 @@ async function requireKiosk(c: AppContext): Promise<Kiosk> {
         }>()
     : null;
   if (!row || row.revokedAt !== null) {
-    if (row) deleteCookie(c, cookieName(c), { path: "/", secure: true });
-    fail(
-      401,
-      row ? "kiosk_off" : "not_a_kiosk",
-      row
-        ? "This kiosk has been turned off. Ask the library admin to set it up again."
-        : "This tablet isn't set up as a kiosk. A library admin can set it up in Settings.",
-    );
+    if (!row) {
+      fail(
+        401,
+        "not_a_kiosk",
+        "This tablet isn't set up as a kiosk. A library admin can set it up in Settings.",
+      );
+    }
+    // A turned-off pass is cleared from the tablet. The header goes on the
+    // error response itself: headers set on the context are lost when it throws.
+    const secure = c.get("origin").startsWith("https://");
+    throw new HTTPException(401, {
+      res: new Response(
+        JSON.stringify({
+          error: "kiosk_off",
+          message: "This kiosk has been turned off. Ask the library admin to set it up again.",
+        }),
+        {
+          status: 401,
+          headers: {
+            "Content-Type": "application/json",
+            "Set-Cookie": `${cookieName(c)}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict${secure ? "; Secure" : ""}`,
+          },
+        },
+      ),
+    });
   }
   const library = await libraryById(c.get("db"), row.libraryId);
   if (!library) fail(401, "not_a_kiosk", "This tablet isn't set up as a kiosk.");
@@ -183,7 +216,10 @@ function locked(c: AppContext, retryAfter: number) {
   return c.json(
     {
       error: "kiosk_locked",
-      message: "Too many wrong codes. Please wait a minute, then try again.",
+      message:
+        retryAfter <= 120
+          ? "Too many wrong codes. Please wait a minute, then try again."
+          : "Too many wrong codes, so the kiosk is resting. Please ask the staff to unlock it.",
       retryAfter,
     },
     429,
@@ -261,6 +297,7 @@ export const kioskRoutes = new Hono<AppEnv>()
     const counters = [
       [`kiosk-wrong-min:${kiosk.id}`, { window: 60, max: WRONG_PER_MINUTE }],
       [`kiosk-wrong-hour:${kiosk.id}`, { window: 3600, max: WRONG_PER_HOUR }],
+      [`kiosk-wrong-day:${kiosk.id}`, { window: 86_400, max: WRONG_PER_DAY }],
       [`kiosk-wrong-library:${lib}`, { window: 3600, max: WRONG_PER_LIBRARY_HOUR }],
     ] as const;
     const counted: string[] = [];
@@ -320,17 +357,46 @@ export const kioskRoutes = new Hono<AppEnv>()
       );
     }
     const family = { id: person.familyId, name: person.familyName, status: person.familyStatus };
+    const settings = kiosk.library.settings;
+    const limitReached = () =>
+      fail(
+        409,
+        "limit_reached",
+        `Your family already has ${settings.maxLoans} books out, the most allowed. Bring one back to borrow another.`,
+      );
+    const yours = (dueOn: string | null) =>
+      c.json({
+        borrowed: { title: row.title, dueOn, name: person.name, family: family.name },
+        alreadyYours: true,
+      });
     if (row.loanId) {
-      if (row.loanFamilyId === family.id) {
-        return c.json({
-          borrowed: { title: row.title, dueOn: row.dueOn, name: person.name, family: family.name },
-          alreadyYours: true,
-        });
+      if (row.loanFamilyId !== family.id) {
+        fail(409, "on_loan", "Another family has this book out. Please give it to staff.");
       }
-      fail(409, "on_loan", "Another family has this book out. Please give it to staff.");
+      if (row.returnRequestedAt !== null) {
+        // Handed back by mistake: the family keeps it, as on a phone.
+        const [undone] = await DB.batch([
+          undoHandBack(DB, {
+            loanId: row.loanId,
+            libraryId: lib,
+            familyId: family.id,
+            maxLoans: settings.maxLoans,
+          }),
+          DB.prepare(
+            `insert into events (id, library_id, actor_user_id, type, payload)
+             select ?, ?, ?, 'loan_handback_undone', ? where changes() = 1`,
+          ).bind(
+            newId(),
+            lib,
+            person.userId,
+            JSON.stringify({ loanId: row.loanId, kioskDeviceId: kiosk.id }),
+          ),
+        ]);
+        if (undone?.meta.changes !== 1) limitReached();
+      }
+      return yours(row.dueOn);
     }
 
-    const settings = kiosk.library.settings;
     const { due } = dueDateDetails(new Date(), settings);
     const loanId = newId();
     let inserted = 0;
@@ -338,28 +404,18 @@ export const kioskRoutes = new Hono<AppEnv>()
       const [result] = await DB.batch([
         // The same rules as on a phone, in one statement: the family's limit
         // and one open loan per copy (a unique index) hold under races.
-        DB.prepare(
-          `insert into loans (id, library_id, copy_id, family_id, borrowed_by, borrowed_at, due_on,
-                              kiosk_person_id, kiosk_device_id)
-           select ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?10, ?11
-           where (select count(*) from loans
-                  where library_id = ?2 and family_id = ?4 and returned_at is null
-                    and (return_requested_at is null or return_requested_at < ?9)) < ?8
-             and exists (select 1 from copies where id = ?3 and library_id = ?2 and status = 'available')
-             and exists (select 1 from families where id = ?4 and library_id = ?2 and status = 'active')`,
-        ).bind(
+        insertLoan(DB, {
           loanId,
-          lib,
-          row.copyId,
-          family.id,
-          person.userId,
-          Date.now(),
-          due,
-          settings.maxLoans,
-          handBackCutoff(),
-          person.id,
-          kiosk.id,
-        ),
+          libraryId: lib,
+          copyId: row.copyId,
+          familyId: family.id,
+          borrowedBy: person.userId,
+          borrowedAt: Date.now(),
+          dueOn: due,
+          maxLoans: settings.maxLoans,
+          kioskPersonId: person.id,
+          kioskDeviceId: kiosk.id,
+        }),
         DB.prepare(
           `insert into events (id, library_id, actor_user_id, type, payload)
            select ?, ?, ?, 'loan_created', ? where exists (select 1 from loans where id = ?)`,
@@ -384,22 +440,33 @@ export const kioskRoutes = new Hono<AppEnv>()
       inserted = result?.meta.changes ?? 0;
     } catch (error) {
       if (!/UNIQUE/.test(String(error))) throw error;
+      // Two adults of one family at once: the other one got it for the family.
+      const now = await findCopy(db, kioskActor(kiosk.library), row.shortCode);
+      if (now.loanFamilyId === family.id) return yours(now.dueOn);
       fail(409, "on_loan", "Someone borrowed this book a moment ago.");
     }
     if (inserted !== 1) {
-      fail(
-        409,
-        "limit_reached",
-        `Your family already has ${settings.maxLoans} books out, the most allowed. Bring one back to borrow another.`,
-      );
+      // Say why: the limit, or the book or family changed a moment ago.
+      const why = await DB.prepare(
+        `select (select count(*) from loans where library_id = ?1 and family_id = ?2 and returned_at is null
+                   and (return_requested_at is null or return_requested_at < ?3)) as out,
+                (select status from families where id = ?2 and library_id = ?1) as status`,
+      )
+        .bind(lib, family.id, handBackCutoff())
+        .first<{ out: number; status: string | null }>();
+      if (why?.status !== "active") {
+        fail(403, "family_inactive", "Your family can't borrow right now. Please ask the staff.");
+      }
+      if ((why?.out ?? 0) >= settings.maxLoans) limitReached();
+      fail(409, "unavailable", "This book can't be borrowed right now. Please give it to staff.");
     }
     inBackground(
       c,
       sendCheckoutEmails(
         c,
-        { ...kioskActor(kiosk.library, family), family },
+        kioskActor(kiosk.library, family) as Actor & { family: typeof family },
         { title: row.title, dueOn: due },
-        { personName: person.name || "Someone" },
+        { personName: person.name || "Someone in your family" },
       ),
     );
     return c.json(
@@ -433,7 +500,7 @@ export const kioskRoutes = new Hono<AppEnv>()
       ? daysOverdue(row.dueOn, localParts(new Date(), settings.timezone).date)
       : 0;
     if (settings.returnsNeedCheckIn) {
-      await DB.batch([
+      const [handed] = await DB.batch([
         DB.prepare(
           "update loans set return_requested_at = ? where id = ? and library_id = ? and returned_at is null and return_requested_at is null",
         ).bind(Date.now(), row.loanId, lib),
@@ -446,6 +513,7 @@ export const kioskRoutes = new Hono<AppEnv>()
           JSON.stringify({ loanId: row.loanId, copyId: row.copyId, kioskDeviceId: kiosk.id }),
         ),
       ]);
+      if (handed?.meta.changes === 1) tellFamily(c, kiosk, row, true);
       return c.json({ title: row.title, pendingCheckIn: true });
     }
     const returnedAt = Date.now();
@@ -476,6 +544,7 @@ export const kioskRoutes = new Hono<AppEnv>()
       ),
     ]);
     if (closed?.meta.changes !== 1) return c.json({ title: row.title, alreadyReturned: true });
+    tellFamily(c, kiosk, row, false);
     return c.json({ title: row.title, returned: true, overdueDays: late });
   })
 
@@ -535,12 +604,22 @@ export const kioskRoutes = new Hono<AppEnv>()
       DB.prepare(
         `insert into kiosk_devices (id, library_id, name, token_hash, created_by)
          select ?, ?, ?, ?, ? where (select count(*) from kiosk_devices
-                                     where library_id = ? and revoked_at is null) < ?`,
-      ).bind(id, lib, body.name, await sha256Hex(token), actor.userId, lib, MAX_KIOSKS),
-      // This tablet's earlier pass (for any library) stops working.
+                                     where library_id = ? and revoked_at is null and token_hash != ?) < ?`,
+      ).bind(
+        id,
+        lib,
+        body.name,
+        await sha256Hex(token),
+        actor.userId,
+        lib,
+        earlier ?? "",
+        MAX_KIOSKS,
+      ),
+      // This tablet's earlier pass (for any library) stops working, once the new one exists.
       DB.prepare(
-        "update kiosk_devices set revoked_at = ? where token_hash = ? and revoked_at is null and changes() = 1",
-      ).bind(Date.now(), earlier ?? ""),
+        `update kiosk_devices set revoked_at = ? where token_hash = ? and revoked_at is null
+           and exists (select 1 from kiosk_devices where id = ?)`,
+      ).bind(Date.now(), earlier ?? "", id),
       DB.prepare(
         `insert into events (id, library_id, actor_user_id, type, payload)
          select ?, ?, ?, 'kiosk_created', ? where exists (select 1 from kiosk_devices where id = ?)`,
@@ -579,6 +658,31 @@ export const kioskRoutes = new Hono<AppEnv>()
     return c.json({ ok: true });
   })
 
+  /**
+   * Unlock a kiosk that wrong codes have locked (a child pressing keys, say),
+   * so families can borrow again straight away.
+   */
+  .post("/admin/kiosks/:id/unlock", async (c) => {
+    const actor = await requirePermission(c, "library:admin");
+    const id = c.req.param("id");
+    const DB = c.env.DB;
+    const kiosk = await DB.prepare("select 1 from kiosk_devices where id = ? and library_id = ?")
+      .bind(id, actor.library.id)
+      .first();
+    if (!kiosk) fail(404, "not_found", "That kiosk was not found.");
+    const secret = authSecret(c.env);
+    await Promise.all(
+      [
+        `kiosk-lock:${id}`,
+        `kiosk-wrong-min:${id}`,
+        `kiosk-wrong-hour:${id}`,
+        `kiosk-wrong-day:${id}`,
+      ].map((key) => reset(DB, secret, key)),
+    );
+    await event(DB, actor.library.id, actor.userId, "kiosk_unlocked", { kioskId: id }).run();
+    return c.json({ ok: true });
+  })
+
   // ------------------------------------------------- your own code
 
   /** Whether you have a kiosk code here, and whether the library has a kiosk. */
@@ -610,22 +714,11 @@ export const kioskRoutes = new Hono<AppEnv>()
       fail(422, "name_needed", "Add your first name first, so the kiosk can greet you.");
     }
     await assertCodeBudget(c, `kiosk-code-user:${actor.userId}`, 10);
-    await DB.prepare(
-      `insert into kiosk_people (id, library_id, family_id, user_id) values (?, ?, ?, ?)
-       on conflict (library_id, user_id) where user_id is not null do update set family_id = excluded.family_id`,
-    )
-      .bind(newId(), actor.library.id, actor.family.id, actor.userId)
-      .run();
-    const person = await DB.prepare(
-      "select id from kiosk_people where library_id = ? and user_id = ?",
-    )
-      .bind(actor.library.id, actor.userId)
-      .first<{ id: string }>();
-    if (!person) throw new Error("Kiosk person was not saved");
-    const code = await setNewCode(c, actor.library.id, person.id);
+    const personId = await kioskPersonForUser(DB, actor.library.id, actor.family.id, actor.userId);
+    const code = await setNewCode(c, actor.library.id, personId);
     await event(DB, actor.library.id, actor.userId, "kiosk_code_set", {
       familyId: actor.family.id,
-      kioskPersonId: person.id,
+      kioskPersonId: personId,
     }).run();
     return c.json({ code }, 201);
   })
@@ -664,7 +757,6 @@ export const kioskRoutes = new Hono<AppEnv>()
       .bind(familyId, lib)
       .first();
     if (!family) fail(404, "not_found", "That family was not found.");
-    await assertCodeBudget(c, `kiosk-codes-library:${lib}`, 200);
     let personId: string;
     if ("userId" in body) {
       const member = await DB.prepare(
@@ -673,34 +765,26 @@ export const kioskRoutes = new Hono<AppEnv>()
         .bind(lib, familyId, body.userId)
         .first();
       if (!member) fail(404, "not_found", "That person isn't in this family.");
-      await DB.prepare(
-        `insert into kiosk_people (id, library_id, family_id, user_id) values (?, ?, ?, ?)
-         on conflict (library_id, user_id) where user_id is not null do update set family_id = excluded.family_id`,
-      )
-        .bind(newId(), lib, familyId, body.userId)
-        .run();
-      const row = await DB.prepare(
-        "select id from kiosk_people where library_id = ? and user_id = ?",
-      )
-        .bind(lib, body.userId)
-        .first<{ id: string }>();
-      if (!row) throw new Error("Kiosk person was not saved");
-      personId = row.id;
+      await assertCodeBudget(c, `kiosk-codes-library:${lib}`, 200);
+      personId = await kioskPersonForUser(DB, lib, familyId, body.userId);
     } else {
-      const count = await DB.prepare(
-        "select count(*) as n from kiosk_people where library_id = ? and family_id = ? and user_id is null",
-      )
-        .bind(lib, familyId)
-        .first<number>("n");
-      if ((count ?? 0) >= 10) {
-        fail(409, "too_many_people", "A family can have up to 10 people without email.");
-      }
+      await assertCodeBudget(c, `kiosk-codes-library:${lib}`, 200);
       personId = newId();
-      await DB.prepare(
-        "insert into kiosk_people (id, library_id, family_id, first_name) values (?, ?, ?, ?)",
+      // One statement, so the cap holds when two requests arrive together.
+      const added = await DB.prepare(
+        `insert into kiosk_people (id, library_id, family_id, first_name)
+         select ?1, ?2, ?3, ?4 where (select count(*) from kiosk_people
+           where library_id = ?2 and family_id = ?3 and user_id is null) < ?5`,
       )
-        .bind(personId, lib, familyId, body.firstName)
+        .bind(personId, lib, familyId, body.firstName, MAX_NO_EMAIL_PEOPLE)
         .run();
+      if (added.meta.changes !== 1) {
+        fail(
+          409,
+          "too_many_people",
+          `A family can have up to ${MAX_NO_EMAIL_PEOPLE} people without email.`,
+        );
+      }
     }
     const code = await setNewCode(c, lib, personId);
     await event(DB, lib, actor.userId, "kiosk_code_set", {
@@ -773,18 +857,93 @@ export const kioskRoutes = new Hono<AppEnv>()
     await assertCodeBudget(c, `kiosk-codes-library:${lib}`, 200);
     const familyId = newId();
     const personId = newId();
-    await DB.batch([
-      DB.prepare(
-        "insert into families (id, library_id, name, status) values (?, ?, ?, 'active')",
-      ).bind(familyId, lib, body.familyName),
-      DB.prepare(
-        "insert into kiosk_people (id, library_id, family_id, first_name) values (?, ?, ?, ?)",
-      ).bind(personId, lib, familyId, body.firstName),
-      event(DB, lib, actor.userId, "family_created", { familyId, kioskOnly: true }),
-    ]);
-    const code = await setNewCode(c, lib, personId);
-    return c.json({ code, familyId, id: personId }, 201);
+    const secret = authSecret(c.env);
+    // The family, its adult and their code arrive together or not at all.
+    // A clash with another code (rare) just picks another.
+    for (let i = 0; i < 8; i++) {
+      const code = randomCode();
+      try {
+        await DB.batch([
+          DB.prepare(
+            "insert into families (id, library_id, name, status) values (?, ?, ?, 'active')",
+          ).bind(familyId, lib, body.familyName),
+          DB.prepare(
+            `insert into kiosk_people (id, library_id, family_id, first_name, code_hash, code_set_at)
+             values (?, ?, ?, ?, ?, ?)`,
+          ).bind(
+            personId,
+            lib,
+            familyId,
+            body.firstName,
+            await codeHash(secret, lib, code),
+            Date.now(),
+          ),
+          event(DB, lib, actor.userId, "family_created", { familyId, kioskOnly: true }),
+          event(DB, lib, actor.userId, "kiosk_code_set", { familyId, kioskPersonId: personId }),
+        ]);
+        return c.json({ code, familyId, id: personId }, 201);
+      } catch (error) {
+        if (!/UNIQUE/.test(String(error))) throw error;
+      }
+    }
+    throw new Error("Could not find a free kiosk code");
   });
+
+/** Most people without email one family can have, so codes can't be stockpiled. */
+const MAX_NO_EMAIL_PEOPLE = 10;
+
+/**
+ * The kiosk row of an adult who signs in, made if needed. Its family is kept
+ * for tidying up (it goes with the family); borrowing always uses the family
+ * the adult's membership is in now.
+ */
+async function kioskPersonForUser(
+  DB: D1Database,
+  libraryId: string,
+  familyId: string,
+  userId: string,
+): Promise<string> {
+  const row = await DB.prepare(
+    `insert into kiosk_people (id, library_id, family_id, user_id) values (?, ?, ?, ?)
+     on conflict (library_id, user_id) where user_id is not null
+       do update set family_id = excluded.family_id
+     returning id`,
+  )
+    .bind(newId(), libraryId, familyId, userId)
+    .first<{ id: string }>();
+  if (!row) throw new Error("Kiosk person was not saved");
+  return row.id;
+}
+
+/** Emails a family's adults that one of their books came back at the kiosk. */
+function tellFamily(
+  c: AppContext,
+  kiosk: Kiosk,
+  row: { loanFamilyId: string | null; title: string },
+  handedBack: boolean,
+) {
+  const familyId = row.loanFamilyId;
+  if (!familyId) return;
+  inBackground(
+    c,
+    familyEmails(c.get("db"), kioskActor(kiosk.library), familyId).then((emails) =>
+      sendEach(
+        c,
+        "Kiosk return",
+        emails.map((to) =>
+          kioskReturnEmail({
+            libraryName: kiosk.library.name,
+            to,
+            title: row.title,
+            handedBack,
+            siteUrl: libraryHome(c.get("origin"), kiosk.library),
+          }),
+        ),
+        "routine",
+      ),
+    ),
+  );
+}
 
 /** A kiosk person in the actor's library, or 404. */
 async function kioskPerson(c: AppContext, actor: Actor, id: string) {
