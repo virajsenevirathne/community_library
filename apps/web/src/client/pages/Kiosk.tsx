@@ -16,6 +16,7 @@ import { formatDate, parseCopyCode } from "../lib/copies.ts";
 import { turnOffPush } from "../lib/push.ts";
 import { libraryBase, navigate } from "../lib/router.tsx";
 import { useSession } from "../lib/session.tsx";
+import { useTheme } from "../lib/theme.ts";
 import { Cover } from "./admin/Cover.tsx";
 
 /*
@@ -27,7 +28,13 @@ import { Cover } from "./admin/Cover.tsx";
 
 interface KioskInfo {
   kiosk: { name: string };
-  library: { name: string; slug: string; paused: boolean; returnsNeedCheckIn: boolean };
+  library: {
+    name: string;
+    slug: string;
+    paused: boolean;
+    returnsNeedCheckIn: boolean;
+    theme?: string;
+  };
 }
 
 interface KioskCopy {
@@ -137,6 +144,7 @@ export function KioskPage() {
 }
 
 function Kiosk({ info, onLost }: { info: KioskInfo; onLost: () => Promise<void> }) {
+  useTheme(info.library.theme);
   const [screen, setScreen] = useState<Screen>({ kind: "start" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");

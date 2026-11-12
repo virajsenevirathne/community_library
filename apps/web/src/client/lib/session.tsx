@@ -32,6 +32,8 @@ export interface Me {
     setUp: boolean;
     /** The site's owner, here for support (not a member). */
     support: boolean;
+    /** The library's colour (Settings). */
+    theme?: string;
   } | null;
   /** True for the person who runs the whole site. */
   owner?: boolean;
