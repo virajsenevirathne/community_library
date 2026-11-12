@@ -55,7 +55,12 @@ export const webhookRoutes = new Hono<AppEnv>()
     return c.json({
       events: WEBHOOK_EVENTS,
       webhook: hook
-        ? { url: hook.url, secret: hook.secret, events: JSON.parse(hook.events) as string[] }
+        ? {
+            url: hook.url,
+            // Only its ending, to recognise it: the whole secret is shown once, when made.
+            secretHint: `whsec_…${hook.secret.slice(-4)}`,
+            events: JSON.parse(hook.events) as string[],
+          }
         : null,
       recent: recent.results,
     });
@@ -65,24 +70,37 @@ export const webhookRoutes = new Hono<AppEnv>()
   .put("/admin/webhook", async (c) => {
     const actor = await requirePermission(c, "library:admin");
     const body = await readBody(c, webhookBody);
+    if (!isWebhookUrl(body.url, new URL(c.get("origin")).hostname)) {
+      fail(422, "invalid_input", "That's this site's own address. Use your system's address.");
+    }
+    const url = new URL(body.url);
     const DB = c.env.DB;
+    const secret = `whsec_${randomToken()}`;
+    const existed = await DB.prepare("select 1 from library_webhooks where library_id = ?")
+      .bind(actor.library.id)
+      .first();
     await DB.batch([
       DB.prepare(
         `insert into library_webhooks (library_id, url, secret, events) values (?, ?, ?, ?)
          on conflict (library_id) do update set url = excluded.url, events = excluded.events`,
-      ).bind(actor.library.id, body.url, `whsec_${randomToken()}`, JSON.stringify(body.events)),
-      event(DB, actor.library.id, actor.userId, "webhook_saved", { events: body.events }),
+      ).bind(actor.library.id, url.href, secret, JSON.stringify(body.events)),
+      event(DB, actor.library.id, actor.userId, "webhook_saved", {
+        host: url.hostname,
+        events: body.events,
+      }),
     ]);
-    return c.json({ ok: true });
+    // The secret is shown once, when it's made.
+    return c.json(existed ? { ok: true } : { ok: true, secret });
   })
 
   /** A new signing secret, when the old one may have leaked. The old one stops working. */
   .post("/admin/webhook/secret", async (c) => {
     const actor = await requirePermission(c, "library:admin");
     const DB = c.env.DB;
+    const secret = `whsec_${randomToken()}`;
     const [result] = await DB.batch([
       DB.prepare("update library_webhooks set secret = ? where library_id = ?").bind(
-        `whsec_${randomToken()}`,
+        secret,
         actor.library.id,
       ),
       DB.prepare(
@@ -91,7 +109,7 @@ export const webhookRoutes = new Hono<AppEnv>()
       ).bind(actor.library.id, actor.userId),
     ]);
     if (result?.meta.changes !== 1) fail(404, "not_found", "There's no webhook set up.");
-    return c.json({ ok: true });
+    return c.json({ ok: true, secret });
   })
 
   /** Stop sending, and forget the deliveries. */

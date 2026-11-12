@@ -21,7 +21,7 @@ const TIMEOUT_MS = 5000;
  * An https address on the public internet, written by name: never an IP
  * address, a local name, another port, or one with a password in it.
  */
-export function isWebhookUrl(value: string): boolean {
+export function isWebhookUrl(value: string, ownHost?: string): boolean {
   let url: URL;
   try {
     url = new URL(value);
@@ -33,7 +33,12 @@ export function isWebhookUrl(value: string): boolean {
   if (!host.includes(".")) return false;
   // IPv4 and IPv6 literals.
   if (/^\d+(\.\d+){3}$/.test(host) || host.startsWith("[")) return false;
-  return !/(^|\.)(localhost|local|internal|lan|home|arpa|test|invalid|example)$/.test(host);
+  // Never this site itself (a request loop), nor Cloudflare's own app domains.
+  if (ownHost && (host === ownHost || host.endsWith(`.${ownHost}`))) return false;
+  if (/(^|\.)(workers\.dev|pages\.dev)$/.test(host)) return false;
+  return !/(^|\.)(localhost|localdomain|local|internal|intranet|corp|lan|home|arpa|test|invalid|example)$/.test(
+    host,
+  );
 }
 
 interface Hook {
@@ -128,7 +133,24 @@ export async function emitWebhook(
   library: { id: string; slug: string },
   event: WebhookEvent,
   data: Record<string, unknown>,
+  /** Only record it; the hourly job's retry pass sends it. */
+  queueOnly = false,
 ): Promise<void> {
+  // Telling a library's system is never worth failing the borrow or return itself.
+  try {
+    await emit(deps, library, event, data, queueOnly);
+  } catch (error) {
+    console.error("Webhook not recorded:", error);
+  }
+}
+
+async function emit(
+  deps: WebhookDeps,
+  library: { id: string; slug: string },
+  event: WebhookEvent,
+  data: Record<string, unknown>,
+  queueOnly: boolean,
+) {
   const hook = await hookFor(deps.DB, library.id, event);
   if (!hook) return;
   const id = newId();
@@ -139,11 +161,14 @@ export async function emitWebhook(
     library: library.slug,
     data,
   });
+  // Due again in 10 minutes, in case this Worker stops before sending: the
+  // hourly job then picks it up. A queued one is due straight away.
   await deps.DB.prepare(
-    "insert into webhook_deliveries (id, library_id, event, body) values (?, ?, ?, ?)",
+    "insert into webhook_deliveries (id, library_id, event, body, next_attempt_at) values (?, ?, ?, ?, ?)",
   )
-    .bind(id, library.id, event, body)
+    .bind(id, library.id, event, body, Date.now() + (queueOnly ? 0 : 10 * 60_000))
     .run();
+  if (queueOnly) return;
   const send = deliver(deps.DB, hook, { id, event, body, attempts: 0 }, deps.fetch ?? fetch);
   if (deps.waitUntil) deps.waitUntil(send.catch((e) => console.error("Webhook failed:", e)));
   else await send;
@@ -198,14 +223,20 @@ export async function retryWebhooks(deps: WebhookDeps, libraryId: string, limit 
   if (!hook) return 0;
   const { results } = await deps.DB.prepare(
     `select id, event, body, attempts from webhook_deliveries
-     where library_id = ? and status = 'pending' and attempts > 0 and next_attempt_at <= ?
+     where library_id = ? and status = 'pending' and next_attempt_at is not null and next_attempt_at <= ?
      order by created_at limit ?`,
   )
     .bind(libraryId, Date.now(), limit)
     .all<{ id: string; event: string; body: string; attempts: number }>();
   let sent = 0;
-  for (const delivery of results) {
-    if (await deliver(deps.DB, hook, delivery, deps.fetch ?? fetch)) sent++;
+  // Ten at a time, so a slow address can't hold up the whole hourly job.
+  for (let i = 0; i < results.length; i += 10) {
+    const batch = await Promise.all(
+      results
+        .slice(i, i + 10)
+        .map((d) => deliver(deps.DB, hook, d, deps.fetch ?? fetch).catch(() => false)),
+    );
+    sent += batch.filter(Boolean).length;
   }
   return sent;
 }

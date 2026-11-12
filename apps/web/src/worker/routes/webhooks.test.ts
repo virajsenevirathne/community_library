@@ -26,10 +26,18 @@ async function setUp(
   url = "https://hooks.school.org/library",
   events = ["loan.created", "loan.returned", "loan.overdue", "account.deleted"],
 ) {
-  const res = await admin.request("/api/admin/webhook", { method: "PUT", body: { url, events } });
+  const res = await admin.json<{ secret: string }>("/api/admin/webhook", {
+    method: "PUT",
+    body: { url, events },
+  });
   expect(res.status).toBe(200);
-  return (await admin.json<{ webhook: { secret: string } }>("/api/admin/webhook")).body.webhook
-    .secret;
+  // The secret is shown once, when it's made; afterwards only its ending.
+  const later = await admin.json<{ webhook: { secretHint: string; secret?: string } }>(
+    "/api/admin/webhook",
+  );
+  expect(later.body.webhook.secret).toBeUndefined();
+  expect(later.body.webhook.secretHint).toBe(`whsec_…${res.body.secret.slice(-4)}`);
+  return res.body.secret;
 }
 
 async function borrowOne() {
@@ -116,7 +124,8 @@ describe("webhooks", () => {
   it("tells once when a loan goes overdue", async () => {
     await setUp("https://hooks.school.org/x", ["loan.overdue"]);
     await borrowOne();
-    await env.DB.prepare("update loans set due_on = '2020-01-01'").run();
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    await env.DB.prepare("update loans set due_on = ?").bind(yesterday).run();
     const run = () =>
       runHourlyJob({
         DB: env.DB,
@@ -136,15 +145,34 @@ describe("webhooks", () => {
       body: {},
     });
     expect(test.body).toEqual({ ok: true, status: 204 });
-    await admin.request("/api/admin/webhook/secret", { body: {} });
-    const second = (await admin.json<{ webhook: { secret: string } }>("/api/admin/webhook")).body
-      .webhook.secret;
+    const second = (await admin.json<{ secret: string }>("/api/admin/webhook/secret", { body: {} }))
+      .body.secret;
     expect(second).not.toBe(first);
     expect(second).toMatch(/^whsec_/);
     await admin.request("/api/admin/webhook", { method: "DELETE" });
     expect((await admin.json<{ webhook: null }>("/api/admin/webhook")).body.webhook).toBeNull();
     await borrowOne();
     expect(ctx.hooks.filter((h) => h.body.includes("loan.created"))).toHaveLength(0);
+  });
+
+  it("refuses this site's own address and Cloudflare app domains", async () => {
+    const own = await admin.json("/api/admin/webhook", {
+      method: "PUT",
+      body: { url: "https://app.workers.dev/hook", events: ["loan.created"] },
+    });
+    expect(own.status).toBe(422);
+  });
+
+  it("never fails a borrow when the webhook can't be recorded", async () => {
+    await setUp();
+    await env.DB.prepare("drop table webhook_deliveries").run();
+    const res = await admin.json<{ title: { copies: { shortCode: string }[] } }>(
+      "/api/catalog/titles",
+      { body: { title: "Owl Babies", copies: 1 } },
+    );
+    const code = res.body.title.copies[0]?.shortCode;
+    const borrow = await parent.request(`/api/copies/${code}/borrow`, { body: {} });
+    expect(borrow.status).toBe(201);
   });
 
   it("refuses a local address", async () => {

@@ -1,10 +1,10 @@
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Button, Field, Loading } from "../../components.tsx";
 import { api, errorMessage } from "../../lib/api.ts";
 
 interface WebhookData {
   events: string[];
-  webhook: { url: string; secret: string; events: string[] } | null;
+  webhook: { url: string; secretHint: string; events: string[] } | null;
   recent: {
     id: string;
     event: string;
@@ -17,27 +17,63 @@ interface WebhookData {
 
 const EVENT_LABELS: Record<string, string> = {
   "loan.created": "A book is borrowed",
-  "loan.returned": "A book is returned (or marked lost or damaged)",
+  "loan.returned": "A book is returned, or marked lost or damaged",
   "loan.overdue": "A book becomes overdue",
   "account.deleted": "A family or parent leaves",
+  ping: "Test message",
 };
 
 const WHEN = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
+type Confirm = "remove" | "secret" | null;
+
+function deliveryText(d: WebhookData["recent"][number]) {
+  const answer = d.lastStatus ? `code ${d.lastStatus}` : "no answer";
+  if (d.status === "sent") return "delivered";
+  if (d.event === "ping") return `not delivered (${answer})`;
+  if (d.status === "failed") return `gave up after ${d.attempts} tries (${answer})`;
+  return `will try again (${answer})`;
+}
+
 /**
- * Settings › Webhooks: for libraries with their own systems (a school's,
- * a spreadsheet script). Optional; most libraries never need it.
+ * Settings › Connect your own system (webhooks). Optional, for libraries
+ * with their own system; most never need it.
  */
 export function WebhookSettings() {
   const [data, setData] = useState<WebhookData | null>(null);
   const [loadError, setLoadError] = useState("");
-  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [url, setUrl] = useState("");
   const [events, setEvents] = useState<string[]>([]);
+  const [urlError, setUrlError] = useState("");
+  const [eventsError, setEventsError] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
-  const [showSecret, setShowSecret] = useState(false);
+  /** A secret just made: shown this once, to copy into the library's system. */
+  const [freshSecret, setFreshSecret] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<Confirm>(null);
+  const [focus, setFocus] = useState<"url" | "change" | "setup" | "secret" | "confirm" | null>(
+    null,
+  );
+  const urlInput = useRef<HTMLInputElement>(null);
+  const changeButton = useRef<HTMLButtonElement>(null);
+  const setupButton = useRef<HTMLButtonElement>(null);
+  const secretInput = useRef<HTMLInputElement>(null);
+  const confirmText = useRef<HTMLParagraphElement>(null);
+
+  // The control pressed is often replaced: focus what took its place.
+  useEffect(() => {
+    const target = {
+      url: urlInput,
+      change: changeButton,
+      setup: setupButton,
+      secret: secretInput,
+      confirm: confirmText,
+    }[focus ?? "url"];
+    if (focus) target.current?.focus();
+    setFocus(null);
+  }, [focus]);
 
   const load = useCallback(async () => {
     try {
@@ -54,51 +90,106 @@ export function WebhookSettings() {
     void load();
   }, [load]);
 
-  const run = async (key: string, request: () => Promise<unknown>, message: string) => {
-    setBusy(key);
+  const clearMessages = () => {
     setError("");
     setNotice("");
+  };
+
+  const startEditing = () => {
+    clearMessages();
+    setUrlError("");
+    setEventsError("");
+    setEditing(true);
+    setFocus("url");
+  };
+  const stopEditing = () => {
+    setEditing(false);
+    setUrl(data?.webhook?.url ?? "");
+    setEvents(data?.webhook?.events ?? data?.events ?? []);
+    setFocus(data?.webhook ? "change" : "setup");
+  };
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    clearMessages();
+    const noEvents = events.length === 0 ? "Choose at least one." : "";
+    setEventsError(noEvents);
+    setUrlError("");
+    if (noEvents) return;
+    setBusy("save");
     try {
-      await request();
+      const res = await api<{ secret?: string }>("/admin/webhook", {
+        method: "PUT",
+        body: { url: url.trim(), events },
+      });
       await load();
-      setNotice(message);
-      return true;
+      setEditing(false);
+      if (res.secret) {
+        setFreshSecret(res.secret);
+        setNotice("Saved. Copy the secret code into your system now: it's shown only this once.");
+        setFocus("secret");
+      } else {
+        setNotice("Saved. Send a test to check your system receives it.");
+        setFocus("change");
+      }
     } catch (e) {
-      setError(errorMessage(e));
-      return false;
+      setUrlError(errorMessage(e));
+      setFocus("url");
     } finally {
       setBusy(null);
     }
   };
 
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    const ok = await run(
-      "save",
-      () => api("/admin/webhook", { method: "PUT", body: { url: url.trim(), events } }),
-      "Webhook saved.",
-    );
-    if (ok) setOpen(false);
-  };
-
   const test = async () => {
     setBusy("test");
-    setError("");
-    setNotice("");
+    clearMessages();
     try {
       const res = await api<{ ok: boolean; status: number }>("/admin/webhook/test", { body: {} });
       await load();
-      if (res.ok) setNotice(`Test sent: the address answered ${res.status}.`);
-      else
+      if (res.ok) setNotice("Test sent. Your system replied that all is well.");
+      else if (res.status)
         setError(
-          res.status
-            ? `Test sent, but the address answered ${res.status}.`
-            : "The address couldn't be reached.",
+          `Test sent, but your system didn't reply "OK" (it answered with code ${res.status}).`,
         );
+      else setError("We couldn't reach that address. Check it, and that your system is running.");
     } catch (e) {
       setError(errorMessage(e));
     } finally {
       setBusy(null);
+    }
+  };
+
+  const confirmed = async () => {
+    const which = confirm;
+    setBusy(which);
+    clearMessages();
+    try {
+      if (which === "remove") {
+        await api("/admin/webhook", { method: "DELETE" });
+        setNotice("Removed. Nothing more will be sent.");
+      } else {
+        const res = await api<{ secret: string }>("/admin/webhook/secret", { body: {} });
+        setFreshSecret(res.secret);
+        setNotice(
+          "New secret code made. Copy it into your system now: it's shown only this once, and until then your system's check of our messages fails.",
+        );
+      }
+      setConfirm(null);
+      await load();
+      setFocus(which === "remove" ? "setup" : "secret");
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const copySecret = async (secret: string) => {
+    try {
+      await navigator.clipboard.writeText(secret);
+      setNotice("Secret code copied.");
+    } catch {
+      setError("Couldn't copy. Select the code and copy it instead.");
     }
   };
 
@@ -106,89 +197,130 @@ export function WebhookSettings() {
   return (
     <section className="card stack" aria-labelledby="webhook-heading">
       <h2 id="webhook-heading" className="section-title">
-        Webhooks
+        Connect your own system
       </h2>
       <p className="muted">
-        For libraries with their own system: we can tell an address of yours whenever a book is
-        borrowed or returned. Messages hold the book and dates, never names or email addresses. Most
-        libraries don't need this.
+        Optional, and technical: most libraries don't need this. If you have your own system (a
+        school's, or a spreadsheet script), we can send it a message each time a book is borrowed or
+        returned. Messages hold the book and dates, never names or email addresses. Ask whoever
+        looks after your systems to set it up.
       </p>
       <Alert>{error || loadError}</Alert>
       <Alert kind="success">{notice}</Alert>
       {!data && !loadError && <Loading />}
-      {data && hook && !open && (
+
+      {data && hook && !editing && (
         <>
-          <p>
-            Sending to <span className="code">{hook.url}</span>
-            <br />
-            <span className="muted">{hook.events.map((e) => EVENT_LABELS[e] ?? e).join("; ")}</span>
-          </p>
           <div>
+            <p>Sending messages to</p>
+            <p className="code code--url">{hook.url}</p>
+            <ul className="plain muted">
+              {hook.events.map((e) => (
+                <li key={e}>{EVENT_LABELS[e] ?? e}</li>
+              ))}
+            </ul>
+          </div>
+
+          <details open={freshSecret !== null}>
+            <summary>For your developer: the secret code</summary>
             <p className="muted">
-              Signing secret: check the <span className="code">Reading-Joey-Signature</span> header
-              with it, so you know a message is really from us.
+              Each message carries a <span className="code">Reading-Joey-Signature</span> header
+              made with this code, so your system can check it's really from us. The guide is in the
+              project's docs/adapters.md.
             </p>
-            {showSecret ? (
-              <input
-                className="join-link__url"
-                readOnly
-                value={hook.secret}
-                aria-label="Signing secret"
-                onFocus={(e) => e.target.select()}
-              />
+            {freshSecret ? (
+              <div className="row">
+                <input
+                  ref={secretInput}
+                  className="join-link__url"
+                  readOnly
+                  value={freshSecret}
+                  aria-label="Secret code"
+                  onFocus={(e) => e.target.select()}
+                />
+                <Button variant="secondary" onClick={() => void copySecret(freshSecret)}>
+                  Copy secret code
+                </Button>
+              </div>
             ) : (
-              <Button variant="link" onClick={() => setShowSecret(true)}>
-                Show the secret
-              </Button>
+              <p className="muted">
+                The code ends <span className="code">{hook.secretHint.slice(-4)}</span>. It's shown
+                only when it's made: lost it? Make a new one.
+              </p>
             )}
-          </div>
-          <div className="row">
-            <Button variant="secondary" onClick={test} busy={busy === "test"} busyLabel="Sending…">
-              Send a test
-            </Button>
-            <Button variant="secondary" onClick={() => setOpen(true)}>
-              Change
-            </Button>
-            <Button
-              variant="secondary"
-              busy={busy === "secret"}
-              busyLabel="Replacing…"
-              onClick={() =>
-                void run(
-                  "secret",
-                  () => api("/admin/webhook/secret", { body: {} }),
-                  "New secret made. Update it where you check signatures: the old one no longer matches.",
-                )
-              }
-            >
-              New secret
-            </Button>
-            <Button
-              variant="link"
-              busy={busy === "remove"}
-              onClick={() =>
-                void run(
-                  "remove",
-                  () => api("/admin/webhook", { method: "DELETE" }),
-                  "Webhook removed. Nothing more will be sent.",
-                )
-              }
-            >
-              Remove webhook
-            </Button>
-          </div>
+          </details>
+
+          {confirm ? (
+            <div className="confirm">
+              <p className="confirm__text" ref={confirmText} tabIndex={-1}>
+                {confirm === "remove"
+                  ? "Stop sending messages, and forget the list of past ones?"
+                  : "Make a new secret code? Your system's check of our messages fails until you give it the new one."}
+              </p>
+              <div className="row">
+                <Button
+                  variant="danger"
+                  onClick={() => void confirmed()}
+                  busy={busy === confirm}
+                  busyLabel={confirm === "remove" ? "Removing…" : "Replacing…"}
+                >
+                  {confirm === "remove" ? "Stop sending" : "Make a new code"}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setConfirm(null);
+                    setFocus("change");
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="row">
+              <Button
+                variant="secondary"
+                onClick={test}
+                busy={busy === "test"}
+                busyLabel="Sending…"
+              >
+                Send a test
+              </Button>
+              <Button ref={changeButton} variant="secondary" onClick={startEditing}>
+                Change
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setConfirm("secret");
+                  setFocus("confirm");
+                }}
+              >
+                New secret code
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setConfirm("remove");
+                  setFocus("confirm");
+                }}
+              >
+                Stop sending
+              </Button>
+            </div>
+          )}
+
           {data.recent.length > 0 && (
             <details>
               <summary>Latest messages</summary>
               <ul className="plain">
                 {data.recent.map((d) => (
                   <li key={d.id}>
-                    {WHEN.format(d.createdAt)} · {d.event} ·{" "}
-                    {d.status === "sent"
-                      ? `delivered (${d.lastStatus})`
-                      : d.status === "failed"
-                        ? `gave up after ${d.attempts} tries (${d.lastStatus || "no answer"})`
-                        : `will try again (${d.lastStatus || "no answer"})`}
+                    <time dateTime={new Date(d.createdAt).toISOString()}>
+                      {WHEN.format(d.createdAt)}
+                    </time>{" "}
+                    · {EVENT_LABELS[d.event] ?? d.event} · {deliveryText(d)}
                   </li>
                 ))}
               </ul>
@@ -196,51 +328,59 @@ export function WebhookSettings() {
           )}
         </>
       )}
-      {data && (open || !hook) && (
+
+      {data && !hook && !editing && (
+        <Button ref={setupButton} variant="secondary" onClick={startEditing}>
+          Set up a connection
+        </Button>
+      )}
+
+      {data && editing && (
         <form className="stack" onSubmit={save} noValidate>
-          {!open && !hook ? (
-            <Button variant="secondary" onClick={() => setOpen(true)}>
-              Set up a webhook
+          <Field
+            ref={urlInput}
+            label="Address to send to"
+            hint="An https address on the internet, such as https://example.org/library. Only replies with an OK code (2xx) count as received; redirects aren't followed."
+            type="url"
+            inputMode="url"
+            autoComplete="off"
+            maxLength={500}
+            value={url}
+            error={urlError}
+            onChange={(e) => setUrl(e.target.value)}
+          />
+          <fieldset
+            className="field"
+            aria-describedby={eventsError ? "webhook-events-error" : undefined}
+          >
+            <legend>Send a message when</legend>
+            {data.events.map((e) => (
+              <label key={e} className="check">
+                <input
+                  type="checkbox"
+                  checked={events.includes(e)}
+                  onChange={(ev) => {
+                    setEventsError("");
+                    setEvents(ev.target.checked ? [...events, e] : events.filter((x) => x !== e));
+                  }}
+                />
+                {EVENT_LABELS[e] ?? e}
+              </label>
+            ))}
+            {eventsError && (
+              <p className="field__error" id="webhook-events-error">
+                {eventsError}
+              </p>
+            )}
+          </fieldset>
+          <div className="row">
+            <Button type="submit" busy={busy === "save"} busyLabel="Saving…">
+              Save
             </Button>
-          ) : (
-            <>
-              <Field
-                label="Address to send to"
-                hint="An https address, such as https://example.org/library-hook"
-                type="url"
-                inputMode="url"
-                autoComplete="off"
-                maxLength={500}
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-              />
-              <fieldset className="field">
-                <legend>Tell it when</legend>
-                {data.events.map((e) => (
-                  <label key={e} className="check">
-                    <input
-                      type="checkbox"
-                      checked={events.includes(e)}
-                      onChange={(ev) =>
-                        setEvents(
-                          ev.target.checked ? [...events, e] : events.filter((x) => x !== e),
-                        )
-                      }
-                    />
-                    {EVENT_LABELS[e] ?? e}
-                  </label>
-                ))}
-              </fieldset>
-              <div className="row">
-                <Button type="submit" busy={busy === "save"} busyLabel="Saving…">
-                  Save webhook
-                </Button>
-                <Button variant="secondary" onClick={() => setOpen(false)}>
-                  Cancel
-                </Button>
-              </div>
-            </>
-          )}
+            <Button variant="secondary" onClick={stopEditing}>
+              Cancel
+            </Button>
+          </div>
         </form>
       )}
     </section>

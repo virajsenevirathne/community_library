@@ -2573,3 +2573,9 @@ body.kiosk-mode {
 .kiosk-code__digits:focus {
   outline: none;
 }
+
+/* A web address shown in full (Settings › Connect your own system): wraps anywhere. */
+.code--url {
+  overflow-wrap: anywhere;
+  letter-spacing: normal;
+}

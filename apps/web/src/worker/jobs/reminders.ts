@@ -1,5 +1,6 @@
 import type { EmailMessage, PushResult, PushSender, SendResult } from "@community-library/adapters";
 import {
+  addDays,
   daysOverdue,
   handBackCutoff,
   isClosed,
@@ -150,8 +151,13 @@ async function runForLibrary(deps: JobDeps, now: Date, budget: Budget, library: 
   if (library.status === "paused") return;
   await sendQueuedInvites(deps, library, budget);
   await tellWaitingFamilies(deps, library);
-  await overdueWebhooks(deps, library, local.date);
-  await retryWebhooks({ DB: deps.DB, fetch: deps.fetch }, library.id);
+  // A library's own system being down must never stop its families' reminders.
+  try {
+    await overdueWebhooks(deps, library, local.date);
+    await retryWebhooks({ DB: deps.DB, fetch: deps.fetch }, library.id, 30);
+  } catch (error) {
+    console.error("Webhooks for a library failed:", error);
+  }
 
   if (local.hour < settings.reminderHour) return;
   // Staff get the weekly summary on Monday even when the centre is closed.
@@ -249,20 +255,24 @@ async function overdueWebhooks(deps: JobDeps, library: Library, today: string) {
      from loans l
      join copies c on c.id = l.copy_id and c.library_id = l.library_id
      join titles t on t.id = c.title_id and t.library_id = c.library_id
-     where l.library_id = ? and l.returned_at is null and l.due_on < ?
+     where l.library_id = ?1 and l.returned_at is null and l.due_on < ?2 and l.due_on >= ?3
        and not exists (select 1 from notifications n where n.dedupe_key = 'webhook-overdue:' || l.id)
-     limit 100`,
+     limit 20`,
   )
-    .bind(library.id, today)
+    // Only loans that went overdue lately: turning the event on doesn't send years of history.
+    .bind(library.id, today, addDays(today, -7))
     .all<{ loanId: string; dueOn: string; title: string; code: string }>();
   for (const loan of results) {
     if (!(await claim(deps.DB, library, `webhook-overdue:${loan.loanId}`, "webhook", null)))
       continue;
-    await emitWebhook({ DB: deps.DB, fetch: deps.fetch }, library, "loan.overdue", {
-      loanId: loan.loanId,
-      book: { title: loan.title, code: loan.code },
-      dueOn: loan.dueOn,
-    });
+    // Recorded now, sent by the retry pass just after (in batches).
+    await emitWebhook(
+      { DB: deps.DB, fetch: deps.fetch },
+      library,
+      "loan.overdue",
+      { loanId: loan.loanId, book: { title: loan.title, code: loan.code }, dueOn: loan.dueOn },
+      true,
+    );
     await settle(deps.DB, [`webhook-overdue:${loan.loanId}`], true, "webhook");
   }
 }

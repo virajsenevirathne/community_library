@@ -48,13 +48,21 @@ in order and the first answer wins. Cover images are only shown from hosts in
 
 ## Webhooks
 
-An admin can give a library one webhook in **Settings › Webhooks**: an https
-address that's told about loans as they happen. Messages never hold names or
-email addresses.
+An admin can give a library one webhook in **Settings › Connect your own
+system**: an https address that's told about loans as they happen. Messages
+never hold names or email addresses. The secret code is shown once, when it's
+made (or replaced); keep it in your system's settings. Webhooks pause while a
+library is paused.
 
-Events: `loan.created`, `loan.returned` (also lost or damaged, see
-`data.outcome`), `loan.overdue` (once per loan), `account.deleted`, and `ping`
-(the Send a test button).
+Events and their `data`:
+
+| Event             | `data`                                                                                             |
+| ----------------- | -------------------------------------------------------------------------------------------------- |
+| `loan.created`    | `loanId`, `book` (`title`, `code`), `dueOn`, `via` (`phone` or `kiosk`)                            |
+| `loan.returned`   | `loanId`, `book`, `outcome` (`returned`, `lost` or `damaged`), `via` (`phone`, `kiosk` or `staff`) |
+| `loan.overdue`    | `loanId`, `book`, `dueOn` (sent once per loan)                                                     |
+| `account.deleted` | `familyRemoved`, and `byStaff: true` when staff removed the family                                 |
+| `ping`            | nothing (`{}`): the Send a test button, tried once                                                 |
 
 Each message is a `POST` with a JSON body:
 
@@ -74,25 +82,34 @@ Each message is a `POST` with a JSON body:
 ```
 
 Headers: `Reading-Joey-Event`, `Reading-Joey-Delivery` (the message id; a
-retry repeats it, so ignore ids you've seen) and `Reading-Joey-Signature`.
+retry repeats it, so ignore ids you've seen), `Reading-Joey-Signature`, and
+`User-Agent: ReadingJoey-Webhook/1`. After retries, messages can arrive out
+of order: use `createdAt`.
 
 ### Checking the signature
 
 `Reading-Joey-Signature: t=<unix seconds>,v1=<hex>`, where `<hex>` is the
-HMAC-SHA256 of `<t>.<raw body>` with the library's signing secret. Check it,
-and refuse messages more than five minutes old:
+HMAC-SHA256 of `<t>.<raw body>` with the library's secret code (the whole
+string, `whsec_` included). Use the body exactly as received, before parsing
+it. Check it, and refuse messages more than five minutes old:
 
 ```js
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 function genuine(rawBody, header, secret) {
+  if (!header) return false;
   const { t, v1 } = Object.fromEntries(header.split(",").map((p) => p.split("=")));
-  if (Math.abs(Date.now() / 1000 - Number(t)) > 300) return false;
-  const expected = createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
-  return v1.length === expected.length && timingSafeEqual(Buffer.from(v1), Buffer.from(expected));
+  if (!t || !v1) return false;
+  // Also false for a time that isn't a number.
+  if (!(Math.abs(Date.now() / 1000 - Number(t)) <= 300)) return false;
+  const expected = Buffer.from(
+    createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex"),
+  );
+  const given = Buffer.from(v1);
+  return given.length === expected.length && timingSafeEqual(given, expected);
 }
 ```
 
-Answer with any 2xx status within five seconds. Anything else, or no answer,
-is retried with the hourly job (after 1, 2, 4, 8 and 16 hours), then given
+Answer with any 2xx status within five seconds. Redirects aren't followed.
+Anything else, or no answer, is retried with the hourly job (after 1, 2, 4, 8 and 16 hours), then given
 up. The admin's Settings page lists the latest messages and how they went.
