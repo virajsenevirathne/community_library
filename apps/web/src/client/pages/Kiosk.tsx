@@ -13,6 +13,7 @@ import { JoeyMark } from "../icons.tsx";
 import { ApiError, api, errorMessage } from "../lib/api.ts";
 import { authClient } from "../lib/auth.ts";
 import { formatDate, parseCopyCode } from "../lib/copies.ts";
+import { turnOffPush } from "../lib/push.ts";
 import { libraryBase, navigate } from "../lib/router.tsx";
 import { useSession } from "../lib/session.tsx";
 import { Cover } from "./admin/Cover.tsx";
@@ -837,6 +838,7 @@ function StaffCorner() {
               setBusy(true);
               setProblem("");
               try {
+                await turnOffPush().catch(() => undefined);
                 await authClient.signOut();
                 await refresh();
               } catch {

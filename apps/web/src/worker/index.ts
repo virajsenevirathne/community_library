@@ -1,4 +1,5 @@
 import { createApp } from "./app.ts";
+import { pushSender } from "./config.ts";
 import { configuredSenders } from "./email.ts";
 import { runHourlyJob } from "./jobs/reminders.ts";
 import { QuotaMailer } from "./mailer.ts";
@@ -23,7 +24,7 @@ export default {
       configuredSenders(env, env.LIBRARY_NAME, new URL(url).hostname),
     );
     ctx.waitUntil(
-      runHourlyJob({ DB: env.DB, env, mailer, siteUrl: url }).then(
+      runHourlyJob({ DB: env.DB, env, mailer, push: pushSender(env), siteUrl: url }).then(
         (r) => console.log(`Hourly job: ${r.libraries} libraries, ${r.sent} emails sent.`),
         (error) => console.error("Hourly job failed:", error),
       ),

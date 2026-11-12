@@ -25,6 +25,7 @@ for (const scheme of ["light", "dark"] as const) {
         await check(page, "/e2e-owls/", "Your books");
         await check(page, "/e2e-owls/c/BK2A", "Owl Babies");
         await check(page, "/e2e-owls/account", "Your account");
+        await expect(page.getByRole("heading", { name: "Due-date reminders" })).toBeVisible();
       });
     });
 

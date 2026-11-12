@@ -66,6 +66,9 @@ The browser tests need Chrome for Playwright once: `npx playwright install chrom
    and set the repository variable `DEPLOY_ENABLED` to `true`.
    Every push to `main` that passes CI then migrates the database and deploys.
 4. Turn on weekly backups: see [docs/backups.md](docs/backups.md).
+5. Optional, phone notifications: run `npm run vapid-keys -w @community-library/web` once
+   and set the two keys it prints as secrets (`npx wrangler secret put VAPID_PUBLIC_KEY`,
+   then `VAPID_PRIVATE_KEY`). Keep a copy: changing them turns off everyone's notifications.
 
 A one-click deploy button and setup wizard are planned for Phase 3.
 

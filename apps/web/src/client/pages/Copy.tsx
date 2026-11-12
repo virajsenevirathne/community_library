@@ -1,4 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { PushOffer } from "../components/PushReminders.tsx";
 import { Alert, Button, Field, Layout, Loading } from "../components.tsx";
 import { ApiError, api, errorMessage } from "../lib/api.ts";
 import { type CopyView, formatDate, lateText, parseCopyCode } from "../lib/copies.ts";
@@ -206,6 +207,7 @@ export function CopyPage({ code }: { code: string }) {
                 {family && ` That's ${family.booksOut} of ${family.maxLoans} books out.`} A
                 confirmation email is on its way.
               </Alert>
+              <PushOffer />
               <p className="lead">Borrowing another? Scan the next sticker with your camera.</p>
               <div className="row">
                 <Link href="/" className="btn btn--secondary">

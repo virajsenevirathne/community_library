@@ -14,6 +14,11 @@ SETUP_CODE=
 # "Books API" enabled; restrict it to the Books API.
 GOOGLE_BOOKS_API_KEY=
 
+# Phone notifications (web push). Make a pair with `npm run vapid-keys`.
+# Without them, the site offers email reminders only.
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+
 # Email providers. With neither set, emails (including sign-in codes) are
 # printed in the terminal instead of sent.
 RESEND_API_KEY=

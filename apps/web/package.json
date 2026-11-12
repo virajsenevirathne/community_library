@@ -15,7 +15,9 @@
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "db:generate": "drizzle-kit generate",
-    "e2e": "playwright test -c e2e/playwright.config.ts"
+    "e2e": "playwright test -c e2e/playwright.config.ts",
+    "vapid-keys": "node scripts/vapid-keys.mjs",
+    "icons": "node scripts/make-icons.mjs"
   },
   "dependencies": {
     "@better-auth/passkey": "^1.7.20",

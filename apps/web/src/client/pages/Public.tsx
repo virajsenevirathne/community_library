@@ -153,6 +153,10 @@ export function PrivacyPage() {
           cookie of its own. There are no tracking or advertising cookies.
         </li>
         <li>How long borrowing and returning take, without who did it, to keep the site quick.</li>
+        <li>
+          If you turn on phone notifications: the address your browser gives us for sending them.
+          Turning them off deletes it.
+        </li>
         <li>Nothing about children: no names, ages or photos.</li>
       </ul>
 
@@ -165,8 +169,10 @@ export function PrivacyPage() {
         </li>
         <li>
           Services that run the site: Cloudflare (hosting and database), Resend or Mailjet (sending
-          emails) and GitHub (keeping the encrypted weekly backups). Book details are looked up by
-          barcode only; no personal details are sent for that.
+          emails), GitHub (keeping the encrypted weekly backups) and, if you turn on phone
+          notifications, your phone's own notification service (Apple, Google, Mozilla or
+          Microsoft), which carries them without being able to read them. Book details are looked up
+          by barcode only; no personal details are sent for that.
         </li>
       </ul>
 

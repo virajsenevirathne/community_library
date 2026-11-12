@@ -19,6 +19,10 @@ export default defineConfig(({ command }) => {
               config: {
                 vars: {
                   BETTER_AUTH_SECRET: "e2e-secret-e2e-secret-e2e-secret-0123",
+                  // Test-only web push keys: phone notifications show up in the pages.
+                  VAPID_PUBLIC_KEY:
+                    "BKWr0g9d1Sn0wqfkN18xhe_c1xLkkizw7aoWg2JdLf15ibpxTNXI2i-Gr71pMwcjDTnXiLkBYQsDIkmljB8JIAM",
+                  VAPID_PRIVATE_KEY: "0Az4CpFPxczs_DSGZXeAgUW4g149a9KSXe5sYk0r-5Q",
                   APP_URL: "",
                 },
               },

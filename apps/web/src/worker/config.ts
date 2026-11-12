@@ -1,3 +1,5 @@
+import { type PushSender, WebPushSender } from "@community-library/adapters";
+
 /**
  * Secrets are set with `wrangler secret put` (or .dev.vars locally), so they are
  * not part of the generated Env type. Read them here, in one place.
@@ -9,6 +11,9 @@ export interface Secrets {
   MAILJET_API_KEY?: string;
   MAILJET_API_SECRET?: string;
   GOOGLE_BOOKS_API_KEY?: string;
+  /** Web push keys (npm run vapid-keys). Without them, phone notifications are off. */
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
 }
 
 export function secrets(env: Env): Secrets {
@@ -25,11 +30,27 @@ export function secrets(env: Env): Secrets {
     "MAILJET_API_KEY",
     "MAILJET_API_SECRET",
     "GOOGLE_BOOKS_API_KEY",
+    "VAPID_PUBLIC_KEY",
+    "VAPID_PRIVATE_KEY",
   ] as const) {
     const value = read(key);
     if (value) result[key] = value;
   }
   return result;
+}
+
+/**
+ * The phone-notification sender, when the site has VAPID keys. Push services
+ * are told who sends (the site's from-address) in case of problems.
+ */
+export function pushSender(env: Env): PushSender | null {
+  const { VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY } = secrets(env);
+  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) return null;
+  return new WebPushSender({
+    publicKey: VAPID_PUBLIC_KEY,
+    privateKey: VAPID_PRIVATE_KEY,
+    subject: `mailto:${env.EMAIL_FROM}`,
+  });
 }
 
 /** True for local development hosts, where a missing SETUP_CODE is allowed. */
