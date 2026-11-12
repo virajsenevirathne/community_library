@@ -5,16 +5,18 @@ import {
 } from "@community-library/adapters";
 import { createApp } from "../app.ts";
 import { JOIN_TOKEN_HEADER } from "../auth.ts";
+import { trackBackground } from "./env.ts";
 
 export const ORIGIN = "http://localhost:5173";
 
-/** The app plus an in-memory outbox, sharing one test database. */
 /** The fake lookup answers "unavailable" for this ISBN, like a rate-limited service. */
 export const UNAVAILABLE_ISBN = "9781742990040";
 
+/** The app plus an in-memory outbox, sharing one test database. */
 export function createTestApp(env: Env) {
   const outbox = new MemorySender();
   const pending: Promise<unknown>[] = [];
+  trackBackground(env, pending);
   const books = new Map<string, BookMetadata>([
     [
       "9780140328721",

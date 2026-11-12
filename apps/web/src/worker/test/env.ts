@@ -5,6 +5,22 @@ import { getPlatformProxy } from "wrangler";
 const migrationsDir = resolve(import.meta.dirname, "../../../../../migrations");
 const configPath = resolve(import.meta.dirname, "../../../wrangler.jsonc");
 
+/** Background work (emails, webhooks) started by test apps, per test database. */
+const background = new WeakMap<Env, Promise<unknown>[][]>();
+
+/** Lets a test app's background work finish before its database is closed. */
+export function trackBackground(env: Env, pending: Promise<unknown>[]) {
+  const lists = background.get(env) ?? [];
+  lists.push(pending);
+  background.set(env, lists);
+}
+
+async function finishBackground(env: Env) {
+  for (const pending of background.get(env) ?? []) {
+    while (pending.length > 0) await Promise.allSettled(pending.splice(0));
+  }
+}
+
 /**
  * A real local D1 database (the same engine as production) with every
  * migration applied. Nothing is written to disk, so each call starts empty.
@@ -26,5 +42,11 @@ export async function createTestEnv(vars: Partial<Env> = {}) {
     BETTER_AUTH_SECRET: "test-secret-test-secret-test-secret-0123",
     ...vars,
   } as Env;
-  return { env, dispose: () => proxy.dispose() };
+  // Closing the database while emails or webhooks are still being recorded
+  // makes them fail with "poisoned stub" errors, so let them finish first.
+  const dispose = async () => {
+    await finishBackground(env);
+    await proxy.dispose();
+  };
+  return { env, dispose };
 }
