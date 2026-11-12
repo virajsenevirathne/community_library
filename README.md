@@ -38,12 +38,18 @@ Requires Node.js 24 or later.
 
 ```bash
 npm install
+cp apps/web/.dev.vars.example apps/web/.dev.vars
+# Put any long random text after BETTER_AUTH_SECRET= in apps/web/.dev.vars, for example from:
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+npm run db:migrate:local -w @community-library/web   # create the local database
+npm run demo-data -w @community-library/web          # optional: a demo library to explore
 npm run dev
 ```
 
 Open the address Vite prints (usually http://localhost:5173). The API is under `/api`,
 for example `/api/health`. Local development uses a local D1 database, so no Cloudflare
-account is needed.
+account is needed. Emails, sign-in codes included, are printed in the terminal.
+After a `git pull`, run `npm run db:migrate:local -w @community-library/web` again.
 
 Before opening a pull request:
 
@@ -54,23 +60,29 @@ npm run e2e -w @community-library/web   # the app in Chrome, with accessibility 
 
 The browser tests need Chrome for Playwright once: `npx playwright install chromium`.
 
-## Deploying
+## Deploying your own site
 
-1. Create the database near your families (the location can't be changed later), and
-   copy its id into `apps/web/wrangler.jsonc`. For Australia and New Zealand:
-   `npx wrangler d1 create community-library --location oc`
-   (other hints: `wnam`, `enam`, `weur`, `eeur`, `apac`).
-2. Attach your domain to the Worker. Choose the final address before launch:
-   passkeys are tied to it.
-3. In GitHub, add the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`,
-   and set the repository variable `DEPLOY_ENABLED` to `true`.
-   Every push to `main` that passes CI then migrates the database and deploys.
-4. Turn on weekly backups: see [docs/backups.md](docs/backups.md).
-5. Optional, phone notifications: run `npm run vapid-keys -w @community-library/web` once
-   and set the two keys it prints as secrets (`npx wrangler secret put VAPID_PUBLIC_KEY`,
-   then `VAPID_PRIVATE_KEY`). Keep a copy: changing them turns off everyone's notifications.
+Follow [docs/setup.md](docs/setup.md): a step-by-step guide for non-developers,
+from a Cloudflare account to your first library, in about 30 minutes. In short:
 
-A one-click deploy button and setup wizard are planned for Phase 3.
+1. Create the database near your families (`npx wrangler d1 create community-library --location oc`)
+   and put its id, your address and your email sender in `apps/web/wrangler.jsonc`.
+2. Set the secrets: `RESEND_API_KEY`, `BETTER_AUTH_SECRET`, `SETUP_CODE` (and optionally
+   Mailjet as a backup, and `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` for phone notifications).
+3. `npm run deploy -w @community-library/web` builds the site, updates the database and publishes.
+4. Open the site, sign in, and enter the setup code: your owner page lists anything still missing.
+5. Turn on weekly backups: [docs/backups.md](docs/backups.md).
+
+To deploy from GitHub instead, add the secrets `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` and set the repository variable `DEPLOY_ENABLED` to `true`:
+every push to `main` that passes CI then migrates the database and deploys.
+
+## More
+
+- [Setting up your own site](docs/setup.md)
+- [Backups and restoring](docs/backups.md)
+- [Adapters and webhooks](docs/adapters.md): email, phone notifications, book lookup, signed webhooks
+- [Contributing](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md)
 
 ## Licence
 

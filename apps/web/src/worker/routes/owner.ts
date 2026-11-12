@@ -8,6 +8,7 @@ import {
 import { Hono } from "hono";
 import { z } from "zod";
 import { requireOwner } from "../access.ts";
+import { isLocalHost, secrets } from "../config.ts";
 import { type AppContext, type AppEnv, fail, readBody } from "../context.ts";
 import { newId } from "../db/client.ts";
 import { emailStatus } from "../email.ts";
@@ -75,6 +76,63 @@ async function inviteAdmin(c: AppContext, libraryId: string, email: string, owne
   );
 }
 
+/**
+ * What the site still needs, for its owner: each item is a setting that only
+ * whoever runs the deployment can change (secrets and wrangler.jsonc). Says
+ * only whether each is set, never a value.
+ */
+/** The host of an https address, or null when it isn't one (a typo in APP_URL). */
+function hostOf(address: string): string | null {
+  try {
+    const url = new URL(address);
+    return url.protocol === "https:" ? url.hostname : null;
+  } catch {
+    return null;
+  }
+}
+
+function siteChecklist(env: Env, requestUrl: string) {
+  const s = secrets(env);
+  const appUrl = env.APP_URL?.trim() ?? "";
+  const host = new URL(requestUrl).hostname;
+  return [
+    {
+      id: "email",
+      done: Boolean(s.RESEND_API_KEY || (s.MAILJET_API_KEY && s.MAILJET_API_SECRET)),
+      label: "Email can be sent",
+      fix: "Set RESEND_API_KEY (and optionally MAILJET_API_KEY and MAILJET_API_SECRET as a backup).",
+    },
+    {
+      id: "both-email",
+      done: Boolean(s.RESEND_API_KEY && s.MAILJET_API_KEY && s.MAILJET_API_SECRET),
+      label: "A second email service, in case the first is down",
+      fix: "Set MAILJET_API_KEY and MAILJET_API_SECRET.",
+      optional: true,
+    },
+    {
+      id: "app-url",
+      // Local development uses whatever address it's opened on.
+      done: isLocalHost(host) || hostOf(appUrl) === host,
+      label: "The site's address is set (passkeys depend on it)",
+      fix: `Set APP_URL in wrangler.jsonc to https://${host}.`,
+    },
+    {
+      id: "push",
+      done: Boolean(s.VAPID_PUBLIC_KEY && s.VAPID_PRIVATE_KEY),
+      label: "Phone notifications",
+      fix: "Run npm run vapid-keys, then set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY.",
+      optional: true,
+    },
+    {
+      id: "contact",
+      done: Boolean(env.CONTACT_EMAIL?.trim()),
+      label: "A contact address on the front page",
+      fix: "Set CONTACT_EMAIL in wrangler.jsonc.",
+      optional: true,
+    },
+  ];
+}
+
 export const ownerRoutes = new Hono<AppEnv>()
   /** Every library on the site, with enough to see how each is doing. */
   .get("/libraries", async (c) => {
@@ -110,6 +168,7 @@ export const ownerRoutes = new Hono<AppEnv>()
       libraries: results.map((l) => ({ ...l, setUp: l.setUp === 1 })),
       // Shown to the owner only: whether the site can send email at all.
       email: emailStatus(c.env),
+      checklist: siteChecklist(c.env, c.req.url),
     });
   })
 

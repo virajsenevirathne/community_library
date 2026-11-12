@@ -229,3 +229,14 @@ describe("toCsv", () => {
     ]);
   });
 });
+
+describe("library colour", () => {
+  it("accepts only the listed colours, green by default", () => {
+    expect(defaultSettings().theme).toBe("green");
+    const ok = mergeSettings(defaultSettings(), { theme: "blue" });
+    expect(ok.ok && ok.settings.theme).toBe("blue");
+    const bad = mergeSettings(defaultSettings(), { theme: "#ff00ff" });
+    expect(bad.ok).toBe(false);
+    expect(parseSettings('{"theme":"neon"}').theme).toBe("green");
+  });
+});

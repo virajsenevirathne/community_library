@@ -21,6 +21,48 @@ interface OwnedLibrary {
 
 type Notice = { kind: "success" | "error"; text: string } | null;
 
+interface ChecklistItem {
+  id: string;
+  done: boolean;
+  label: string;
+  fix: string;
+  optional?: boolean;
+}
+
+/**
+ * What the site still needs. Each fix is for whoever runs the deployment:
+ * secrets (npx wrangler secret put NAME) or wrangler.jsonc.
+ */
+function SiteChecklist({ items }: { items: ChecklistItem[] }) {
+  if (items.length === 0) return null;
+  const missing = items.filter((i) => !i.done && !i.optional).length;
+  return (
+    <section className="card stack" aria-labelledby="checklist-heading">
+      <h2 id="checklist-heading" className="section-title">
+        Site checklist
+      </h2>
+      <p className="muted">
+        {missing === 0
+          ? "Everything the site needs is set up."
+          : `${plural(missing, "thing still needs", "things still need")} setting up. Secrets are set with npx wrangler secret put NAME (in apps/web); the rest is in wrangler.jsonc. See docs/setup.md.`}
+      </p>
+      <ul className="plain checklist">
+        {items.map((item) => (
+          <li key={item.id}>
+            <span
+              className={`badge ${item.done ? "badge--available" : item.optional ? "" : "badge--found"}`}
+            >
+              {item.done ? "Done" : item.optional ? "Optional" : "To do"}
+            </span>{" "}
+            {item.label}
+            {!item.done && <span className="muted"> · {item.fix}</span>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 const DAY = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", year: "numeric" });
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -28,14 +70,20 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 export function OwnerPage() {
   const [libraries, setLibraries] = useState<OwnedLibrary[] | null>(null);
   const [emailState, setEmailState] = useState<string>("ok");
+  const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState<Notice>(null);
 
   const load = useCallback(async () => {
     try {
-      const res = await api<{ libraries: OwnedLibrary[]; email?: string }>("/owner/libraries");
+      const res = await api<{
+        libraries: OwnedLibrary[];
+        email?: string;
+        checklist?: ChecklistItem[];
+      }>("/owner/libraries");
       setLibraries(res.libraries);
       setEmailState(res.email ?? "ok");
+      setChecklist(res.checklist ?? []);
       setError("");
     } catch (e) {
       setError(errorMessage(e));
@@ -72,6 +120,7 @@ export function OwnerPage() {
       <div ref={noticeRef} tabIndex={-1}>
         {notice && <Alert kind={notice.kind}>{notice.text}</Alert>}
       </div>
+      <SiteChecklist items={checklist} />
       <div className="split split--aside-first">
         <div>
           {libraries === null ? (

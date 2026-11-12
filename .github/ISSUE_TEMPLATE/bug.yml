@@ -1,0 +1,26 @@
+name: Something isn't working
+description: Tell us what went wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. Please don't include anyone's name, email or other personal details.
+        For a security problem, email the maintainer instead of opening an issue.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we see it happen?
+      placeholder: "1. Open a book's page\n2. Tap Borrow\n3. …"
+  - type: input
+    id: device
+    attributes:
+      label: Phone or computer, and browser
+      placeholder: iPhone 14, Safari

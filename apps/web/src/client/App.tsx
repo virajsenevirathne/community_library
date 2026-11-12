@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { Alert, Button, Layout, LibraryList, LoadingPage } from "./components.tsx";
 import { Link, navigate, safeNext, useLocation } from "./lib/router.tsx";
 import { isStaff, type LibraryLink, type Me, SessionProvider, useSession } from "./lib/session.tsx";
+import { storedTheme, useTheme } from "./lib/theme.ts";
 import { AccountPage } from "./pages/Account.tsx";
 import { AddBooksPage } from "./pages/admin/AddBooks.tsx";
 import { AdminHomePage } from "./pages/admin/AdminHome.tsx";
@@ -48,6 +49,16 @@ function signInPath() {
 function Routes() {
   const { state, refresh } = useSession();
   const { path, base } = useLocation();
+  useTheme(
+    // While the library's details load (or the page moves to another
+    // library), keep the colour last seen for it, so nothing flashes green.
+    state.status === "ready" && state.me.library?.slug === base
+      ? state.me.library?.theme
+      : storedTheme(base),
+    base,
+    // The kiosk sets its own library's colour.
+    !(base && path === "/kiosk"),
+  );
 
   // A kiosk tablet has its own pass, not a person's sign-in, so it doesn't
   // wait for (or depend on) the session.

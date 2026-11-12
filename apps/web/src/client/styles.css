@@ -22,6 +22,8 @@
   --warning-soft: #fdf1d6;
   --warning-text: #5c4100;
   --success-soft: #dcefe8;
+  /* "It worked" stays green whatever the library's colour. */
+  --success: #1f6f5c;
   --focus: #1a5fb4;
   --shadow: 0 1px 2px rgb(40 30 10 / 0.06), 0 4px 14px rgb(40 30 10 / 0.06);
   /* Playful colours for pictures, icons and edges: never for body text. */
@@ -99,6 +101,7 @@
     --warning-soft: #352a10;
     --warning-text: #f5d58a;
     --success-soft: #1f3a32;
+    --success: #6fcfb2;
     --focus: #8ab4f8;
     --shadow: none;
     --sun: #f5c35a;
@@ -625,6 +628,12 @@ fieldset.field {
   padding: var(--s-2) 0;
   cursor: pointer;
 }
+/* An option in a group of fields (fieldset.field) keeps its own layout. */
+.field .check {
+  display: flex;
+  margin: 0;
+  font-weight: 400;
+}
 .check input {
   flex: none;
   width: 1.5rem;
@@ -707,11 +716,11 @@ fieldset.field {
 }
 .alert--info .alert__icon,
 .alert--success .alert__icon {
-  color: var(--accent);
+  color: var(--success);
 }
 .alert--success {
   background: var(--success-soft);
-  border-color: var(--accent);
+  border-color: var(--success);
   color: var(--text);
 }
 .alert details {
@@ -1192,7 +1201,7 @@ fieldset.field {
   font-weight: 600;
 }
 .ok {
-  color: var(--accent);
+  color: var(--success);
   font-weight: 600;
 }
 
@@ -2578,4 +2587,94 @@ body.kiosk-mode {
 .code--url {
   overflow-wrap: anywhere;
   letter-spacing: normal;
+}
+
+/* ------------------------------------------------------------- library colours */
+/*
+ * A library's colour (Settings › Colour) replaces the green accent. Each pair
+ * is checked: white text on the light accent and dark text on the dark accent,
+ * the accent against the page and against its soft tint: all at least 5:1.
+ */
+:root[data-accent="blue"] {
+  --accent: #1d5fa8;
+  --accent-soft: #dde9f7;
+}
+:root[data-accent="purple"] {
+  --accent: #6b3fa0;
+  --accent-soft: #ebe1f6;
+}
+:root[data-accent="teal"] {
+  --accent: #0f6b78;
+  --accent-soft: #d8eef1;
+}
+:root[data-accent="coral"] {
+  --accent: #a93a26;
+  --accent-soft: #f9e1dc;
+}
+:root[data-accent="gold"] {
+  --accent: #7a5600;
+  --accent-soft: #f6ead0;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="blue"]:not([data-theme="light"]) {
+    --accent: #8cbcf0;
+    --accent-soft: #1c2c3d;
+  }
+  :root[data-accent="purple"]:not([data-theme="light"]) {
+    --accent: #c3a4ec;
+    --accent-soft: #2c2338;
+  }
+  :root[data-accent="teal"]:not([data-theme="light"]) {
+    --accent: #6fd0dc;
+    --accent-soft: #173338;
+  }
+  :root[data-accent="coral"]:not([data-theme="light"]) {
+    --accent: #f4a08f;
+    --accent-soft: #3a2420;
+  }
+  :root[data-accent="gold"]:not([data-theme="light"]) {
+    --accent: #e8bf5a;
+    --accent-soft: #352c17;
+  }
+}
+
+/* Settings › Colour: a radio button per colour, with a sample. */
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.field .swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: var(--tap);
+  padding: 0 var(--s-3);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  margin: 0;
+  font-weight: 600;
+  cursor: pointer;
+}
+/* Not the text-box look .field gives inputs. */
+.field .swatch input {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+.field .swatch:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.swatch__colour {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+}
+.field .swatch:has(input:focus-visible) {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
 }

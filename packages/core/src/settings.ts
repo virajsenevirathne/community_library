@@ -30,7 +30,13 @@ export interface LibrarySettings {
   returnsNeedCheckIn: boolean;
   /** Months after which closed loans forget who borrowed them. */
   historyMonths: number;
+  /** The library's colour on its pages and kiosk. Each one is checked for contrast. */
+  theme: ThemeId;
 }
+
+/** Colours a library can choose. Each passes WCAG AA in light and dark (see the CSS). */
+export const THEMES = ["green", "blue", "purple", "teal", "coral", "gold"] as const;
+export type ThemeId = (typeof THEMES)[number];
 
 export const DEFAULT_SETTINGS: Readonly<LibrarySettings> = Object.freeze({
   loanDays: 14,
@@ -46,6 +52,7 @@ export const DEFAULT_SETTINGS: Readonly<LibrarySettings> = Object.freeze({
   requireApproval: false,
   returnsNeedCheckIn: false,
   historyMonths: 12,
+  theme: "green",
 });
 
 /** A fresh, independent copy of the defaults (the arrays are not shared). */
@@ -68,6 +75,7 @@ export const SETTING_LABELS: Record<keyof LibrarySettings, string> = {
   requireApproval: "Staff approve new families",
   returnsNeedCheckIn: "Staff check returned books in",
   historyMonths: "Forget who borrowed a book after (months)",
+  theme: "Colour",
 };
 
 export type SettingsError = { field: keyof LibrarySettings; message: string };
@@ -172,6 +180,12 @@ export function mergeSettings(
     const value = patch[field];
     if (typeof value === "boolean") next[field] = value;
     else fail(field, "turn this on or off.");
+  }
+  if ("theme" in patch) {
+    const value = patch.theme;
+    if (typeof value === "string" && (THEMES as readonly string[]).includes(value)) {
+      next.theme = value as ThemeId;
+    } else fail("theme", "choose one of the colours.");
   }
   return errors.length > 0 ? { ok: false, errors } : { ok: true, settings: next };
 }

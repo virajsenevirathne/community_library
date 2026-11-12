@@ -123,6 +123,7 @@ export const accountRoutes = new Hono<AppEnv>()
               status: library.status,
               setUp: library.setUp,
               support: actor.support === true,
+              theme: library.settings.theme,
             }
           : null,
       libraries: libraries.results,

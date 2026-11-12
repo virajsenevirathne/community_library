@@ -265,6 +265,7 @@ export const kioskRoutes = new Hono<AppEnv>()
         slug: kiosk.library.slug,
         paused: kiosk.library.status === "paused",
         returnsNeedCheckIn: kiosk.library.settings.returnsNeedCheckIn,
+        theme: kiosk.library.settings.theme,
       },
     });
   })

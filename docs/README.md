@@ -1,6 +1,6 @@
 # Docs
 
-- Design doc: https://claude.ai/artifact/HsgJSHg2CZrm9BGeix5JHs
-- Project tracking: Linear, team Virajsen, projects "Phase 1" to "Phase 3"
-
-Setup guides and architecture notes will live here as the project grows.
+- [Setting up your own site](setup.md): for non-developers, from a Cloudflare account to a first library
+- [Backups and restoring](backups.md)
+- [Adapters and webhooks](adapters.md): email, phone notifications, book lookup, labels, signed webhooks
+- [Contributing](../CONTRIBUTING.md)

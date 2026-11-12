@@ -21,7 +21,17 @@ interface Settings {
   requireApproval: boolean;
   returnsNeedCheckIn: boolean;
   historyMonths: number;
+  theme: string;
 }
+
+const COLOURS = [
+  { id: "green", name: "Green", swatch: "#1f6f5c" },
+  { id: "blue", name: "Blue", swatch: "#1d5fa8" },
+  { id: "purple", name: "Purple", swatch: "#6b3fa0" },
+  { id: "teal", name: "Teal", swatch: "#0f6b78" },
+  { id: "coral", name: "Coral", swatch: "#a93a26" },
+  { id: "gold", name: "Gold", swatch: "#7a5600" },
+] as const;
 
 type Form = Settings & { libraryName: string; overdueText: string };
 
@@ -204,6 +214,31 @@ export function SettingsPage() {
           times follow it. It was chosen when the library was set up; to change it, ask the person
           who set up this site.
         </p>
+        <fieldset className="field" aria-describedby="colour-hint">
+          <legend>Colour</legend>
+          <p className="field__hint" id="colour-hint">
+            For buttons and links on your library's pages and kiosk. Every colour is easy to read.
+          </p>
+          <div className="swatches">
+            {COLOURS.map((c) => (
+              <label key={c.id} className="swatch">
+                <input
+                  type="radio"
+                  name="theme"
+                  value={c.id}
+                  checked={(form.theme ?? "green") === c.id}
+                  onChange={() => set("theme", c.id)}
+                />
+                <span
+                  className="swatch__colour"
+                  style={{ background: c.swatch }}
+                  aria-hidden="true"
+                />
+                {c.name}
+              </label>
+            ))}
+          </div>
+        </fieldset>
 
         <h2>Borrowing</h2>
         <Field

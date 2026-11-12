@@ -31,5 +31,7 @@ export {
   parseSettings,
   SETTING_LABELS,
   type SettingsError,
+  THEMES,
+  type ThemeId,
 } from "./settings.ts";
 export { isLibrarySlug, RESERVED_SLUGS, SITE_PAGES, slugify } from "./slugs.ts";
