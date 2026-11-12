@@ -14,6 +14,14 @@ interface Dashboard {
   waitingForCheckIn?: number;
   returnsNeedCheckIn?: boolean;
   mostBorrowed: { id: string; title: string; times: number }[];
+  neverBorrowed: { total: number; titles: { id: string; title: string }[] };
+  /** Null until there are enough borrows to say anything. */
+  borrowSpeed: {
+    borrows: number;
+    withinGoal: number;
+    p90Seconds: number;
+    goalSeconds: number;
+  } | null;
   counts: {
     titles: number;
     copies: number;
@@ -264,22 +272,60 @@ export function AdminHomePage() {
             </section>
           </div>
 
-          <aside className="card" aria-labelledby="popular-heading">
-            <h2 id="popular-heading" className="section-title">
-              Most borrowed
-            </h2>
-            <p className="muted">Last 90 days</p>
-            {data.mostBorrowed.length === 0 ? (
-              <p className="muted">Nothing borrowed yet. The favourites will show up here.</p>
-            ) : (
-              <ol className="count-list">
-                {data.mostBorrowed.map((t) => (
-                  <li key={t.id}>
-                    <Link href={`/admin/catalog/${t.id}`}>{t.title}</Link>
-                    <span className="muted">{plural(t.times, "time", "times")}</span>
-                  </li>
-                ))}
-              </ol>
+          <aside className="stack">
+            <section className="card" aria-labelledby="popular-heading">
+              <h2 id="popular-heading" className="section-title">
+                Most borrowed
+              </h2>
+              <p className="muted">Last 90 days</p>
+              {data.mostBorrowed.length === 0 ? (
+                <p className="muted">Nothing borrowed yet. The favourites will show up here.</p>
+              ) : (
+                <ol className="count-list">
+                  {data.mostBorrowed.map((t) => (
+                    <li key={t.id}>
+                      <Link href={`/admin/catalog/${t.id}`}>{t.title}</Link>
+                      <span className="muted">{plural(t.times, "time", "times")}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+
+            {data.neverBorrowed.total > 0 && (
+              <section className="card" aria-labelledby="never-heading">
+                <h2 id="never-heading" className="section-title">
+                  Waiting for a reader
+                </h2>
+                <p className="muted">
+                  {plural(data.neverBorrowed.total, "book has", "books have")} never been borrowed.
+                  Try them on a display shelf.
+                </p>
+                <ul className="count-list">
+                  {data.neverBorrowed.titles.map((t) => (
+                    <li key={t.id}>
+                      <Link href={`/admin/catalog/${t.id}`}>{t.title}</Link>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {data.borrowSpeed && (
+              <section className="card" aria-labelledby="speed-heading">
+                <h2 id="speed-heading" className="section-title">
+                  Borrowing speed
+                </h2>
+                <p>
+                  <strong>{Math.round(data.borrowSpeed.withinGoal * 100)}%</strong> of borrows took
+                  under {data.borrowSpeed.goalSeconds} seconds, from opening the book to done.
+                </p>
+                <p className="muted">
+                  9 in 10 took {data.borrowSpeed.p90Seconds} seconds or less. Last 30 days,{" "}
+                  {plural(data.borrowSpeed.borrows, "borrow", "borrows")}. The goal is 9 in 10 under{" "}
+                  {data.borrowSpeed.goalSeconds} seconds.
+                </p>
+              </section>
             )}
           </aside>
         </div>

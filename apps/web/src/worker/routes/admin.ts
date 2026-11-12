@@ -72,6 +72,25 @@ async function openLoans(c: AppContext, actor: Actor): Promise<LoanRow[]> {
   return results;
 }
 
+/** The goal for borrowing: from opening the book to "Enjoy the book!". */
+export const BORROW_GOAL_MS = 10_000;
+
+/**
+ * How quick borrowing is: the share of borrows done within the goal, and the
+ * time 9 in 10 borrows beat. Too few borrows say nothing, so none below 5.
+ */
+export function borrowSpeed(times: number[]) {
+  if (times.length < 5) return null;
+  const sorted = [...times].sort((a, b) => a - b);
+  const p90 = sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.9) - 1)] ?? 0;
+  return {
+    borrows: sorted.length,
+    withinGoal: sorted.filter((t) => t <= BORROW_GOAL_MS).length / sorted.length,
+    p90Seconds: Math.round(p90 / 100) / 10,
+    goalSeconds: BORROW_GOAL_MS / 1000,
+  };
+}
+
 function loanView(actor: Actor, loan: LoanRow, now: string) {
   const overdueDays = daysOverdue(loan.dueOn, now);
   return {
@@ -292,7 +311,8 @@ export const adminRoutes = new Hono<AppEnv>()
     const weekEnd = weekAhead.toISOString().slice(0, 10);
     const ninetyDaysAgo = Date.now() - 90 * 86_400_000;
 
-    const [popular, counts, job] = await Promise.all([
+    const thirtyDaysAgo = Date.now() - 30 * 86_400_000;
+    const [popular, counts, job, neverBorrowed, timings] = await Promise.all([
       DB.prepare(
         `select t.id as id, t.title as title, count(*) as times
          from loans l
@@ -317,6 +337,27 @@ export const adminRoutes = new Hono<AppEnv>()
       )
         .bind(JOB_NAME)
         .first<{ startedAt: number; finishedAt: number | null; error: string | null }>(),
+      // Books on the shelf that nobody has borrowed yet, oldest first.
+      DB.prepare(
+        `select t.id as id, t.title as title, count(*) over () as total
+         from titles t
+         where t.library_id = ?1
+           and exists (select 1 from copies c where c.title_id = t.id and c.library_id = t.library_id
+                       and c.status = 'available')
+           and not exists (select 1 from copies c join loans l on l.copy_id = c.id and l.library_id = c.library_id
+                           where c.title_id = t.id and c.library_id = t.library_id)
+         order by t.created_at, t.title limit 5`,
+      )
+        .bind(actor.library.id)
+        .all<{ id: string; title: string; total: number }>(),
+      // How long borrows took, from opening the book to "Enjoy the book!".
+      DB.prepare(
+        `select json_extract(payload, '$.elapsedMs') as ms from events
+         where library_id = ? and type = 'loan_created' and created_at >= ?
+           and json_extract(payload, '$.elapsedMs') > 0`,
+      )
+        .bind(actor.library.id, thirtyDaysAgo)
+        .all<{ ms: number }>(),
     ]);
 
     const mailer = c.get("email") as Partial<QuotaMailer>;
@@ -335,6 +376,11 @@ export const adminRoutes = new Hono<AppEnv>()
       waitingForCheckIn: loans.filter((l) => l.handedBack).length,
       returnsNeedCheckIn: actor.library.settings.returnsNeedCheckIn,
       mostBorrowed: popular.results,
+      neverBorrowed: {
+        total: neverBorrowed.results[0]?.total ?? 0,
+        titles: neverBorrowed.results.map((t) => ({ id: t.id, title: t.title })),
+      },
+      borrowSpeed: borrowSpeed(timings.results.map((t) => t.ms)),
       counts,
       reminders: {
         lastRun: lastFinished,

@@ -369,6 +369,11 @@ export const ROUTES: {
     body: {},
   },
   { route: "GET /api/admin/kiosks", rule: "library:admin" },
+  {
+    route: "GET /api/admin/export/:kind",
+    rule: "library:admin",
+    request: "/api/admin/export/catalog",
+  },
   { route: "POST /api/admin/kiosks", rule: "library:admin", body: { name: "Front desk" } },
   {
     route: "POST /api/admin/kiosks/:id/off",

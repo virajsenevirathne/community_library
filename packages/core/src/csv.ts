@@ -39,6 +39,21 @@ export function parseCsv(text: string): string[][] {
   return rows.filter((r) => r.some((cell) => cell.trim() !== ""));
 }
 
+/**
+ * Writes rows as CSV that spreadsheets open safely: every cell is quoted,
+ * CRLF line ends and a byte-order mark (so Excel reads accents right), and a
+ * cell that starts like a formula (=, +, -, @, tab or return) is prefixed
+ * with ' so a spreadsheet shows it as text instead of running it.
+ */
+export function toCsv(rows: (string | number | null | undefined)[][]): string {
+  const cell = (value: string | number | null | undefined) => {
+    let text = value === null || value === undefined ? "" : String(value);
+    if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+    return `"${text.replace(/"/g, '""')}"`;
+  };
+  return `\uFEFF${rows.map((row) => row.map(cell).join(",")).join("\r\n")}\r\n`;
+}
+
 // A plain address only: no display names, quotes or angle brackets.
 const EMAIL =
   /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
