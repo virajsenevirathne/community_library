@@ -55,6 +55,8 @@ describe("migrations", () => {
       "families",
       "invitations",
       "job_runs",
+      "kiosk_devices",
+      "kiosk_people",
       "libraries",
       "loans",
       "memberships",

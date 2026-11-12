@@ -62,7 +62,7 @@ async function copyLibraryGate(c: AppContext, next: () => Promise<void>) {
 }
 
 /** Finds a copy by the code on its sticker, in the actor's library, with its open loan. */
-async function findCopy(db: Db, actor: Actor, rawCode: string) {
+export async function findCopy(db: Db, actor: Actor, rawCode: string) {
   const code = normalizeShortCode(rawCode);
   const notFound = copyNotFound;
   if (!code) notFound();
@@ -207,11 +207,15 @@ async function familyEmails(db: Db, actor: Actor, familyId: string) {
   return rows.map((r) => r.email);
 }
 
-/** Tells every parent in the family what they borrowed, with all their books out. */
-async function sendCheckoutEmails(
+/**
+ * Tells every parent in the family what they borrowed, with all their books
+ * out. For a kiosk borrow, says who borrowed it there.
+ */
+export async function sendCheckoutEmails(
   c: AppContext,
   actor: Actor & { family: { id: string } },
   borrowed: { title: string; dueOn: string },
+  kiosk?: { personName: string },
 ) {
   const db = c.get("db");
   const s = scope(actor);
@@ -250,6 +254,7 @@ async function sendCheckoutEmails(
         siteUrl: libraryHome(c.get("origin"), actor.library),
         borrowed,
         booksOut,
+        ...(kiosk ? { kiosk } : {}),
       }),
     ),
   );
@@ -268,7 +273,7 @@ async function sendEach(c: AppContext, kind: string, messages: EmailMessage[]) {
 }
 
 /** Runs background work, logging instead of losing an error. */
-function inBackground(c: AppContext, work: Promise<unknown>) {
+export function inBackground(c: AppContext, work: Promise<unknown>) {
   c.get("waitUntil")(work.catch((error) => console.error("Background work failed:", error)));
 }
 

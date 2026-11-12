@@ -43,17 +43,27 @@ interface LoanRow {
   titleId: string;
   familyId: string | null;
   familyName: string | null;
+  /** Borrowed at a kiosk: who typed their code ("" when they've since been removed). */
+  kioskName: string | null;
+  /** Someone in the family has an email address for reminders. */
+  hasEmail: number;
 }
 
 async function openLoans(c: AppContext, actor: Actor): Promise<LoanRow[]> {
   const { results } = await c.env.DB.prepare(
     `select l.id as id, l.due_on as dueOn, l.borrowed_at as borrowedAt, l.extended_count as extendedCount,
             c.found_at as foundAt, l.return_requested_at as handedBackAt, c.short_code as code, c.id as copyId, t.title as title, t.id as titleId,
-            l.family_id as familyId, f.name as familyName
+            l.family_id as familyId, f.name as familyName,
+            case when l.kiosk_device_id is null then null
+                 else coalesce(nullif(ku.name, ''), k.first_name, '') end as kioskName,
+            exists (select 1 from memberships m where m.library_id = l.library_id
+                    and m.family_id = l.family_id) as hasEmail
      from loans l
      join copies c on c.id = l.copy_id and c.library_id = l.library_id
      join titles t on t.id = c.title_id and t.library_id = c.library_id
      left join families f on f.id = l.family_id and f.library_id = l.library_id
+     left join kiosk_people k on k.id = l.kiosk_person_id and k.library_id = l.library_id
+     left join users ku on ku.id = k.user_id
      where l.library_id = ? and l.returned_at is null
      order by l.due_on, t.title`,
   )
@@ -71,6 +81,8 @@ function loanView(actor: Actor, loan: LoanRow, now: string) {
     titleId: loan.titleId,
     familyId: loan.familyId,
     familyName: loan.familyName ?? "Deleted family",
+    kioskName: loan.kioskName,
+    hasEmail: loan.hasEmail === 1,
     dueOn: loan.dueOn,
     overdueDays,
     needsStaff: needsStaff(loan.dueOn, now, actor.library.settings.staffFlagDays),

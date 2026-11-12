@@ -4,6 +4,7 @@ import { Alert, Button, Field, Layout, Loading } from "../../components.tsx";
 import { ApiError, api, errorMessage } from "../../lib/api.ts";
 import { Link } from "../../lib/router.tsx";
 import { useSession } from "../../lib/session.tsx";
+import { FamilyKiosk, type KioskPerson, NoEmailFamilyCard } from "./FamilyKiosk.tsx";
 
 interface Invite {
   id: string;
@@ -19,6 +20,7 @@ interface Family {
   booksOut: number;
   adults: Adult[];
   invites: Invite[];
+  kioskPeople: KioskPerson[];
 }
 
 interface Adult {
@@ -32,9 +34,16 @@ function adultName(adult: { name: string; email: string }) {
   return adult.name.trim() || adult.email;
 }
 
+/** Adults without email: they borrow at the kiosk with a code. */
+function noEmailAdults(family: Family) {
+  return family.kioskPeople.filter((k) => k.userId === null);
+}
+
 /** "Lee (Priya, Tom)": tells apart two families with the same name. */
 function familyLabel(family: Family) {
-  const names = family.adults.map(adultName).join(", ");
+  const names = [...family.adults.map(adultName), ...noEmailAdults(family).map((k) => k.name)].join(
+    ", ",
+  );
   return names ? `${family.name} (${names})` : family.name;
 }
 
@@ -44,6 +53,8 @@ interface FamiliesData {
   staffInvites: Invite[];
   joinUrl: string | null;
   canManageStaff: boolean;
+  /** The library has a kiosk tablet turned on. */
+  kioskInUse: boolean;
 }
 
 interface StaffPerson {
@@ -67,7 +78,12 @@ const INVITE_STATE: Record<Invite["state"], string> = {
 
 const ROLE_NAMES: Record<string, string> = { admin: "Admin", staff: "Staff", member: "Parent" };
 
-type Notify = { success: (message: string) => Promise<void>; error: (message: string) => void };
+type Notify = {
+  success: (message: string) => Promise<void>;
+  error: (message: string) => void;
+  /** Reloads the list without a message. */
+  reload: () => Promise<void>;
+};
 
 export function FamiliesPage() {
   const [data, setData] = useState<FamiliesData | null>(null);
@@ -101,6 +117,11 @@ export function FamiliesPage() {
       setNotice("");
       messageRef.current?.focus();
     },
+    reload: async () => {
+      setError("");
+      setNotice("");
+      await load();
+    },
   };
 
   if (!data) {
@@ -120,7 +141,8 @@ export function FamiliesPage() {
         f.name.toLowerCase().includes(q) ||
         f.adults.some(
           (a) => a.email.toLowerCase().includes(q) || a.name.toLowerCase().includes(q),
-        )),
+        ) ||
+        f.kioskPeople.some((k) => k.name.toLowerCase().includes(q))),
   );
   // Families sharing a name are often one household that joined twice.
   const sameName = (family: Family) =>
@@ -193,6 +215,7 @@ export function FamiliesPage() {
                 family={family}
                 twins={sameName(family)}
                 others={data.families.filter((f) => f.id !== family.id)}
+                kioskInUse={data.kioskInUse}
                 notify={notify}
               />
             ))}
@@ -204,6 +227,7 @@ export function FamiliesPage() {
         </div>
         <aside>
           <JoinLinkCard url={data.joinUrl} canChange={data.canManageStaff} notify={notify} />
+          {data.kioskInUse && <NoEmailFamilyCard notify={notify} />}
         </aside>
       </div>
     </Layout>
@@ -431,12 +455,14 @@ function FamilyCard({
   family,
   twins,
   others,
+  kioskInUse,
   notify,
 }: {
   family: Family;
   /** Other families with the same name: possibly the same household. */
   twins: Family[];
   others: Family[];
+  kioskInUse: boolean;
   notify: Notify;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
@@ -522,12 +548,14 @@ function FamilyCard({
 
   const statusClass =
     family.status === "active" ? "available" : family.status === "pending" ? "found" : "lost";
+  const kioskOnly = family.adults.length === 0 && family.kioskPeople.length > 0;
 
   return (
     <li className="card">
       <p className="meta-row">
         <strong>{family.name}</strong>
         <span className={`badge badge--${statusClass}`}>{STATUS[family.status]}</span>
+        {kioskOnly && <span className="badge">Kiosk only</span>}
         <span className="muted">
           {family.booksOut} {family.booksOut === 1 ? "book" : "books"} out
         </span>
@@ -544,10 +572,18 @@ function FamilyCard({
             )}
           </li>
         ))}
+        {noEmailAdults(family).map((k) => (
+          <li key={k.id}>
+            {k.name} <span className="muted">· no email, borrows at the kiosk</span>
+          </li>
+        ))}
         {family.invites.map((i) => (
           <InviteRow key={i.id} invite={i} notify={notify} />
         ))}
       </ul>
+      {kioskOnly && (
+        <p className="muted">No email, so no reminders: follow up late books from Loans.</p>
+      )}
       {twins.length > 0 && (
         <Alert kind="warning" live={false}>
           <p>
@@ -692,6 +728,9 @@ function FamilyCard({
           </div>
         ) : (
           <div className="stack">
+            {(kioskInUse || family.kioskPeople.length > 0) && (
+              <FamilyKiosk family={family} notify={notify} />
+            )}
             {others.length > 0 && (
               <div className="inline-form">
                 <div className="field">

@@ -3,6 +3,7 @@ import { Alert, Button, Field, Layout, Loading } from "../../components.tsx";
 import { ApiError, api, errorMessage } from "../../lib/api.ts";
 import { formatDate } from "../../lib/copies.ts";
 import { useSession } from "../../lib/session.tsx";
+import { KioskSettings } from "./Kiosks.tsx";
 
 interface Settings {
   loanDays: number;
@@ -398,6 +399,7 @@ export function SettingsPage() {
           </Button>
         </div>
       </form>
+      <KioskSettings />
       <section className="card settings-support" aria-labelledby="support-heading">
         <h2 id="support-heading" className="section-title">
           Site support visits

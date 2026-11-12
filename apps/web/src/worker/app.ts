@@ -20,6 +20,7 @@ import { accountRoutes } from "./routes/account.ts";
 import { adminRoutes, nudgeRoutes } from "./routes/admin.ts";
 import { catalogRoutes } from "./routes/catalog.ts";
 import { familyRoutes } from "./routes/families.ts";
+import { kioskRoutes } from "./routes/kiosk.ts";
 import { loanRoutes } from "./routes/loans.ts";
 import { ownerRoutes } from "./routes/owner.ts";
 
@@ -199,6 +200,7 @@ export function createApp(options: AppOptions = {}) {
   app.route("/admin", adminRoutes);
   app.route("/", nudgeRoutes);
   app.route("/", familyRoutes);
+  app.route("/", kioskRoutes);
 
   app.notFound((c) => c.json({ error: "not_found", message: "Not found." }, 404));
   app.onError((err, c) => {
