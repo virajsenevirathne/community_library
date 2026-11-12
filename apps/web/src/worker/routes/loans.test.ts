@@ -329,7 +329,7 @@ describe("races and repeats", () => {
       statuses.push((await otherParent.json(`/api/copies/${code}/found`, { body: {} })).status);
     expect(statuses.slice(0, 10).every((s) => s === 200)).toBe(true);
     expect(statuses.slice(10)).toEqual([429, 429]);
-  });
+  }, 20_000); // six accounts and 24 requests: slow on CI runners
 
   it("emails the other parents even when one address fails", async () => {
     const [code = ""] = await addBook();
