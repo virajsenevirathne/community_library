@@ -1,3 +1,5 @@
+import { platformFetch } from "./fetch.ts";
+
 /** What a book metadata provider returns for an ISBN. */
 export interface BookMetadata {
   isbn: string;
@@ -149,7 +151,7 @@ export function tidyAuthors(authors: string[]): string[] {
 /** Open Library (https://openlibrary.org): free, no key needed. */
 export class OpenLibraryProvider implements MetadataProvider {
   readonly name = "openlibrary";
-  constructor(private readonly fetcher: typeof fetch = fetch) {}
+  constructor(private readonly fetcher: typeof fetch = platformFetch) {}
 
   async lookup(isbn: string): Promise<ProviderAnswer> {
     const raw = await getJson(
@@ -192,7 +194,7 @@ export class OpenLibraryProvider implements MetadataProvider {
 export class GoogleBooksProvider implements MetadataProvider {
   readonly name = "googlebooks";
   constructor(
-    private readonly fetcher: typeof fetch = fetch,
+    private readonly fetcher: typeof fetch = platformFetch,
     private readonly apiKey?: string,
   ) {}
 

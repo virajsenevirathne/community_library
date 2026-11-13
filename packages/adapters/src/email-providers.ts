@@ -1,4 +1,5 @@
 import type { EmailMessage, EmailSender, SendResult } from "./email.ts";
+import { platformFetch } from "./fetch.ts";
 
 export interface FromAddress {
   email: string;
@@ -73,7 +74,7 @@ export class ResendSender implements EmailSender {
   constructor(
     private readonly apiKey: string,
     private readonly from: FromAddress,
-    private readonly fetcher: typeof fetch = fetch,
+    private readonly fetcher: typeof fetch = platformFetch,
   ) {}
 
   async send(message: EmailMessage): Promise<SendResult> {
@@ -121,7 +122,7 @@ export class MailjetSender implements EmailSender {
     private readonly apiKey: string,
     private readonly apiSecret: string,
     private readonly from: FromAddress,
-    private readonly fetcher: typeof fetch = fetch,
+    private readonly fetcher: typeof fetch = platformFetch,
   ) {}
 
   async send(message: EmailMessage): Promise<SendResult> {
