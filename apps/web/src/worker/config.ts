@@ -20,7 +20,12 @@ export function secrets(env: Env): Secrets {
   const raw = env as unknown as Record<string, unknown>;
   const read = (key: keyof Secrets) => {
     const value = raw[key];
-    return typeof value === "string" && value.length > 0 ? value : undefined;
+    if (typeof value !== "string") return undefined;
+    // Pasted keys often bring a space or line break along, which breaks the
+    // request. Not the sign-in secret: everything signed or hashed with it
+    // (sessions, kiosk codes, emailed links) depends on its exact value.
+    const kept = key === "BETTER_AUTH_SECRET" ? value : value.trim();
+    return kept.length > 0 ? kept : undefined;
   };
   const result: Secrets = {};
   for (const key of [

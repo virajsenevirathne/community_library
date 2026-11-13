@@ -90,7 +90,9 @@ export class QuotaMailer implements EmailSender {
         if (this.cachedRemaining) this.cachedRemaining.value -= 1;
         return { ...last, attempts };
       }
-      // Not accepted: give the slot back, on the day it was counted.
+      // Not accepted: give the slot back, on the day it was counted. Logged here
+      // too, since the caller only hears about the last provider tried.
+      console.error(`Email not accepted by ${sender.name}: ${last.error}`);
       await this.release(sender.name, day);
     }
     return { ...last, attempts };
