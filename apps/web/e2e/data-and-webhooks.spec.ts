@@ -7,7 +7,7 @@ import { checkA11y, signIn } from "./helpers.ts";
 test.describe.configure({ retries: 0 });
 
 /*
- * Settings › Your library's data, and Connect your own system. In the E2E
+ * Settings › Your library's data, Logo, and Connect your own system. In the E2E
  * Wrens library (see seed.sql), so its webhook never fires for other tests.
  * Runs before extend-and-check-in.spec.ts (files run in name order), which
  * returns the Ryan family's book: the loans file expects it still out.
@@ -23,7 +23,9 @@ async function download(page: Page, button: string) {
   return { name: file.suggestedFilename(), text: readFileSync(path, "utf8") };
 }
 
-test("an admin downloads the library's data, and sets up a webhook", async ({ page }) => {
+test("an admin downloads the library's data, adds a logo, and sets up a webhook", async ({
+  page,
+}) => {
   await signIn(page, "wren-admin@e2e.test", "/e2e-wrens/admin/settings");
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await checkA11y(page, "a library's settings");
@@ -47,6 +49,32 @@ test("an admin downloads the library's data, and sets up a webhook", async ({ pa
   const loans = await download(page, "Download loans");
   expect(loans.text).toContain('"Book","Copy code","Family"');
   expect(loans.text).toContain('"Diary of a Wombat","BK6A","Ryan"');
+
+  // A logo: chosen, previewed, saved; it then shows in the header for this library.
+  const logo = page.getByRole("region", { name: "Logo" });
+  const header = page.locator(".site-header .brand__logo");
+  await expect(header).toHaveCount(0);
+  await logo.getByLabel("Choose a picture").setInputFiles({
+    name: "wrens.svg",
+    mimeType: "image/svg+xml",
+    buffer: Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="400" height="200" fill="#c0392b"/><circle cx="100" cy="100" r="70" fill="#fff"/></svg>',
+    ),
+  });
+  await expect(logo.getByRole("img", { name: "Your new logo, not saved yet" })).toBeVisible();
+  await expect(logo.getByRole("button", { name: "Save this logo" })).toBeFocused();
+  await checkA11y(page, "a logo chosen, before saving");
+  await logo.getByRole("button", { name: "Save this logo" }).click();
+  await expect(logo.getByText("Logo saved.", { exact: false })).toBeVisible();
+  await expect(header).toHaveAttribute("src", /^\/api\/logo\/e2e-wrens\?v=\d+$/);
+  // It loaded: a real picture, shrunk to at most 256 pixels wide.
+  await expect.poll(() => header.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(256);
+  await page.reload();
+  await expect(header).toBeVisible();
+  await logo.getByRole("button", { name: "Remove the logo" }).click();
+  await expect(logo.getByText("Logo removed.", { exact: false })).toBeVisible();
+  await expect(header).toHaveCount(0);
+  await expect(page.locator(".site-header .brand__mark")).toBeVisible();
 
   // A webhook: the secret is shown once, a test is sent, then it's removed.
   // (The settings page has its own Save button, so look only in this section.)

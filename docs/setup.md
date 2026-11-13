@@ -121,7 +121,7 @@ the same command whenever you update the code.
 3. Create a library and invite its admin (that can be you). The admin opens
    the email and signs in. The library first asks how returns work and for the
    terms to be accepted; everything else (loan length, books per family, closed
-   days, its colour) is in **Settings**.
+   days, its colour and logo) is in **Settings**.
 
    ![A library's settings](images/settings.png)
 

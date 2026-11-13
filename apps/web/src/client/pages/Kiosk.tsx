@@ -8,8 +8,7 @@ import {
   useState,
 } from "react";
 import { Scanner, signal } from "../components/Scanner.tsx";
-import { Alert, Button, Loading } from "../components.tsx";
-import { JoeyMark } from "../icons.tsx";
+import { Alert, Button, LibraryMark, Loading } from "../components.tsx";
 import { ApiError, api, errorMessage } from "../lib/api.ts";
 import { authClient } from "../lib/auth.ts";
 import { formatDate, parseCopyCode } from "../lib/copies.ts";
@@ -34,6 +33,7 @@ interface KioskInfo {
     paused: boolean;
     returnsNeedCheckIn: boolean;
     theme?: string;
+    logo?: number | null;
   };
 }
 
@@ -275,7 +275,7 @@ function Kiosk({ info, onLost }: { info: KioskInfo; onLost: () => Promise<void> 
     <main className="kiosk">
       <header className="kiosk__top">
         <span className="kiosk__brand">
-          <JoeyMark className="brand__mark" />
+          <LibraryMark slug={info.library.slug} logo={info.library.logo} />
           <span>{info.library.name}</span>
         </span>
         {screen.kind !== "start" && (

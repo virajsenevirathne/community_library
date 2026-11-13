@@ -7,6 +7,7 @@ import { authSecret, isLocalHost, secrets } from "../config.ts";
 import { type AppEnv, fail, readBody, requireUser } from "../context.ts";
 import { sha256Hex, timingSafeEqual } from "../crypto.ts";
 import { newId, schema } from "../db/client.ts";
+import { logoVersion } from "../library.ts";
 import { clientIp, consume } from "../limiter.ts";
 
 /** A short name typed by a person: trimmed, not empty, no line breaks or control characters. */
@@ -33,7 +34,7 @@ export const firstNameField = name("First name", 40);
 /** True when a browser's push key is a real P-256 point (else every send would fail). */
 async function validBrowserKey(p256dh: string) {
   try {
-    const raw = Uint8Array.from(atob(p256dh.replace(/-/g, "+").replace(/_/g, "/") + "="), (ch) =>
+    const raw = Uint8Array.from(atob(`${p256dh.replace(/-/g, "+").replace(/_/g, "/")}=`), (ch) =>
       ch.charCodeAt(0),
     );
     await crypto.subtle.importKey("raw", raw, { name: "ECDH", namedCurve: "P-256" }, false, []);
@@ -85,7 +86,7 @@ export const accountRoutes = new Hono<AppEnv>()
         contactEmail,
       });
     }
-    const [actor, passkeyCount, libraries, isOwner, notify] = await Promise.all([
+    const [actor, passkeyCount, libraries, isOwner, notify, logo] = await Promise.all([
       actorFor(c),
       db.$count(schema.passkeys, eq(schema.passkeys.userId, user.id)),
       c.env.DB.prepare(
@@ -103,6 +104,7 @@ export const accountRoutes = new Hono<AppEnv>()
       )
         .bind(user.id)
         .first<{ notifyBy: "email" | "push" | "both"; devices: number }>(),
+      library ? logoVersion(c.env.DB, library.id) : null,
     ]);
     return c.json({
       user: {
@@ -124,6 +126,8 @@ export const accountRoutes = new Hono<AppEnv>()
               setUp: library.setUp,
               support: actor.support === true,
               theme: library.settings.theme,
+              /** The logo's version, for its address (/api/logo/<slug>?v=…), or null. */
+              logo,
             }
           : null,
       libraries: libraries.results,

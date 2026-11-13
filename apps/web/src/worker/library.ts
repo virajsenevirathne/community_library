@@ -106,3 +106,11 @@ export async function libraryForRequest(
 export function libraryHome(origin: string, library: Pick<LibraryInfo, "slug">): string {
   return `${origin}/${library.slug}`;
 }
+
+/** The library's logo version (when it last changed), or null without one. */
+export async function logoVersion(DB: D1Database, libraryId: string): Promise<number | null> {
+  const row = await DB.prepare("select updated_at as v from library_logos where library_id = ?")
+    .bind(libraryId)
+    .first<{ v: number }>();
+  return row?.v ?? null;
+}
