@@ -34,11 +34,11 @@ delete `apps/web/.wrangler` and start again without the demo data.)
 
 ```bash
 npm run check                                 # lint, types, unit tests, build
-npm run e2e -w @community-library/web         # the app in Chrome, with accessibility checks
+npm run e2e -w @community-library/web         # the app in Chrome, Safari and Firefox, with accessibility checks
 ```
 
-Both run on every pull request. The browser tests need Chrome for Playwright
-once: `npx playwright install chromium` (in `apps/web`).
+Both run on every pull request. The browser tests need these browsers for Playwright
+once: `npx playwright install chromium webkit firefox` (in `apps/web`).
 
 ## How the code is organised
 

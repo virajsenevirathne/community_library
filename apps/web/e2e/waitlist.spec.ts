@@ -35,6 +35,11 @@ test("a family joins the waiting list for a book another family has, then leaves
   await page.getByRole("button", { name: /Leave/ }).click();
   await expect(page.getByRole("heading", { name: "Waiting for" })).toHaveCount(0);
   await expect(page.getByText("You've left the waiting list for")).toBeVisible();
+
+  // The Lee family returns it, so the test can run again (in another browser).
+  await leePage.goto("/e2e-owls/c/BK4A");
+  await leePage.getByRole("button", { name: /^Return/ }).click();
+  await expect(leePage.getByRole("heading", { name: "Thanks for bringing it back" })).toBeVisible();
   await lee.close();
   await okafor.close();
 });

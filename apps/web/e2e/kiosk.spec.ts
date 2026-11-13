@@ -1,18 +1,16 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN, checkA11y, signIn } from "./helpers.ts";
-
-// Last: setting up the kiosk signs this admin session out.
-test.use({ storageState: ADMIN });
+import { checkA11y, signIn } from "./helpers.ts";
 
 test("a kiosk tablet: scan a book with the camera and borrow it with a code", async ({ page }) => {
-  // An admin turns this browser into a kiosk; it signs them out.
-  await page.goto("/e2e-owls/admin/settings");
+  // An admin turns this browser into a kiosk; it signs them out. (Their own
+  // sign-in, not the saved one other tests share, which this would end.)
+  await signIn(page, "kiosk-admin@e2e.test", "/e2e-owls/admin/settings");
   await page.getByRole("button", { name: "Use this tablet as a kiosk" }).click();
   await expect(page).toHaveURL(/\/e2e-owls\/kiosk$/);
   await expect(page.getByRole("link", { name: "Staff" })).toBeVisible();
 
   // Staff sign back in to add a family without email; its code is shown once.
-  await signIn(page, "admin@e2e.test", "/e2e-owls/admin/families");
+  await signIn(page, "kiosk-admin@e2e.test", "/e2e-owls/admin/families");
   await page.getByRole("button", { name: "Add a family without email" }).click();
   await page.getByLabel("Family name").fill("Silva");
   await page.getByLabel("First name of an adult").fill("Nana");

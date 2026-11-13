@@ -12,6 +12,22 @@ import { SERVER_LOG, STATE } from "./paths.ts";
 const PORT = 5174;
 const state = STATE;
 
+/** Parents' flows run in every browser (the ones that can run more than once on one database). */
+const PARENT_FLOWS = /(borrow|signin|waitlist)\.spec\.ts/;
+
+/** Chrome with a fake camera that shows one of prepare.mjs's videos. */
+const chromeWithCamera = (video: string) => ({
+  ...devices["Desktop Chrome"],
+  permissions: ["camera"],
+  launchOptions: {
+    args: [
+      "--use-fake-ui-for-media-stream",
+      "--use-fake-device-for-media-stream",
+      `--use-file-for-fake-video-capture=${resolve(state, video)}`,
+    ],
+  },
+});
+
 export default defineConfig({
   testDir: ".",
   // One database for every test, so they run one at a time.
@@ -30,17 +46,29 @@ export default defineConfig({
     {
       name: "chrome",
       dependencies: ["sign-in"],
-      use: {
-        ...devices["Desktop Chrome"],
-        permissions: ["camera"],
-        launchOptions: {
-          args: [
-            "--use-fake-ui-for-media-stream",
-            "--use-fake-device-for-media-stream",
-            `--use-file-for-fake-video-capture=${resolve(state, "book-qr.y4m")}`,
-          ],
-        },
-      },
+      testIgnore: /add-books/,
+      use: chromeWithCamera("book-qr.y4m"),
+    },
+    // The camera shows a book's barcode instead of a sticker.
+    {
+      name: "chrome-barcode",
+      dependencies: ["sign-in"],
+      testMatch: /add-books/,
+      use: chromeWithCamera("book-isbn.y4m"),
+    },
+    // Many parents use iPhones: the parents' main flows in Safari's engine and
+    // Firefox too. (The fake cameras work only in Chrome.)
+    {
+      name: "safari",
+      dependencies: ["sign-in"],
+      testMatch: PARENT_FLOWS,
+      use: { ...devices["iPhone 15"] },
+    },
+    {
+      name: "firefox",
+      dependencies: ["sign-in"],
+      testMatch: PARENT_FLOWS,
+      use: { ...devices["Desktop Firefox"] },
     },
   ],
   webServer: {
