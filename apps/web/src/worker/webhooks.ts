@@ -1,3 +1,4 @@
+import { platformFetch } from "@community-library/adapters";
 import { hmacHex } from "./crypto.ts";
 import { newId } from "./db/client.ts";
 import type { WebhookEvent } from "./db/schema.ts";
@@ -169,7 +170,12 @@ async function emit(
     .bind(id, library.id, event, body, Date.now() + (queueOnly ? 0 : 10 * 60_000))
     .run();
   if (queueOnly) return;
-  const send = deliver(deps.DB, hook, { id, event, body, attempts: 0 }, deps.fetch ?? fetch);
+  const send = deliver(
+    deps.DB,
+    hook,
+    { id, event, body, attempts: 0 },
+    deps.fetch ?? platformFetch,
+  );
   if (deps.waitUntil) deps.waitUntil(send.catch((e) => console.error("Webhook failed:", e)));
   else await send;
 }
@@ -203,7 +209,7 @@ export async function pingWebhook(
     deps.DB,
     hook,
     { id, event: "ping", body, attempts: MAX_ATTEMPTS - 1 },
-    deps.fetch ?? fetch,
+    deps.fetch ?? platformFetch,
   );
   const row = await deps.DB.prepare(
     "select last_status as status from webhook_deliveries where id = ?",
@@ -234,7 +240,7 @@ export async function retryWebhooks(deps: WebhookDeps, libraryId: string, limit 
     const batch = await Promise.all(
       results
         .slice(i, i + 10)
-        .map((d) => deliver(deps.DB, hook, d, deps.fetch ?? fetch).catch(() => false)),
+        .map((d) => deliver(deps.DB, hook, d, deps.fetch ?? platformFetch).catch(() => false)),
     );
     sent += batch.filter(Boolean).length;
   }

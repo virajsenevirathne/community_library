@@ -4,6 +4,7 @@ import {
   type MetadataProvider,
   OpenLibraryProvider,
   type PushSender,
+  platformFetch,
 } from "@community-library/adapters";
 import { isEmail } from "@community-library/core";
 import { Hono } from "hono";
@@ -107,7 +108,7 @@ export function createApp(options: AppOptions = {}) {
       new QuotaMailer(c.env.DB, configuredSenders(c.env, libraryName, new URL(origin).hostname));
     c.set("email", email);
     c.set("push", options.push ? options.push(c.env) : pushSender(c.env));
-    c.set("fetch", options.fetch ?? ((input, init) => fetch(input, init)));
+    c.set("fetch", options.fetch ?? platformFetch);
     c.set(
       "metadata",
       options.metadata ?? [
