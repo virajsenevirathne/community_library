@@ -358,6 +358,7 @@ export const ROUTES: {
     request: "/api/admin/families/missing/remove",
     body: {},
   },
+  { route: "GET /api/admin/join-link", rule: "families:manage" },
   { route: "POST /api/admin/join-link", rule: "library:admin", body: { enabled: "no" } },
   // Any signed-in person may start deleting their own account; a code is needed to finish.
   { route: "PUT /api/account/name", rule: "user", body: { firstName: "Sam" } },

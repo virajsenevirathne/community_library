@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { JoinShareButtons } from "../../components/JoinShare.tsx";
 import { Alert, Layout, Loading } from "../../components.tsx";
 import { Icon, type IconName } from "../../icons.tsx";
 import { api, errorMessage } from "../../lib/api.ts";
@@ -114,6 +115,46 @@ function GetStarted({ counts }: { counts: NonNullable<Dashboard["counts"]> }) {
   );
 }
 
+/**
+ * Sharing the sign-up link, straight from the dashboard: the phone's share
+ * sheet, the QR code as a picture, or a poster. The link itself is made (and
+ * replaced) on the Families page.
+ */
+function InviteFamilies({ isAdmin }: { isAdmin: boolean }) {
+  const { state } = useSession();
+  const libraryName = (state.status === "ready" && state.me.library?.name) || "the library";
+  const [url, setUrl] = useState<string | null | undefined>(undefined);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api<{ joinUrl: string | null }>("/admin/join-link")
+      .then((res) => setUrl(res.joinUrl))
+      .catch(() => setUrl(undefined));
+  }, []);
+  if (url === undefined || (url === null && !isAdmin)) return null;
+  return (
+    <section className="card stack" aria-labelledby="invite-heading">
+      <h2 id="invite-heading" className="section-title">
+        Invite families
+      </h2>
+      {url ? (
+        <>
+          <p className="muted">
+            Families join with your sign-up link: share it in a group chat or newsletter, or put the
+            QR code up by the shelf.
+          </p>
+          <Alert>{error}</Alert>
+          <JoinShareButtons url={url} libraryName={libraryName} onError={setError} />
+        </>
+      ) : (
+        <p>
+          Families join with a sign-up link.{" "}
+          <Link href="/admin/families#join-card">Create one on the Families page</Link>.
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** Staff home: what needs attention first, the day's jobs, then the rest of the library. */
 export function AdminHomePage() {
   const { state } = useSession();
@@ -203,6 +244,8 @@ export function AdminHomePage() {
               />
               <Stat value={data.booksOut} label="books out" href="/admin/loans" />
             </ul>
+
+            <InviteFamilies isAdmin={isAdmin} />
 
             <section className="tile-group" aria-labelledby="daily-heading">
               <h2 id="daily-heading">Every day</h2>

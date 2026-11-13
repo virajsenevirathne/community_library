@@ -1592,40 +1592,43 @@ kbd {
   padding: 0.5rem;
   border-bottom: 1px solid var(--border);
 }
-.poster-only {
+/* "Print a poster" (JoinShare.tsx): its own block at the end of the page,
+   the only thing printed. */
+.poster-print {
   display: none;
 }
 @media print {
-  /* "Print a poster" on the Families page: just the QR code, large. */
-  body.print-poster main > :not(#join-card),
-  body.print-poster #join-card > :not(.join-link, .poster-only),
-  body.print-poster .join-link .stack {
+  body.print-poster > :not(.poster-print) {
     display: none;
   }
-  body.print-poster #join-card {
-    border: none;
-  }
-  body.print-poster .poster-only {
+  body.print-poster .poster-print {
     display: block;
     text-align: center;
+    color: #000;
+    background: #fff;
+  }
+  .poster-print__name {
     font-size: 28pt;
     font-weight: 700;
     margin: 2cm 0 0;
   }
-  body.print-poster .poster-only--sub {
+  .poster-print__sub {
     font-size: 18pt;
-    font-weight: 400;
-    margin-top: 0.5cm;
+    margin: 0.5cm 0 0;
   }
-  body.print-poster .poster-only--url {
-    font-size: 11pt;
-    font-weight: 400;
-    margin-top: 0;
-    overflow-wrap: anywhere;
-  }
-  body.print-poster .join-link__qr {
+  .poster-print__qr {
     width: 12cm;
     margin: 1cm auto;
+  }
+  .poster-print__qr svg {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .poster-print__url {
+    font-size: 11pt;
+    margin: 0;
+    overflow-wrap: anywhere;
   }
 }
 

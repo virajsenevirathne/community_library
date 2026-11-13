@@ -1176,6 +1176,15 @@ export const familyRoutes = new Hono<AppEnv>()
 
   // ----------------------------------------------------- the sign-up link
 
+  /** The sign-up link, for sharing from the dashboard (null when it's off). */
+  .get("/admin/join-link", async (c) => {
+    const actor = await requirePermission(c, "families:manage");
+    const row = await c.env.DB.prepare("select join_nonce as nonce from libraries where id = ?")
+      .bind(actor.library.id)
+      .first<{ nonce: string | null }>();
+    return c.json({ joinUrl: await joinUrl(c, row?.nonce ?? null) });
+  })
+
   .post("/admin/join-link", async (c) => {
     const actor = await requirePermission(c, "library:admin");
     const body = await readBody(c, z.object({ enabled: z.boolean() }));
