@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MailjetSender, ResendSender } from "./email-providers.ts";
 
 const from = { email: "library@example.org", name: "Library" };
@@ -107,5 +107,25 @@ describe("email providers", () => {
     expect(
       await new ResendSender("key", from, answer({ id: "abc" }, 200)).send(message),
     ).toMatchObject({ ok: true, id: "abc" });
+  });
+});
+
+describe("email providers on Cloudflare", () => {
+  it("call fetch the way Workers allows", async () => {
+    // Like Workers: fetch refuses to be called as another object's method.
+    vi.stubGlobal("fetch", function (this: unknown) {
+      if (this !== undefined && this !== globalThis) {
+        throw new TypeError("Illegal invocation: function called with incorrect `this` reference.");
+      }
+      return Promise.resolve(new Response(JSON.stringify({ id: "sent" })));
+    });
+    try {
+      expect(await new ResendSender("key", from).send(message)).toMatchObject({ ok: true });
+      expect(await new MailjetSender("key", "secret", from).send(message)).toMatchObject({
+        ok: true,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
