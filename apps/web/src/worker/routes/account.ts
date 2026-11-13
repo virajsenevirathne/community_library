@@ -230,6 +230,47 @@ export const accountRoutes = new Hono<AppEnv>()
            and not exists (select 1 from push_subscriptions where user_id = users.id)`,
       ).bind(Date.now(), previous?.userId ?? "", user.id),
     ]);
+    // A first notification straight away: the person sees it worked (and that
+    // this phone can show them), rather than finding out at the first due date.
+    const push = c.get("push");
+    // Only a phone newly set up for this person (not one re-saved quietly).
+    if (push && previous?.userId !== user.id) {
+      c.get("waitUntil")(
+        push
+          .send(
+            { endpoint: body.endpoint, p256dh: body.keys.p256dh, auth: body.keys.auth },
+            {
+              title: "Reminders are on",
+              body: "You'll get a notification here before a library book is due.",
+              url: "/",
+              tag: "reminders-on",
+            },
+          )
+          .then(async (result) => {
+            if (result.ok) return;
+            if (result.gone) {
+              // The phone won't take notifications after all: with none left,
+              // reminders go back to email.
+              await DB.batch([
+                DB.prepare("delete from push_subscriptions where endpoint = ?").bind(body.endpoint),
+                DB.prepare(
+                  `update users set notify_by = 'email', updated_at = ? where id = ?
+                     and not exists (select 1 from push_subscriptions where user_id = users.id)`,
+                ).bind(Date.now(), user.id),
+              ]);
+            }
+            console.error(
+              `First notification not delivered: status ${result.status}${result.gone ? " (gone)" : ""}`,
+            );
+          })
+          // The error's name only: its message could hold the phone's push address.
+          .catch((error) =>
+            console.error(
+              `First notification failed: ${error instanceof Error ? error.name : "error"}`,
+            ),
+          ),
+      );
+    }
     return c.json({ ok: true }, 201);
   })
 
