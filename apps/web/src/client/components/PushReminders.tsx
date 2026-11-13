@@ -225,7 +225,9 @@ export function RemindersSetting() {
       await refresh();
       setNotice("Notifications are on for this device. Reminders will come here and by email.");
     } else if (result === "dismissed") {
-      setNotice("Notifications weren't turned on. Try again whenever you like.");
+      setError(
+        "Notifications weren't turned on: the permission prompt was closed, or didn't appear. Tap the button again and choose Allow. If nothing appears, allow notifications for this site in your browser's site settings (on Android, also check Settings › Apps › Chrome › Notifications).",
+      );
     } else {
       setError(
         result === "denied"

@@ -1,5 +1,5 @@
-import QRCode from "qrcode";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { JoinShareButtons, useJoinQr } from "../../components/JoinShare.tsx";
 import { Alert, Button, Field, Layout, Loading } from "../../components.tsx";
 import { ApiError, api, errorMessage } from "../../lib/api.ts";
 import { Link } from "../../lib/router.tsx";
@@ -103,6 +103,13 @@ export function FamiliesPage() {
   useEffect(() => {
     void load();
   }, [load]);
+  // Opened from the dashboard's "create one" link: go straight to the sign-up card.
+  const loaded = data !== null;
+  useEffect(() => {
+    if (loaded && window.location.hash === "#join-card") {
+      document.getElementById("join-card")?.scrollIntoView({ block: "start" });
+    }
+  }, [loaded]);
 
   // Every action reports here; the message gets focus so it is read out.
   const notify: Notify = {
@@ -246,15 +253,10 @@ function JoinLinkCard({
   const { state } = useSession();
   const libraryName =
     state.status === "ready" ? (state.me.library?.name ?? "the library") : "the library";
-  const [qr, setQr] = useState("");
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState<"replace" | "off" | null>(null);
 
-  useEffect(() => {
-    if (!url) return setQr("");
-    void QRCode.toString(url, { type: "svg", margin: 2, errorCorrectionLevel: "M" }).then(setQr);
-  }, [url]);
+  const qr = useJoinQr(url);
 
   const change = async (enabled: boolean) => {
     setBusy(true);
@@ -275,26 +277,6 @@ function JoinLinkCard({
     }
   };
 
-  const copy = async () => {
-    if (!url) return;
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 3000);
-    } catch {
-      notify.error("Couldn't copy. Select the link and copy it instead.");
-    }
-  };
-
-  const printPoster = () => {
-    // Print only the QR code and its words; the class is removed once printing is done.
-    document.body.classList.add("print-poster");
-    window.addEventListener("afterprint", () => document.body.classList.remove("print-poster"), {
-      once: true,
-    });
-    window.print();
-  };
-
   return (
     <section className="card" id="join-card" aria-labelledby="join-heading">
       <h2 id="join-heading" className="section-title">
@@ -306,10 +288,6 @@ function JoinLinkCard({
             Share this link (in your newsletter, group chat or email), or print the QR code as a
             poster by the shelf. Parents open it, sign in with their email, and type their family
             name.
-          </p>
-          <p className="poster-only">{libraryName}</p>
-          <p className="poster-only poster-only--sub">
-            Borrow our books! Point your phone camera at this code to join.
           </p>
           <div className="join-link">
             {qr && (
@@ -330,20 +308,16 @@ function JoinLinkCard({
                 aria-label="Sign-up link"
                 onFocus={(e) => e.target.select()}
               />
-              <div className="row">
-                <Button variant="secondary" onClick={copy}>
-                  {copied ? "Copied" : "Copy link"}
-                </Button>
-                <Button variant="secondary" onClick={printPoster}>
-                  Print a poster
-                </Button>
-              </div>
-              <span className="visually-hidden" role="status">
-                {copied ? "Link copied" : ""}
-              </span>
+              <JoinShareButtons
+                url={url}
+                libraryName={libraryName}
+                withCopy
+                onError={(message) => {
+                  if (message) notify.error(message);
+                }}
+              />
             </div>
           </div>
-          <p className="poster-only poster-only--url">{url}</p>
           {canChange &&
             (confirming ? (
               <div className="confirm" style={{ marginTop: "0.75rem" }}>
