@@ -122,13 +122,9 @@ function PublicFooter() {
   );
 }
 
-const DRAFT_NOTE =
-  "Plain-English draft: it will be reviewed before more libraries join, and you'll be told of any change.";
-
 export function PrivacyPage() {
   return (
     <Layout title="Privacy policy" siteWide>
-      <p className="muted">{DRAFT_NOTE}</p>
       <p className="lead">
         We keep only what a library needs to lend books: who you are, which household you borrow
         for, and what's borrowed. We never sell it or use it for advertising.
@@ -205,7 +201,6 @@ export function PrivacyPage() {
 export function TermsPage() {
   return (
     <Layout title="Terms of use" siteWide>
-      <p className="muted">{DRAFT_NOTE}</p>
       <p className="lead">
         Reading Joey lets little libraries, such as daycares, schools and community shelves, lend
         books to the families who use them. Using it means agreeing to these terms.
@@ -229,7 +224,7 @@ export function TermsPage() {
         </li>
         <li>Invite only people who use your library, and keep their details accurate.</li>
         <li>
-          The site is provided as is, free for now. If a fee is ever needed, libraries will be told
+          The site is provided as is, and is free. If a fee is ever needed, libraries will be told
           well in advance and can leave and have their data deleted.
         </li>
         <li>
