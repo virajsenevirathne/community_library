@@ -6,6 +6,7 @@ export {
   MemorySender,
   ResendSender,
 } from "./email-providers.ts";
+export { platformFetch } from "./fetch.ts";
 export { LABEL_TEMPLATES, type LabelTemplate, labelsPerSheet } from "./labels.ts";
 export {
   type BookMetadata,

@@ -1,3 +1,4 @@
+import { platformFetch } from "./fetch.ts";
 /*
  * Web push: phone and browser notifications, sent straight to the push
  * service a browser chose (Google, Apple, Mozilla, Microsoft). Free, and
@@ -189,7 +190,7 @@ export class WebPushSender implements PushSender {
   private readonly keys: VapidKeys;
   private readonly fetchImpl: typeof fetch;
 
-  constructor(keys: VapidKeys, fetchImpl: typeof fetch = (input, init) => fetch(input, init)) {
+  constructor(keys: VapidKeys, fetchImpl: typeof fetch = platformFetch) {
     this.keys = keys;
     this.fetchImpl = fetchImpl;
   }
