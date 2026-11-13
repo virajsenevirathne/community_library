@@ -10,9 +10,61 @@ function retryableStatus(status: number): boolean {
   return status === 429 || status >= 500;
 }
 
-/** A short error code that never includes the recipient or message text. */
-function errorCode(status: number): string {
-  return `http_${status}`;
+/** Error bodies read for a reason: a big error page isn't worth buffering. */
+const MAX_ERROR_BODY = 4096;
+
+/**
+ * A short error for the log: the status and the provider's own reason (such as
+ * "domain not verified"). Addresses, long numbers (a sign-in code) and
+ * token-like strings in it are hidden, so it can't carry the message's contents.
+ */
+async function errorCode(res: Response): Promise<string> {
+  let reason = "";
+  try {
+    const body = JSON.parse((await res.text()).slice(0, MAX_ERROR_BODY)) as {
+      message?: unknown;
+      ErrorMessage?: unknown;
+      Messages?: { Errors?: { ErrorMessage?: unknown }[] }[];
+    };
+    const found = [
+      body.message,
+      body.ErrorMessage,
+      body.Messages?.[0]?.Errors?.[0]?.ErrorMessage,
+    ].find((x) => typeof x === "string");
+    if (typeof found === "string") reason = found;
+  } catch {
+    // Not JSON, or cut short: the status says enough.
+  }
+  reason = reason
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is the point
+    .replace(/[\u0000-\u001f\u007f]+/g, " ")
+    .replace(/\S+\s*@\s*\S+/g, "<address>")
+    .replace(/\b[A-Za-z0-9_-]{24,}\b/g, "<token>")
+    .replace(/\d{4,}/g, "<number>")
+    .trim()
+    .slice(0, 150);
+  return reason ? `http_${res.status}: ${reason}` : `http_${res.status}`;
+}
+
+/** Characters no API key has: spaces, line breaks, curly quotes and the like. */
+function hasStrayCharacters(...keys: string[]): boolean {
+  return keys.some((key) => /[^\x21-\x7e]/.test(key));
+}
+
+const STRAY_KEY = "bad_key: the API key has a space, line break or curly quote in it";
+
+/** The request couldn't be made, or its answer couldn't be read. */
+function requestError(error: unknown): string {
+  return `request_failed: ${error instanceof Error ? error.name : "Error"}`;
+}
+
+/** An accepted message's id, if the answer can be read: it was sent either way. */
+async function sentId(res: Response, pick: (body: never) => string | undefined): Promise<string> {
+  try {
+    return pick((await res.json()) as never) ?? "";
+  } catch {
+    return "";
+  }
 }
 
 /** Resend (https://resend.com). Primary provider: 100 emails a day on the free plan. */
@@ -25,8 +77,13 @@ export class ResendSender implements EmailSender {
   ) {}
 
   async send(message: EmailMessage): Promise<SendResult> {
+    // Checked first: a key like that can't be sent, and would only say "failed".
+    if (hasStrayCharacters(this.apiKey)) {
+      return { ok: false, provider: this.name, retryable: false, error: STRAY_KEY };
+    }
+    let res: Response;
     try {
-      const res = await this.fetcher("https://api.resend.com/emails", {
+      res = await this.fetcher("https://api.resend.com/emails", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
@@ -41,19 +98,19 @@ export class ResendSender implements EmailSender {
           ...(message.html ? { html: message.html } : {}),
         }),
       });
-      if (!res.ok) {
-        return {
-          ok: false,
-          provider: this.name,
-          retryable: retryableStatus(res.status),
-          error: errorCode(res.status),
-        };
-      }
-      const body = (await res.json()) as { id?: string };
-      return { ok: true, provider: this.name, id: body.id ?? "" };
-    } catch {
-      return { ok: false, provider: this.name, retryable: true, error: "network" };
+    } catch (error) {
+      return { ok: false, provider: this.name, retryable: true, error: requestError(error) };
     }
+    if (!res.ok) {
+      return {
+        ok: false,
+        provider: this.name,
+        retryable: retryableStatus(res.status),
+        error: await errorCode(res),
+      };
+    }
+    const id = await sentId(res, (body: { id?: string }) => body.id);
+    return { ok: true, provider: this.name, id };
   }
 }
 
@@ -68,8 +125,12 @@ export class MailjetSender implements EmailSender {
   ) {}
 
   async send(message: EmailMessage): Promise<SendResult> {
+    if (hasStrayCharacters(this.apiKey, this.apiSecret)) {
+      return { ok: false, provider: this.name, retryable: false, error: STRAY_KEY };
+    }
+    let res: Response;
     try {
-      const res = await this.fetcher("https://api.mailjet.com/v3.1/send", {
+      res = await this.fetcher("https://api.mailjet.com/v3.1/send", {
         method: "POST",
         headers: {
           Authorization: `Basic ${btoa(`${this.apiKey}:${this.apiSecret}`)}`,
@@ -88,19 +149,23 @@ export class MailjetSender implements EmailSender {
           ],
         }),
       });
-      if (!res.ok) {
-        return {
-          ok: false,
-          provider: this.name,
-          retryable: retryableStatus(res.status),
-          error: errorCode(res.status),
-        };
-      }
-      const body = (await res.json()) as { Messages?: { To?: { MessageUUID?: string }[] }[] };
-      return { ok: true, provider: this.name, id: body.Messages?.[0]?.To?.[0]?.MessageUUID ?? "" };
-    } catch {
-      return { ok: false, provider: this.name, retryable: true, error: "network" };
+    } catch (error) {
+      return { ok: false, provider: this.name, retryable: true, error: requestError(error) };
     }
+    if (!res.ok) {
+      return {
+        ok: false,
+        provider: this.name,
+        retryable: retryableStatus(res.status),
+        error: await errorCode(res),
+      };
+    }
+    const id = await sentId(
+      res,
+      (body: { Messages?: { To?: { MessageUUID?: string }[] }[] }) =>
+        body.Messages?.[0]?.To?.[0]?.MessageUUID,
+    );
+    return { ok: true, provider: this.name, id };
   }
 }
 
