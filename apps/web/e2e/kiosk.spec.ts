@@ -1,6 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { checkA11y, signIn } from "./helpers.ts";
 
+// Adds a family for good, so a retry would fail on the first attempt's family.
+test.describe.configure({ retries: 0 });
+
 test("a kiosk tablet: scan a book with the camera and borrow it with a code", async ({ page }) => {
   // An admin turns this browser into a kiosk; it signs them out. (Their own
   // sign-in, not the saved one other tests share, which this would end.)
@@ -19,6 +22,7 @@ test("a kiosk tablet: scan a book with the camera and borrow it with a code", as
   await expect(shown).toBeVisible();
   const code = ((await shown.textContent()) ?? "").replace(/\D/g, "");
   expect(code).toHaveLength(6);
+  await checkA11y(page, "a new family's kiosk code");
 
   // Back to the kiosk, which warns that staff are still signed in.
   await page.goto("/e2e-owls/kiosk");

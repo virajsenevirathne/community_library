@@ -3,7 +3,8 @@ import { defineConfig, devices } from "@playwright/test";
 import { SERVER_LOG, STATE } from "./paths.ts";
 
 /*
- * Browser tests: the real app (Worker and pages) in Chrome, against its own
+ * Browser tests: the real app (Worker and pages) in Chrome (and parents'
+ * flows in Safari's engine and Firefox too), against its own
  * local database (see prepare.mjs). Sign-in codes are read from the server's
  * output, since without email keys the app prints emails instead of sending.
  *

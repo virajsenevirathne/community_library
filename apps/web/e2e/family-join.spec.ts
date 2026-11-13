@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { ADMIN, checkA11y, emailTo, linkIn, logLength, signIn } from "./helpers.ts";
 
+// Changes the shared test data for good, so a retry would only fail on what
+// the first attempt left behind: report the first failure instead.
+test.describe.configure({ retries: 0 });
+
 test("a family joins with the sign-up link, borrows, and adds a second parent", async ({
   browser,
 }) => {
@@ -11,6 +15,7 @@ test("a family joins with the sign-up link, borrows, and adds a second parent", 
   const link = staff.getByRole("textbox", { name: "Sign-up link" });
   await expect(link).toHaveValue(/\/join\//);
   const joinPath = new URL(await link.inputValue()).pathname;
+  await checkA11y(staff, "Families, with the sign-up link");
 
   // A parent opens it on their phone and signs in.
   const mia = await (await browser.newContext()).newPage();
@@ -44,6 +49,7 @@ test("a family joins with the sign-up link, borrows, and adds a second parent", 
   await mia.getByRole("button", { name: "Send invitation" }).click();
   await expect(mia.getByText("Invitation sent to tom@e2e.test.", { exact: false })).toBeVisible();
   await expect(mia.getByText("tom@e2e.test · invited")).toBeVisible();
+  await checkA11y(mia, "Account, with an invitation sent");
 
   // The partner accepts from the email, and shares the family's books.
   const invite = await emailTo("tom@e2e.test", since, /You're invited to E2E Owls/);

@@ -1,5 +1,6 @@
 // Prepares the browser tests: a fresh local database with every migration
-// and the test data, and fake camera videos: a book's QR sticker, and a\n// book's ISBN barcode.
+// and the test data, and fake camera videos: a book's QR sticker, and a
+// book's ISBN barcode.
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";

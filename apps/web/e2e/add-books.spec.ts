@@ -1,6 +1,10 @@
 import { expect, type Page, test } from "@playwright/test";
 import { ADMIN, checkA11y } from "./helpers.ts";
 
+// Changes the shared test data for good, so a retry would only fail on what
+// the first attempt left behind: report the first failure instead.
+test.describe.configure({ retries: 0 });
+
 /*
  * Staff add books and print their stickers. Runs in the "chrome-barcode"
  * project, whose fake camera shows the barcode of ISBN 9780000000002. The

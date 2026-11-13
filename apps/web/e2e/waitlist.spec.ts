@@ -26,6 +26,7 @@ test("a family joins the waiting list for a book another family has, then leaves
   await page.goto("/e2e-owls/");
   await expect(page.getByRole("heading", { name: "Waiting for" })).toBeVisible();
   await expect(page.getByText("You're first in line")).toBeVisible();
+  await checkA11y(page, "home, waiting for a book");
 
   // The Lee family can't keep it longer while someone waits.
   await leePage.goto("/e2e-owls/c/BK4A");

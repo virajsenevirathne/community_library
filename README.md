@@ -55,10 +55,12 @@ Before opening a pull request:
 
 ```bash
 npm run check   # lint, typecheck, tests, build
-npm run e2e -w @community-library/web   # the app in Chrome, Safari and Firefox, with accessibility checks
+npm run e2e -w @community-library/web   # the app in real browsers, with accessibility checks
 ```
 
-The browser tests run in Chrome, Safari (WebKit) and Firefox. Install them for Playwright once: `npx playwright install chromium webkit firefox`.
+The browser tests run in Chrome; parents' main flows also run in Safari's engine
+(WebKit, as an iPhone) and Firefox. Install them for Playwright once:
+`npx playwright install chromium webkit firefox`.
 
 ## Deploying your own site
 

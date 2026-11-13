@@ -146,6 +146,17 @@ h3,
   font-family: var(--font-display);
 }
 
+/* Focus and in-page links scroll clear of the sticky header (and the phone's tab
+   bar), so what's focused is never hidden behind them (WCAG 2.4.11). */
+html {
+  scroll-padding-top: calc(var(--header-h) + var(--s-4));
+}
+@media (max-width: 40rem) {
+  html {
+    scroll-padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--s-4));
+  }
+}
+
 body {
   margin: 0;
   background: var(--bg);

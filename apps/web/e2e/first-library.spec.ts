@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { checkA11y, emailTo, linkIn, logLength, signIn } from "./helpers.ts";
 
+// Changes the shared test data for good, so a retry would only fail on what
+// the first attempt left behind: report the first failure instead.
+test.describe.configure({ retries: 0 });
+
 /*
  * A new library, from the site owner creating it to its first admin on the
  * dashboard. (Becoming the site's owner with the setup code is covered by the
@@ -60,6 +64,7 @@ test("the owner creates a library, and its first admin sets it up", async ({ bro
   await admin.getByRole("button", { name: "Finish setting up" }).click();
   await expect(admin).toHaveURL(/\/wombat-reads\/admin$/);
   await expect(admin.getByRole("heading", { name: "Library dashboard" })).toBeVisible();
+  await checkA11y(admin, "a new library's dashboard");
 
   // The choice stuck.
   await admin.goto("/wombat-reads/admin/settings");

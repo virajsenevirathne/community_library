@@ -34,7 +34,7 @@ export async function emailTo(email: string, since: number, subject: RegExp): Pr
     const log = readFileSync(SERVER_LOG, "utf8").slice(since);
     const block = log
       .split("✉️  To: ")
-      .findLast((b) => b.startsWith(email) && subject.test(b.split("\n")[1] ?? ""));
+      .findLast((b) => b.startsWith(`${email}\n`) && subject.test(b.split("\n")[1] ?? ""));
     if (block) return block;
     await new Promise((r) => setTimeout(r, 200));
   }
@@ -43,12 +43,12 @@ export async function emailTo(email: string, since: number, subject: RegExp): Pr
 
 /** The first link in an email that goes to `path` (such as "/invite/"), as a path to open. */
 export function linkIn(email: string, path: string): string {
-  const url = email.match(new RegExp(`https?://\\S+${path}\\S*`))?.[0];
+  const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const url = email.match(new RegExp(`https?://\\S+${escaped}[^\\s)>"]*`))?.[0];
   if (!url) throw new Error(`No ${path} link in the email:\n${email}`);
   return new URL(url).pathname + new URL(url).search;
 }
 
-/** Signs in with an emailed code, the way a parent does. */
 /**
  * Gives the page its own network address, as each parent has on their own
  * phone, so the per-network limits on sign-in codes don't add up across tests.
@@ -95,7 +95,10 @@ export async function checkA11y(page: Page, where: string) {
   // Each element with what axe measured, such as the two colours and their contrast.
   const summary = (v: (typeof results.violations)[number]) =>
     `${v.id}: ${v.help} (${v.nodes
-      .map((n) => `${n.target.join(" ")}${n.any[0]?.message ? `: ${n.any[0].message}` : ""}`)
+      .map(
+        (n) =>
+          `${n.target.join(" ")} ${n.html.slice(0, 100)}${n.any[0]?.message ? `: ${n.any[0].message}` : ""}`,
+      )
       .join("; ")})`;
   for (const v of results.violations.filter(
     (v) => v.impact !== "serious" && v.impact !== "critical",
