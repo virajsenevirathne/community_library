@@ -239,6 +239,15 @@ a {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A library's own logo: any shape, fitted to the header's height. */
+.brand__logo {
+  flex: none;
+  height: 2rem;
+  width: auto;
+  max-width: 7rem;
+  object-fit: contain;
+  border-radius: var(--r-sm);
+}
 .brand__mark {
   flex: none;
   width: 1.75rem;
@@ -606,6 +615,30 @@ h1 + h2 {
 }
 .field input[type="date"] {
   width: auto;
+}
+/* A file picker is a button, not a box to type in. */
+.field input[type="file"] {
+  width: auto;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+}
+.field input[type="file"]::file-selector-button {
+  min-height: var(--tap);
+  margin-right: var(--s-3);
+  padding: 0 1.125rem;
+  border: 2px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.field input[type="file"]::file-selector-button:hover {
+  border-color: var(--text);
 }
 .field input.code-input {
   font-size: 1.75rem;
@@ -2434,6 +2467,34 @@ kbd {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 1.25rem;
+}
+/* Settings › Logo: the picture on a plain card, as it will look small. */
+.logo-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3);
+}
+.logo-preview img {
+  max-height: 6rem;
+  max-width: 12rem;
+  width: auto;
+  object-fit: contain;
+  padding: var(--s-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: #ffffff;
+}
+/* The same logo as a phone in dark mode shows it. */
+.logo-preview img.logo-preview__dark {
+  background: #1d2421;
+  border-color: #1d2421;
+}
+
+/* The tablet is seen from further away: a bigger logo. */
+.kiosk__brand .brand__logo {
+  height: 2.75rem;
+  max-width: 10rem;
 }
 .kiosk__panel {
   width: 100%;

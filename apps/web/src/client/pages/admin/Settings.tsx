@@ -5,6 +5,7 @@ import { formatDate } from "../../lib/copies.ts";
 import { useSession } from "../../lib/session.tsx";
 import { DataExport } from "./DataExport.tsx";
 import { KioskSettings } from "./Kiosks.tsx";
+import { LogoSettings } from "./LogoSettings.tsx";
 import { WebhookSettings } from "./WebhookSettings.tsx";
 
 interface Settings {
@@ -436,6 +437,7 @@ export function SettingsPage() {
           </Button>
         </div>
       </form>
+      <LogoSettings />
       <KioskSettings />
       <DataExport />
       <WebhookSettings />

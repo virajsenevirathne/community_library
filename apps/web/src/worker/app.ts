@@ -24,6 +24,7 @@ import { exportRoutes } from "./routes/export.ts";
 import { familyRoutes } from "./routes/families.ts";
 import { kioskRoutes } from "./routes/kiosk.ts";
 import { loanRoutes } from "./routes/loans.ts";
+import { logoRoutes } from "./routes/logo.ts";
 import { ownerRoutes } from "./routes/owner.ts";
 import { webhookRoutes } from "./routes/webhooks.ts";
 
@@ -212,6 +213,7 @@ export function createApp(options: AppOptions = {}) {
   app.route("/", kioskRoutes);
   app.route("/", exportRoutes);
   app.route("/", webhookRoutes);
+  app.route("/", logoRoutes);
 
   app.notFound((c) => c.json({ error: "not_found", message: "Not found." }, 404));
   app.onError((err, c) => {

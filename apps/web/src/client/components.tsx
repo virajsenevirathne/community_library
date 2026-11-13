@@ -6,6 +6,7 @@ import {
   useEffect,
   useId,
   useRef,
+  useState,
 } from "react";
 import { Icon, JoeyMark } from "./icons.tsx";
 import { hasNavigated, Link, useLocation } from "./lib/router.tsx";
@@ -107,7 +108,10 @@ export function Layout({
       <header className="site-header">
         <div className="site-header__inner">
           <Link href="/" absolute={siteWide} className="brand" aria-label={`${libraryName}: home`}>
-            <JoeyMark className="brand__mark" />
+            <LibraryMark
+              slug={siteWide ? undefined : me?.library?.slug}
+              logo={siteWide ? null : me?.library?.logo}
+            />
             <span className="brand__name">{libraryName}</span>
           </Link>
           {signedIn && (
@@ -426,4 +430,21 @@ export function LibraryList({
       ))}
     </ul>
   );
+}
+
+/**
+ * The library's own logo, or the joey when it has none (or it can't load).
+ * Decorative: the library's name is always next to it.
+ */
+export function LibraryMark({
+  slug,
+  logo,
+}: {
+  slug?: string | undefined;
+  logo?: number | null | undefined;
+}) {
+  const [failed, setFailed] = useState<string | null>(null);
+  const src = slug && logo ? `/api/logo/${encodeURIComponent(slug)}?v=${logo}` : null;
+  if (!src || failed === src) return <JoeyMark className="brand__mark" />;
+  return <img className="brand__logo" src={src} alt="" onError={() => setFailed(src)} />;
 }

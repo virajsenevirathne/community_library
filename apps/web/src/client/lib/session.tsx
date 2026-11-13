@@ -34,6 +34,8 @@ export interface Me {
     support: boolean;
     /** The library's colour (Settings). */
     theme?: string;
+    /** Its logo's version, or null without one (see LibraryMark). */
+    logo?: number | null;
   } | null;
   /** True for the person who runs the whole site. */
   owner?: boolean;

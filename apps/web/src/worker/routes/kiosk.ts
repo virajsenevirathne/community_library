@@ -9,7 +9,7 @@ import { type AppContext, type AppEnv, fail, readBody } from "../context.ts";
 import { hmacHex, randomToken, sha256Hex } from "../crypto.ts";
 import { newId } from "../db/client.ts";
 import { kioskReturnEmail } from "../email.ts";
-import { type LibraryInfo, libraryById, libraryHome } from "../library.ts";
+import { type LibraryInfo, libraryById, libraryHome, logoVersion } from "../library.ts";
 import { consume, lock, lockedFor, refund, reset } from "../limiter.ts";
 import { emitWebhook } from "../webhooks.ts";
 import { firstNameField, name } from "./account.ts";
@@ -79,6 +79,18 @@ function setPass(c: Context<AppEnv>, token: string) {
 async function passHash(c: AppContext) {
   const token = getCookie(c, cookieName(c));
   return token && token.length >= 20 && token.length <= 100 ? sha256Hex(token) : null;
+}
+
+/** The library this tablet is a working kiosk of, or null. Never fails. */
+export async function kioskLibraryId(c: AppContext): Promise<string | null> {
+  const hash = await passHash(c);
+  if (!hash) return null;
+  const row = await c.env.DB.prepare(
+    "select library_id as libraryId from kiosk_devices where token_hash = ? and revoked_at is null",
+  )
+    .bind(hash)
+    .first<{ libraryId: string }>();
+  return row?.libraryId ?? null;
 }
 
 interface Kiosk {
@@ -266,6 +278,7 @@ export const kioskRoutes = new Hono<AppEnv>()
         paused: kiosk.library.status === "paused",
         returnsNeedCheckIn: kiosk.library.settings.returnsNeedCheckIn,
         theme: kiosk.library.settings.theme,
+        logo: await logoVersion(c.env.DB, kiosk.library.id),
       },
     });
   })

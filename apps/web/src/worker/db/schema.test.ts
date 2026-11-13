@@ -59,6 +59,7 @@ describe("migrations", () => {
       "kiosk_devices",
       "kiosk_people",
       "libraries",
+      "library_logos",
       "library_webhooks",
       "loans",
       "memberships",

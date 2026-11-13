@@ -444,6 +444,17 @@ export const ROUTES: {
     body: { familyName: "Okafor", firstName: "Nana" },
   },
   { route: "POST /api/account/delete/confirm", rule: "user", body: { code: "abc" } },
+  // Answers "not found" to anyone who may not see it; routes/logo.test.ts checks who.
+  { route: "GET /api/logo/:slug", rule: "public", request: "/api/logo/lib-1" },
+  {
+    route: "PUT /api/admin/logo",
+    rule: "library:admin",
+    body: {
+      image:
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+    },
+  },
+  { route: "DELETE /api/admin/logo", rule: "library:admin" },
 ];
 
 type Who = "signedOut" | "nonMember" | "pendingMember" | "member" | "staff" | "admin";

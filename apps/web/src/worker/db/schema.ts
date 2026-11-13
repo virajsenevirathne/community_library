@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  blob,
   check,
   foreignKey,
   index,
@@ -631,3 +632,29 @@ export const jobRuns = sqliteTable("job_runs", {
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
   error: text("error"),
 });
+
+export const LOGO_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
+export type LogoType = (typeof LOGO_TYPES)[number];
+/** The largest logo kept, in bytes. The browser shrinks pictures well below it. */
+export const LOGO_MAX_BYTES = 100_000;
+
+/**
+ * A library's own logo, shown in its header. Kept in the database so it needs
+ * no other storage. Never SVG: an SVG can carry scripts.
+ */
+export const libraryLogos = sqliteTable(
+  "library_logos",
+  {
+    libraryId: text("library_id")
+      .primaryKey()
+      .references(() => libraries.id, { onDelete: "cascade" }),
+    image: blob("image", { mode: "buffer" }).notNull(),
+    contentType: text("content_type").notNull(),
+    /** Also the logo's version: its address changes with it, so browsers can keep it. */
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  () => [
+    check("library_logos_type_check", oneOf("content_type", LOGO_TYPES)),
+    check("library_logos_size_check", sql.raw(`length(image) <= ${LOGO_MAX_BYTES}`)),
+  ],
+);
