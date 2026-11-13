@@ -52,15 +52,26 @@ describe("a library's logo", () => {
     expect(image.status).toBe(200);
     expect(image.headers.get("Content-Type")).toBe("image/png");
     expect(new Uint8Array(await image.arrayBuffer())).toEqual(bytesOf(PNG));
-    // Kept by the browser until the logo changes (its address changes too),
-    // but only privately: it's for people signed in to this library.
-    expect(image.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable");
+    // Checked with the server each time, so leaving the library (or signing
+    // out on a shared tablet) stops it; unchanged, the answer is a quick 304.
+    expect(image.headers.get("Cache-Control")).toBe("private, no-cache");
     expect(image.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(image.headers.get("Cross-Origin-Resource-Policy")).toBe("same-origin");
+    const etag = image.headers.get("ETag") ?? "";
+    expect(etag).toBe(`"${version}"`);
+    const again = await parent.request("/api/logo/lib-1", { headers: { "If-None-Match": etag } });
+    expect(again.status).toBe(304);
+    // Only after the same check: an outsider with the tag still gets "not found".
+    const outsider = await person(ctx, { role: "none" });
+    expect(
+      (await outsider.request("/api/logo/lib-1", { headers: { "If-None-Match": etag } })).status,
+    ).toBe(404);
+  });
 
-    // An old or missing version is checked again each time.
-    const stale = await parent.request("/api/logo/lib-1?v=1");
-    expect(stale.headers.get("Cache-Control")).toBe("private, no-cache");
+  it("is shown to a family still waiting for approval, which sees the library already", async () => {
+    await upload(PNG);
+    const waiting = await person(ctx, { role: "member", familyStatus: "pending" });
+    expect((await waiting.request("/api/logo/lib-1")).status).toBe(200);
   });
 
   it("is hidden from anyone outside the library, like its name", async () => {
@@ -87,6 +98,27 @@ describe("a library's logo", () => {
     const kiosk = await tablet.json<{ library: { logo: number | null } }>("/api/kiosk");
     expect(kiosk.body.library.logo).toEqual(expect.any(Number));
     expect((await tablet.request("/api/logo/lib-1")).status).toBe(200);
+  });
+
+  it("is hidden from another library's kiosk, and a turned-off one", async () => {
+    await upload(PNG);
+    await createLibrary(env, { id: "lib-2" });
+    const elsewhere = await person(ctx, { role: "admin", libraryId: "lib-2" });
+    expect((await elsewhere.request("/api/admin/kiosks", { body: { name: "Desk" } })).status).toBe(
+      201,
+    );
+    await elsewhere.request("/api/auth/sign-out", { body: {} });
+    expect((await elsewhere.request("/api/logo/lib-1")).status).toBe(404);
+
+    const tablet = await person(ctx, { role: "admin" });
+    const made = await tablet.json<{ kiosk: { id: string } }>("/api/admin/kiosks", {
+      body: { name: "Desk" },
+    });
+    expect(
+      (await admin.request(`/api/admin/kiosks/${made.body.kiosk.id}/off`, { body: {} })).status,
+    ).toBe(200);
+    await tablet.request("/api/auth/sign-out", { body: {} });
+    expect((await tablet.request("/api/logo/lib-1")).status).toBe(404);
   });
 
   it("can be a PNG, JPEG or WebP, but nothing else", async () => {
@@ -116,6 +148,12 @@ describe("a library's logo", () => {
   });
 
   it("refuses pictures that are too big or can't be read", async () => {
+    const huge = await admin.request("/api/admin/logo", {
+      method: "PUT",
+      body: { image: "A".repeat(200_000) },
+    });
+    expect(huge.status).toBe(422);
+
     const big = new Uint8Array(LOGO_MAX_BYTES + 1);
     big.set(bytesOf(PNG));
     let text = "";
@@ -139,8 +177,8 @@ describe("a library's logo", () => {
   });
 
   it("can be replaced and removed", async () => {
+    // Even back to back, each new logo gets a new version (and address).
     const first = (await upload(PNG)).body.logo;
-    await new Promise((r) => setTimeout(r, 2));
     const second = (await upload(JPEG)).body.logo;
     expect(second).toBeGreaterThan(first);
     expect(await logoVersion(parent)).toBe(second);

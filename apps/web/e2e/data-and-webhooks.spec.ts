@@ -54,25 +54,47 @@ test("an admin downloads the library's data, adds a logo, and sets up a webhook"
   const logo = page.getByRole("region", { name: "Logo" });
   const header = page.locator(".site-header .brand__logo");
   await expect(header).toHaveCount(0);
-  await logo.getByLabel("Choose a picture").setInputFiles({
+  const svg = (fill: string) => ({
     name: "wrens.svg",
     mimeType: "image/svg+xml",
     buffer: Buffer.from(
-      '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="400" height="200" fill="#c0392b"/><circle cx="100" cy="100" r="70" fill="#fff"/></svg>',
+      `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="${fill}"/><circle cx="10" cy="10" r="7" fill="#fff"/></svg>`,
     ),
   });
-  await expect(logo.getByRole("img", { name: "Your new logo, not saved yet" })).toBeVisible();
+  // Chosen, then cancelled: nothing changes.
+  await logo.getByLabel("Choose a picture").setInputFiles(svg("#2e86c1"));
+  await expect(logo.getByText("Picture ready.", { exact: false })).toBeVisible();
+  await logo.getByRole("button", { name: "Cancel" }).click();
+  await expect(logo.getByLabel("Choose a picture")).toBeFocused();
+  await expect(header).toHaveCount(0);
+
+  // Chosen, previewed on light and dark, and saved.
+  await logo.getByLabel("Choose a picture").setInputFiles(svg("#c0392b"));
+  await expect(
+    logo.getByRole("img", { name: "Your new logo, not saved yet, on a light screen" }),
+  ).toBeVisible();
+  await expect(logo.getByRole("img", { name: "The same, on a dark screen" })).toBeVisible();
   await expect(logo.getByRole("button", { name: "Save this logo" })).toBeFocused();
   await checkA11y(page, "a logo chosen, before saving");
   await logo.getByRole("button", { name: "Save this logo" }).click();
   await expect(logo.getByText("Logo saved.", { exact: false })).toBeVisible();
   await expect(header).toHaveAttribute("src", /^\/api\/logo\/e2e-wrens\?v=\d+$/);
-  // It loaded: a real picture, shrunk to at most 256 pixels wide.
+  // It loaded: a drawing as small as 40×20 is drawn at full size, 256 pixels wide.
   await expect.poll(() => header.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(256);
   await page.reload();
   await expect(header).toBeVisible();
+
+  // Removing asks first.
   await logo.getByRole("button", { name: "Remove the logo" }).click();
-  await expect(logo.getByText("Logo removed.", { exact: false })).toBeVisible();
+  await expect(
+    logo.getByText("Remove the logo? The joey comes back", { exact: false }),
+  ).toBeFocused();
+  await checkA11y(page, "removing the logo, confirm");
+  await logo.getByRole("button", { name: "Keep it" }).click();
+  await expect(logo.getByRole("button", { name: "Remove the logo" })).toBeFocused();
+  await logo.getByRole("button", { name: "Remove the logo" }).click();
+  await logo.getByRole("button", { name: "Remove it" }).click();
+  await expect(logo.getByText("Logo removed:", { exact: false })).toBeVisible();
   await expect(header).toHaveCount(0);
   await expect(page.locator(".site-header .brand__mark")).toBeVisible();
 

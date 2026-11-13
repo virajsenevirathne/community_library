@@ -2471,8 +2471,9 @@ kbd {
 /* Settings › Logo: the picture on a plain card, as it will look small. */
 .logo-preview {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-start;
+  gap: var(--s-3);
 }
 .logo-preview img {
   max-height: 6rem;
@@ -2482,7 +2483,12 @@ kbd {
   padding: var(--s-2);
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
-  background: var(--surface);
+  background: #ffffff;
+}
+/* The same logo as a phone in dark mode shows it. */
+.logo-preview img.logo-preview__dark {
+  background: #1d2421;
+  border-color: #1d2421;
 }
 
 /* The tablet is seen from further away: a bigger logo. */

@@ -40,7 +40,8 @@ export const logoRoutes = new Hono<AppEnv>()
   /**
    * The logo itself, for <img>. Only to those who may see the library: like its
    * name, a logo says which centre this is. Anyone else gets "not found", the
-   * same as a library with no logo.
+   * same as a library with no logo. Its address carries the version (?v=), so a
+   * new logo shows at once.
    */
   .get("/logo/:slug", async (c) => {
     const library = await libraryBySlug(c.get("db"), c.req.param("slug").toLowerCase());
@@ -54,23 +55,29 @@ export const logoRoutes = new Hono<AppEnv>()
       .bind(library.id)
       .first<{ image: ArrayBuffer | number[]; type: LogoType; v: number }>();
     if (!row) fail(404, "not_found", "Not found.");
+    // Checked with the server every time (a quick "unchanged" when it is), so
+    // someone who signs out or leaves the library stops getting it, even on a
+    // shared tablet. Private: never kept by anything between.
+    const etag = `"${row.v}"`;
+    const headers = {
+      "Cache-Control": "private, no-cache",
+      ETag: etag,
+      "Cross-Origin-Resource-Policy": "same-origin",
+    };
+    if (c.req.header("If-None-Match") === etag) return new Response(null, { status: 304, headers });
     const body = row.image instanceof ArrayBuffer ? row.image : new Uint8Array(row.image).buffer;
-    // The address carries the version, so a matching one can be kept for good.
-    // Private: it's only for people signed in to this library.
-    const current = c.req.query("v") === String(row.v);
     return new Response(body, {
-      headers: {
-        "Content-Type": row.type,
-        "Cache-Control": current ? "private, max-age=31536000, immutable" : "private, no-cache",
-        "Cross-Origin-Resource-Policy": "same-origin",
-        "Content-Disposition": "inline",
-      },
+      headers: { ...headers, "Content-Type": row.type, "Content-Disposition": "inline" },
     });
   })
 
   /** Add or replace the logo: a PNG, JPEG or WebP, as base64, shrunk by the browser first. */
   .put("/admin/logo", async (c) => {
     const actor = await requirePermission(c, "library:admin");
+    // Refuse a huge upload before reading it all.
+    if (Number(c.req.header("Content-Length") ?? 0) > MAX_BASE64 + 1000) {
+      fail(422, "invalid_input", "That picture is too big. Try a smaller one.");
+    }
     const body = await readBody(
       c,
       z.object({
@@ -89,15 +96,17 @@ export const logoRoutes = new Hono<AppEnv>()
     if (!type) {
       fail(422, "invalid_input", "Use a PNG, JPEG or WebP picture.");
     }
-    const now = Date.now();
-    await c.env.DB.prepare(
+    // The version always moves on, even for two uploads in the same millisecond.
+    const saved = await c.env.DB.prepare(
       `insert into library_logos (library_id, image, content_type, updated_at) values (?, ?, ?, ?)
        on conflict (library_id) do update set
-         image = excluded.image, content_type = excluded.content_type, updated_at = excluded.updated_at`,
+         image = excluded.image, content_type = excluded.content_type,
+         updated_at = max(excluded.updated_at, library_logos.updated_at + 1)
+       returning updated_at as v`,
     )
-      .bind(actor.library.id, bytes, type, now)
-      .run();
-    return c.json({ logo: now });
+      .bind(actor.library.id, bytes, type, Date.now())
+      .first<{ v: number }>();
+    return c.json({ logo: saved?.v ?? null });
   })
 
   /** Remove the logo: the header goes back to the joey. */
