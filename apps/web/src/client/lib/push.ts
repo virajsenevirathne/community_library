@@ -22,10 +22,16 @@ export function needsHomeScreen(): boolean {
   const ios =
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  const standalone =
+  return ios && !openedFromHomeScreen();
+}
+
+/** Opened as an app from the Home Screen, not in a browser tab. */
+export function openedFromHomeScreen(): boolean {
+  if (typeof window === "undefined") return false;
+  return (
     window.matchMedia("(display-mode: standalone)").matches ||
-    (navigator as unknown as { standalone?: boolean }).standalone === true;
-  return ios && !standalone;
+    (navigator as unknown as { standalone?: boolean }).standalone === true
+  );
 }
 
 /** Starts the service worker that shows notifications. Safe to call more than once. */

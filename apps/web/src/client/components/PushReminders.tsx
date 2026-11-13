@@ -12,27 +12,42 @@ import {
 import { useSession } from "../lib/session.tsx";
 
 /*
- * Notifications for due-date reminders. Offered after a borrow (never on a
- * first visit), and chosen on the Account page: email, notifications, or both.
+ * Notifications for due-date reminders. Offered right after joining and after
+ * a borrow (the phone's own permission prompt only ever follows a tap), and
+ * chosen on the Account page: email, notifications, or both.
  */
 
 const DECLINED_KEY = "pushOfferDeclined";
+const HOME_SCREEN_SEEN_KEY = "pushHomeScreenHintSeen";
 
-/** Safari on iPhone only offers notifications to a site added to the Home Screen. */
-const HOME_SCREEN_HINT =
-  "On iPhone or iPad (iOS 16.4 or later), notifications work once Reading Joey is on your Home Screen: open this site in Safari, tap Share, then Add to Home Screen, and open Reading Joey from there.";
-
-function declined(): boolean {
+function remember(key: string) {
   try {
-    return localStorage.getItem(DECLINED_KEY) === "1";
+    localStorage.setItem(key, "1");
+  } catch {
+    // Private mode: it may be offered again next time.
+  }
+}
+
+function seen(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === "1";
   } catch {
     return false;
   }
 }
 
+/** Safari on iPhone only offers notifications to a site added to the Home Screen. */
+const HOME_SCREEN_HINT =
+  "In Safari, tap Share, then Add to Home Screen, and open Reading Joey from your Home Screen. (It needs recent iPhone software.)";
+
+function declined(): boolean {
+  return seen(DECLINED_KEY);
+}
+
 const RESULTS = {
   on: "Done. Reminders will come to this phone, and by email too. You can change that on your Account page.",
   dismissed: "No problem. You can turn reminders on later from your Account page.",
+  later: "OK. Once Reading Joey is on your Home Screen, turn reminders on from your Account page.",
   denied:
     "Notifications are blocked for this site, so reminders will keep coming by email. To change that, allow notifications for this site in your browser or phone settings, then turn them on from your Account page.",
   failed:
@@ -40,7 +55,7 @@ const RESULTS = {
   no: "OK, we won't ask again. Reminders will keep coming by email.",
 } as const;
 
-/** After borrowing: "Get reminders on this phone?" Shown until answered. */
+/** After joining or borrowing: "Get reminders on this phone?" Shown until answered. */
 export function PushOffer() {
   const { state, refresh } = useSession();
   const me = state.status === "ready" ? state.me : null;
@@ -57,11 +72,46 @@ export function PushOffer() {
     !declined();
   // Decided once per visit: the offer doesn't vanish while it's being answered.
   const [offered] = useState(Boolean(show));
+  // An iPhone in Safari can't be asked yet: say how, once.
+  const [homeScreenHint, setHomeScreenHint] = useState(
+    Boolean(
+      me?.pushKey &&
+        me.user &&
+        me.user.pushDevices === 0 &&
+        needsHomeScreen() &&
+        !declined() &&
+        !seen(HOME_SCREEN_SEEN_KEY),
+    ),
+  );
   // The buttons are replaced by the answer: move focus there, so it's read out.
   useEffect(() => {
     if (answer) section.current?.focus();
   }, [answer]);
-  if (!offered || !me?.pushKey) return null;
+  if (homeScreenHint) {
+    return (
+      <section className="card stack" aria-label="Reminders on this phone">
+        <p>
+          <strong>
+            To get due-date reminders on this iPhone, add Reading Joey to your Home Screen.
+          </strong>{" "}
+          {HOME_SCREEN_HINT}
+        </p>
+        <div className="row">
+          <Button
+            variant="secondary"
+            onClick={() => {
+              remember(HOME_SCREEN_SEEN_KEY);
+              setHomeScreenHint(false);
+              setAnswer("later");
+            }}
+          >
+            Got it
+          </Button>
+        </div>
+      </section>
+    );
+  }
+  if ((!offered && !answer) || !me?.pushKey) return null;
 
   const yes = async () => {
     setBusy(true);
@@ -71,11 +121,7 @@ export function PushOffer() {
     if (result === "on") await refresh();
   };
   const no = () => {
-    try {
-      localStorage.setItem(DECLINED_KEY, "1");
-    } catch {
-      // Private mode: it may be offered again next time.
-    }
+    remember(DECLINED_KEY);
     setAnswer("no");
   };
 

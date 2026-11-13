@@ -42,13 +42,51 @@ beforeEach(async () => {
 });
 afterEach(() => dispose());
 
-const subscribe = (who: Person, endpoint = ENDPOINT) =>
-  who.request("/api/push/subscriptions", { body: { endpoint, keys: KEYS } });
+/**
+ * Turns notifications on for this "phone". Its first notification ("Reminders
+ * are on") is checked on its own below, so it's cleared here.
+ */
+async function subscribe(who: Person, endpoint = ENDPOINT) {
+  const res = await who.request("/api/push/subscriptions", { body: { endpoint, keys: KEYS } });
+  await ctx.settle();
+  ctx.pushed.length = 0;
+  return res;
+}
 
 describe("phone notifications", () => {
   it("tells signed-in people the site's push key", async () => {
     const me = await parent.json<{ pushKey: string; user: { notifyBy: string } }>("/api/me");
     expect(me.body.pushKey).toBe("BPublicKeyForTests");
+    expect(me.body.user.notifyBy).toBe("email");
+  });
+
+  it("sends a first notification straight away, so people see it works", async () => {
+    const res = await parent.request("/api/push/subscriptions", {
+      body: { endpoint: ENDPOINT, keys: KEYS },
+    });
+    expect(res.status).toBe(201);
+    await ctx.settle();
+    expect(ctx.pushed).toEqual([
+      expect.objectContaining({ endpoint: ENDPOINT, title: "Reminders are on", url: "/" }),
+    ]);
+  });
+
+  it("doesn't send it again when the same phone is saved again", async () => {
+    await subscribe(parent);
+    await parent.request("/api/push/subscriptions", { body: { endpoint: ENDPOINT, keys: KEYS } });
+    await ctx.settle();
+    expect(ctx.pushed).toEqual([]);
+  });
+
+  it("forgets a phone whose first notification says it's gone", async () => {
+    ctx.push.gone.add(ENDPOINT);
+    await parent.request("/api/push/subscriptions", { body: { endpoint: ENDPOINT, keys: KEYS } });
+    await ctx.settle();
+    const left = await env.DB.prepare("select count(*) as n from push_subscriptions").first<{
+      n: number;
+    }>();
+    expect(left?.n).toBe(0);
+    const me = await parent.json<{ user: { notifyBy: string } }>("/api/me");
     expect(me.body.user.notifyBy).toBe("email");
   });
 

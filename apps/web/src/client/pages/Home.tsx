@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KioskPinForm } from "../components/KioskPin.tsx";
+import { PushOffer } from "../components/PushReminders.tsx";
 import { Alert, Button, Layout, Loading } from "../components.tsx";
 import { BookStack } from "../icons.tsx";
 import { api, errorMessage } from "../lib/api.ts";
 import { formatDate, lateText } from "../lib/copies.ts";
+import { openedFromHomeScreen } from "../lib/push.ts";
 import { Link } from "../lib/router.tsx";
 import { isStaff, type Me, useSession } from "../lib/session.tsx";
 import { Cover } from "./admin/Cover.tsx";
@@ -85,6 +87,9 @@ export function HomePage() {
       )}
       {status === "ok" && <MyBooks />}
       {/* After the books (and any approval message), so it never hides them. */}
+      {/* Reminders first (one tap), then the PIN (a form). Opened from the Home
+          Screen, the reminders offer shows too: that's where an iPhone can say yes. */}
+      {status === "ok" && (joined || openedFromHomeScreen()) && <PushOffer />}
       {joined && (status === "ok" || status === "pending") && (
         <KioskPinPrompt libraryName={me.library?.name ?? "the library"} />
       )}
