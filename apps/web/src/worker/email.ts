@@ -122,7 +122,7 @@ export function checkoutEmail(options: {
   siteUrl: string;
   borrowed: { title: string; dueOn: string };
   booksOut: { title: string; dueOn: string }[];
-  /** Borrowed at the library's kiosk tablet, with this person's code. */
+  /** Borrowed at the library's kiosk tablet, with this person's PIN. */
   kiosk?: { personName: string };
 }): EmailMessage {
   const library = cleanHeader(options.libraryName);

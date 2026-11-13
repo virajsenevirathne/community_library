@@ -3,7 +3,7 @@
 A free lending library for daycares, schools and other small libraries.
 Every book gets a QR sticker; parents scan it with their phone to borrow or return,
 and the app sends reminders and gives staff a live list of who has what. A shared
-tablet by the shelf can be a kiosk, where families borrow with a personal code.
+tablet by the shelf can be a kiosk, where families borrow with a personal PIN.
 
 It runs as one Cloudflare Worker with a D1 database, so a small library pays nothing to
 host it. One site can hold many libraries, each at its own address (`/little-owls`).

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestApp, type TestClient } from "../test/client.ts";
 import { createTestEnv } from "../test/env.ts";
 import { createLibrary, person } from "../test/fixtures.ts";
+import { easyPin } from "./kiosk.ts";
 
 type Person = Awaited<ReturnType<typeof person>>;
 
@@ -233,9 +234,13 @@ describe("borrowing at the kiosk", () => {
     expect((await borrow(tablet, await addBook("C"), code)).body).toMatchObject({
       error: "limit_reached",
     });
-    const waiting = await person(ctx, { role: "member", familyStatus: "pending" });
+    // A family sent back to waiting (PINs are set only once approved) can't borrow.
+    const waiting = await person(ctx, { role: "member" });
     await setName(waiting, "Sam");
     const waitingCode = await myCode(waiting);
+    await env.DB.prepare("update families set status = 'pending' where id = ?")
+      .bind(waiting.familyId)
+      .run();
     expect((await borrow(tablet, await addBook("D"), waitingCode)).body).toMatchObject({
       error: "family_pending",
     });
@@ -401,5 +406,146 @@ describe("returning at the kiosk", () => {
     await env.DB.prepare("update libraries set status = 'paused'").run();
     const res = await tablet.json(`/api/kiosk/copies/${book}/return`, { body: {} });
     expect(res.status).toBe(403);
+  });
+});
+
+describe("a PIN you choose", () => {
+  const choose = (who: Person, pin: string) =>
+    who.json<{ code?: string; ok?: boolean; message?: string }>("/api/family/kiosk-code", {
+      body: { pin },
+    });
+
+  it("works at the kiosk, and isn't sent back", async () => {
+    const tablet = await kioskTablet();
+    const book = await addBook();
+    const res = await choose(parent, "583920");
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ ok: true });
+    expect((await borrow(tablet, book, "583920")).body.borrowed?.name).toBe("Priya");
+  });
+
+  it("can be changed, and the old one stops working", async () => {
+    const tablet = await kioskTablet();
+    const book = await addBook();
+    await choose(parent, "583920");
+    expect((await choose(parent, "740261")).status).toBe(201);
+    expect((await borrow(tablet, book, "583920")).body).toMatchObject({ error: "wrong_code" });
+    expect((await borrow(tablet, book, "740261")).status).toBe(201);
+  });
+
+  it("turns down easy PINs, and ones another family here uses, the same way", async () => {
+    const other = await person(ctx, { role: "member", familyName: "Okafor" });
+    await setName(other, "Ada");
+    expect((await choose(other, "583920")).status).toBe(201);
+    const taken = await choose(parent, "583920");
+    expect(taken.status).toBe(422);
+    const easy = await choose(parent, "123456");
+    expect(easy.status).toBe(422);
+    expect(easy.body.message).toBe(taken.body.message);
+    // Still theirs, and still working for them.
+    const tablet = await kioskTablet();
+    const book = await addBook();
+    expect((await borrow(tablet, book, "583920")).body.borrowed?.name).toBe("Ada");
+  });
+
+  it("is for one library: the same PIN can be used in another", async () => {
+    await createLibrary(env, { id: "lib-2" });
+    const there = await person(ctx, { role: "member", libraryId: "lib-2", familyName: "Ng" });
+    there.library = "lib-2";
+    await setName(there, "Mai");
+    expect((await choose(parent, "583920")).status).toBe(201);
+    expect((await choose(there, "583920")).status).toBe(201);
+  });
+
+  it("lets someone in two libraries keep the same PIN in both, or not", async () => {
+    await createLibrary(env, { id: "lib-2" });
+    await env.DB.batch([
+      env.DB.prepare(
+        "insert into families (id, library_id, name, status) values ('fam-b', 'lib-2', 'Lee', 'active')",
+      ),
+      env.DB.prepare(
+        "insert into memberships (id, library_id, user_id, role, family_id) values ('m-b', 'lib-2', ?, 'member', 'fam-b')",
+      ).bind(parent.userId),
+    ]);
+    // Somebody at the second library already has 583920.
+    const local = await person(ctx, { role: "member", libraryId: "lib-2", familyName: "Ng" });
+    local.library = "lib-2";
+    await setName(local, "Mai");
+    expect((await choose(local, "583920")).status).toBe(201);
+
+    expect((await choose(parent, "583920")).status).toBe(201);
+    parent.library = "lib-2";
+    expect((await choose(parent, "583920")).status).toBe(422);
+    expect((await choose(parent, "740261")).status).toBe(201);
+    // Each library's PIN is its own: changing one leaves the other.
+    parent.library = "lib-1";
+    const tablet = await kioskTablet();
+    const book = await addBook();
+    expect((await borrow(tablet, book, "583920")).body.borrowed?.name).toBe("Priya");
+  });
+
+  it("must be 6 numbers", async () => {
+    for (const pin of ["12345", "1234567", "abcdef", "58 920"]) {
+      expect((await choose(parent, pin)).status, pin).toBe(422);
+    }
+  });
+
+  it("can't be tried over and over to find another family's", async () => {
+    for (let i = 0; i < 10; i++) await choose(parent, "111111");
+    const res = await choose(parent, "583920");
+    expect(res.status).toBe(429);
+  });
+});
+
+describe("guarding PINs from guessing", () => {
+  const choose = (who: Person, pin: string) =>
+    who.json<{ message?: string }>("/api/family/kiosk-code", { body: { pin } });
+
+  it("waits for a family to be approved", async () => {
+    const waiting = await person(ctx, { role: "member", familyStatus: "pending" });
+    await setName(waiting, "Sam");
+    expect((await choose(waiting, "583920")).status).toBe(403);
+    const status = await waiting.json<{ canSet: boolean }>("/api/family/kiosk-code");
+    expect(status.body.canSet).toBe(false);
+  });
+
+  it("answers 'taken' only 3 times a day, then waits", async () => {
+    const pins = ["583920", "740261", "958372", "864095"];
+    for (const [i, pin] of pins.entries()) {
+      const other = await person(ctx, { role: "member", familyName: `Other ${i}` });
+      await setName(other, `Ada ${i}`);
+      expect((await choose(other, pin)).status).toBe(201);
+    }
+    for (const pin of pins.slice(0, 3)) expect((await choose(parent, pin)).status).toBe(422);
+    // Now even a free PIN waits, so the fourth answer says nothing.
+    expect((await choose(parent, "385029")).status).toBe(429);
+    expect((await choose(parent, pins[3] ?? "")).status).toBe(429);
+  });
+});
+
+describe("easyPin", () => {
+  it("spots PINs someone would guess first", () => {
+    for (const pin of [
+      "000000",
+      "111111",
+      "123456",
+      "654321",
+      "890123",
+      "121212",
+      "112233",
+      "111222",
+      "123321",
+      // Birthdays: ddmmyy, mmddyy and yymmdd.
+      "150390",
+      "031590",
+      "900315",
+      "123123",
+      "246802",
+    ]) {
+      expect(easyPin(pin), pin).toBe(true);
+    }
+    for (const pin of ["583920", "740261", "958372", "864095"]) {
+      expect(easyPin(pin), pin).toBe(false);
+    }
   });
 });

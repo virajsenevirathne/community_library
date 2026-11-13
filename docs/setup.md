@@ -135,6 +135,12 @@ Families then scan a sticker to borrow, with their phone camera or the Scan butt
 
 ![A book's page on a phone](images/phone-book.png)
 
+A tablet by the shelf can also be a **kiosk**, for borrowing without a phone:
+an admin opens **Settings › Use this tablet as a kiosk** on it. Each adult then
+types their own 6-digit PIN there. Parents choose their PIN when they join, or
+any time on their **Account** page; staff can give one to a grandparent or
+nanny without email from **Families**. A PIN only works at its own library.
+
 ## 7. Before families join
 
 - [ ] In Cloudflare, under your domain's **SSL/TLS › Edge Certificates**, turn

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { KioskPinForm } from "../components/KioskPin.tsx";
 import { Alert, Button, Layout, Loading } from "../components.tsx";
 import { BookStack } from "../icons.tsx";
 import { api, errorMessage } from "../lib/api.ts";
@@ -83,6 +84,10 @@ export function HomePage() {
         </Alert>
       )}
       {status === "ok" && <MyBooks />}
+      {/* After the books (and any approval message), so it never hides them. */}
+      {joined && (status === "ok" || status === "pending") && (
+        <KioskPinPrompt libraryName={me.library?.name ?? "the library"} />
+      )}
     </Layout>
   );
 }
@@ -313,5 +318,58 @@ function MyBooks() {
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * Straight after joining, a family's adult can set their kiosk PIN, when the
+ * library has a kiosk. Skipped here, it's on the Account page any time.
+ */
+function KioskPinPrompt({ libraryName }: { libraryName: string }) {
+  const [wanted, setWanted] = useState(false);
+  const [state, setState] = useState<"open" | "saved" | "later">("open");
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    api<{ kioskInUse: boolean; code: unknown; canSet: boolean }>("/family/kiosk-code")
+      .then((res) => setWanted(res.kioskInUse && res.canSet && !res.code))
+      .catch(() => setWanted(false));
+  }, []);
+  useEffect(() => {
+    if (state !== "open") heading.current?.focus();
+  }, [state]);
+  if (!wanted) return null;
+  return (
+    <section className="card stack" aria-labelledby="pin-prompt-heading">
+      <h2 id="pin-prompt-heading" className="section-title" ref={heading} tabIndex={-1}>
+        {state === "saved" ? "Your PIN is saved" : "Set your kiosk PIN"}
+      </h2>
+      {state === "open" && (
+        <>
+          <p className="muted">
+            {libraryName} has a kiosk tablet by the shelf. With your own PIN you can borrow there
+            without your phone. You can also set it later on your Account page.
+          </p>
+          <KioskPinForm
+            libraryName={libraryName}
+            cancelLabel="Not now"
+            onSaved={() => setState("saved")}
+            onCancel={() => {
+              setState("later");
+              // So a reload doesn't ask again: that was the welcome, not the page.
+              const url = new URL(window.location.href);
+              url.searchParams.delete("joined");
+              history.replaceState(history.state, "", url);
+            }}
+          />
+        </>
+      )}
+      {state === "saved" && <p>Type it on the kiosk's keypad when you borrow.</p>}
+      {state === "later" && (
+        <p>
+          No problem. You can set it any time on your <Link href="/account#kiosk-pin">Account</Link>{" "}
+          page.
+        </p>
+      )}
+    </section>
   );
 }

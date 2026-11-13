@@ -38,15 +38,15 @@ function ShownCode({ name, code, onHide }: { name: string; code: string; onHide:
   return (
     <div className="kiosk-code">
       <p className="kiosk-code__digits" ref={ref} tabIndex={-1}>
-        <span className="visually-hidden">{name}'s kiosk code is </span>
+        <span className="visually-hidden">{name}'s kiosk PIN is </span>
         {code.split("").join(" ")}
       </p>
       <p>
-        {name}'s kiosk code. Read it out or write it down for them: it won't be shown again. If it's
+        {name}'s kiosk PIN. Read it out or write it down for them: it won't be shown again. If it's
         lost, make a new one.
       </p>
       <Button variant="secondary" onClick={onHide}>
-        Hide the code
+        Hide the PIN
       </Button>
     </div>
   );
@@ -127,7 +127,7 @@ export function FamilyKiosk({ family, notify }: { family: FamilyLike; notify: Ki
 
   return (
     <div className="stack">
-      <h3>Kiosk codes</h3>
+      <h3>Kiosk PINs</h3>
       {shown && (
         <ShownCode
           key={`${shown.name}-${shown.code}`}
@@ -144,7 +144,7 @@ export function FamilyKiosk({ family, notify }: { family: FamilyLike; notify: Ki
               {row.userId === null && <span className="muted"> · no email</span>}
               <span className="muted">
                 {" "}
-                · {row.person?.hasCode ? "has a kiosk code" : "no kiosk code"}
+                · {row.person?.hasCode ? "has a kiosk PIN" : "no kiosk PIN"}
               </span>
             </span>
             <span className="row">
@@ -164,7 +164,7 @@ export function FamilyKiosk({ family, notify }: { family: FamilyLike; notify: Ki
                   )
                 }
               >
-                {row.person?.hasCode ? "New code" : "Give a code"}
+                {row.person?.hasCode ? "New PIN" : "Give a PIN"}
                 <span className="visually-hidden"> for {row.name}</span>
               </Button>
               {row.person?.hasCode && (
@@ -175,11 +175,11 @@ export function FamilyKiosk({ family, notify }: { family: FamilyLike; notify: Ki
                     run(
                       `off-${row.key}`,
                       () => api(`/admin/kiosk-people/${row.person?.id}/off`, { body: {} }),
-                      `${row.name}'s kiosk code is turned off.`,
+                      `${row.name}'s kiosk PIN is turned off.`,
                     )
                   }
                 >
-                  Turn off<span className="visually-hidden"> {row.name}'s code</span>
+                  Turn off<span className="visually-hidden"> {row.name}'s PIN</span>
                 </Button>
               )}
               {row.userId === null &&
@@ -218,7 +218,7 @@ export function FamilyKiosk({ family, notify }: { family: FamilyLike; notify: Ki
         <form onSubmit={add} noValidate className="inline-form">
           <Field
             label="First name of someone without email"
-            hint="A grandparent or a nanny, for example. They borrow at the kiosk with their code."
+            hint="A grandparent or a nanny, for example. They borrow at the kiosk with their PIN."
             autoComplete="off"
             autoFocus
             maxLength={40}
@@ -227,7 +227,7 @@ export function FamilyKiosk({ family, notify }: { family: FamilyLike; notify: Ki
             onChange={(e) => setFirstName(e.target.value)}
           />
           <Button type="submit" busy={busy === "add"} busyLabel="Adding…">
-            Add and make a code
+            Add and give a PIN
           </Button>
           <Button
             variant="secondary"
@@ -322,7 +322,7 @@ export function NoEmailFamilyCard({ notify }: { notify: KioskNotify }) {
           />
           <div className="row">
             <Button type="submit" busy={busy} busyLabel="Adding…">
-              Add the family and make a code
+              Add the family and give a PIN
             </Button>
             <Button
               variant="secondary"

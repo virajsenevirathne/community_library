@@ -137,8 +137,8 @@ export function PrivacyPage() {
           gave.
         </li>
         <li>
-          If your library has a kiosk tablet: your kiosk code, stored scrambled so nobody can read
-          it back, and the first names of any adults the library added without an email address.
+          If your library has a kiosk tablet: your kiosk PIN, stored scrambled so nobody can read it
+          back, and the first names of any adults the library added without an email address.
         </li>
         <li>Which books your household borrowed, when, and when they were due.</li>
         <li>

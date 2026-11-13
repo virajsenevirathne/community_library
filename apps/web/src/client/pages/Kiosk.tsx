@@ -685,11 +685,12 @@ function CodeScreen({
     <div className="kiosk__code">
       <div className="stack">
         <h1 ref={heading} tabIndex={-1} className="kiosk__title">
-          Type your kiosk code
+          Type your PIN
         </h1>
         <BookCard copy={copy} small />
         <p className="muted">
-          Your own 6-digit code. Don't have one? Get it on your Account page, or ask the staff.
+          Your own 6-digit PIN for this library. Don't have one? Set it on your Account page, or ask
+          the staff.
         </p>
       </div>
       <div className="stack">
@@ -706,7 +707,7 @@ function CodeScreen({
             />
           ))}
         </output>
-        {busy && <Loading label="Checking your code…" />}
+        {busy && <Loading label="Checking your PIN…" />}
         {error && <Alert>{error}</Alert>}
         {locked && (
           <p className="muted" aria-hidden="true">
