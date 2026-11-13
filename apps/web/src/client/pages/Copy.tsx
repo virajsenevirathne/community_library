@@ -347,7 +347,8 @@ function Waitlist({ copy, onChange }: { copy: CopyView; onChange: (copy: CopyVie
                 ? "You're first in line. We'll email you when a copy is back on the shelf."
                 : `${mine.position - 1} ${mine.position === 2 ? "family" : "families"} joined before you. We'll email you when a copy is back for you.`}
           </p>
-          <Button variant="link" onClick={leave} busy={busy} busyLabel="Leaving…">
+          {/* Keys: a fresh button, so Join's green doesn't fade out behind this link. */}
+          <Button key="leave" variant="link" onClick={leave} busy={busy} busyLabel="Leaving…">
             Leave the waiting list
           </Button>
         </>
@@ -360,7 +361,7 @@ function Waitlist({ copy, onChange }: { copy: CopyView; onChange: (copy: CopyVie
               ? `${others === 1 ? "1 family is" : `${others} families are`} waiting already.`
               : ""}
           </p>
-          <Button ref={joinButton} onClick={join} busy={busy} busyLabel="Joining…">
+          <Button key="join" ref={joinButton} onClick={join} busy={busy} busyLabel="Joining…">
             Join the waiting list
           </Button>
         </>

@@ -428,9 +428,9 @@ function InviteRow({ invite, notify }: { invite: Invite; notify: Notify }) {
             )
           }
           busy={busy === "resend"}
-          aria-label={`Send the invitation to ${invite.email} again`}
         >
-          Send again
+          {/* The visible words first, so voice control ("click Send again") finds it. */}
+          Send again<span className="visually-hidden"> to {invite.email}</span>
         </Button>
         <Button
           variant="link"
@@ -442,9 +442,8 @@ function InviteRow({ invite, notify }: { invite: Invite; notify: Notify }) {
             )
           }
           busy={busy === "cancel"}
-          aria-label={`Cancel the invitation to ${invite.email}`}
         >
-          Cancel invitation
+          Cancel invitation<span className="visually-hidden"> to {invite.email}</span>
         </Button>
       </span>
     </li>

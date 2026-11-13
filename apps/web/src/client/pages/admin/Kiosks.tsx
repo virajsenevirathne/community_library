@@ -147,8 +147,9 @@ export function KioskSettings() {
                       : "Not used yet"}
                   </span>
                 </div>
+                {/* Keys: fresh buttons each way, so colours don't fade across and autoFocus works. */}
                 {confirmOff === kiosk.id ? (
-                  <div className="row">
+                  <div className="row" key="confirm">
                     <Button
                       variant="danger"
                       autoFocus
@@ -163,7 +164,7 @@ export function KioskSettings() {
                     </Button>
                   </div>
                 ) : (
-                  <div className="row">
+                  <div className="row" key="actions">
                     <Button
                       variant="secondary"
                       busy={busy === `unlock-${kiosk.id}`}
