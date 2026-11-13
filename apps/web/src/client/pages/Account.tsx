@@ -1,4 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { KioskPinForm } from "../components/KioskPin.tsx";
 import { RemindersSetting } from "../components/PushReminders.tsx";
 import { Alert, Button, Field, Layout, LibraryList, Loading, LoadingPage } from "../components.tsx";
 import { ApiError, api, errorMessage } from "../lib/api.ts";
@@ -282,19 +283,23 @@ function NameSetting() {
 const MADE_ON = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 
 /**
- * Your own code for the library's kiosk tablet. It's shown once, when it's
- * made; a forgotten code is replaced, not looked up. Only shown when the
- * library has a kiosk (or you already have a code).
+ * Your PIN for this library's kiosk tablet: one you choose, or one picked for
+ * you (shown once). Each library has its own, so someone in two libraries
+ * sets one in each. Only shown when the library has a kiosk (or you have a PIN).
  */
 function KioskCodeSection() {
+  const { state } = useSession();
+  const libraryName = (state.status === "ready" && state.me.library?.name) || "the library";
   const [status, setStatus] = useState<{
     kioskInUse: boolean;
     code: { setAt: number } | null;
+    canSet: boolean;
   } | null>(null);
   const [shown, setShown] = useState<string | null>(null);
+  const [changing, setChanging] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [busy, setBusy] = useState<"make" | "off" | null>(null);
+  const [busy, setBusy] = useState<"pick" | "off" | null>(null);
   const codeRef = useRef<HTMLParagraphElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -314,13 +319,24 @@ function KioskCodeSection() {
   }, [shown]);
 
   if (!status || (!status.kioskInUse && !status.code)) return null;
+  // Waiting for approval (or staff without a family): nothing to set yet.
+  if (!status.canSet && !status.code) return null;
 
-  const make = async () => {
-    setBusy("make");
+  const saved = async () => {
+    setChanging(false);
+    setShown(null);
+    setError("");
+    setNotice(`Your PIN is saved. Type it on the kiosk at ${libraryName} to borrow.`);
+    await load();
+    headingRef.current?.focus();
+  };
+  const pick = async () => {
+    setBusy("pick");
     setError("");
     setNotice("");
     try {
       const res = await api<{ code: string }>("/family/kiosk-code", { body: {} });
+      setChanging(false);
       setShown(res.code);
       await load();
     } catch (e) {
@@ -335,7 +351,8 @@ function KioskCodeSection() {
     try {
       await api("/family/kiosk-code", { method: "DELETE" });
       setShown(null);
-      setNotice("Your kiosk code is turned off.");
+      setChanging(false);
+      setNotice("Your PIN is turned off.");
       await load();
       headingRef.current?.focus();
     } catch (e) {
@@ -345,40 +362,68 @@ function KioskCodeSection() {
     }
   };
 
+  const form = (
+    <>
+      <KioskPinForm
+        libraryName={libraryName}
+        submitLabel={status.code ? "Save new PIN" : "Save my PIN"}
+        autoFocus={changing}
+        onSaved={() => void saved()}
+        onCancel={
+          status.code
+            ? () => {
+                setChanging(false);
+                headingRef.current?.focus();
+              }
+            : undefined
+        }
+      />
+      <p>
+        <Button variant="link" busy={busy === "pick"} busyLabel="Picking…" onClick={pick}>
+          {status.code ? "Or pick a new PIN for me" : "Or pick a PIN for me"}
+        </Button>
+      </p>
+    </>
+  );
+
   return (
-    <section className="card stack" aria-labelledby="kiosk-code-heading">
+    <section className="card stack" aria-labelledby="kiosk-code-heading" id="kiosk-pin">
       <h2 id="kiosk-code-heading" className="section-title" ref={headingRef} tabIndex={-1}>
-        Kiosk code
+        Kiosk PIN
       </h2>
       <p className="muted">
-        Borrow at the library's kiosk tablet without your phone: type your own 6-digit code on its
-        keypad. Returning needs no code.
+        Borrow at the kiosk tablet at {libraryName} without your phone: type your 6-digit PIN on its
+        keypad. This PIN only works at {libraryName}. Returning needs no PIN.
       </p>
       <Alert>{error}</Alert>
       <Alert kind="success">{notice}</Alert>
       {shown && (
         <div className="kiosk-code">
           <p className="kiosk-code__digits" ref={codeRef} tabIndex={-1}>
-            <span className="visually-hidden">Your kiosk code is </span>
+            <span className="visually-hidden">Your PIN is </span>
             {shown.split("").join(" ")}
           </p>
           <p>
             Remember it, or write it down somewhere safe. It's only shown now; if you forget it,
-            make a new one here.
+            choose a new one here.
           </p>
         </div>
       )}
-      {status.code ? (
+      {!status.code ? (
+        form
+      ) : changing ? (
+        form
+      ) : (
         <>
           {!shown && (
             <p>
-              You have a kiosk code, made {MADE_ON.format(status.code.setAt)}. Forgotten it? Make a
-              new one, and the old one stops working.
+              You set your PIN on {MADE_ON.format(status.code.setAt)}. Forgot it? Choose a new one,
+              and the old one stops working.
             </p>
           )}
           <div className="row">
-            <Button variant="secondary" busy={busy === "make"} busyLabel="Making…" onClick={make}>
-              Make a new code
+            <Button variant="secondary" onClick={() => setChanging(true)}>
+              Change my PIN
             </Button>
             <Button
               variant="secondary"
@@ -386,14 +431,10 @@ function KioskCodeSection() {
               busyLabel="Turning off…"
               onClick={turnOff}
             >
-              Turn my code off
+              Turn my PIN off
             </Button>
           </div>
         </>
-      ) : (
-        <Button busy={busy === "make"} busyLabel="Making…" onClick={make}>
-          Get my kiosk code
-        </Button>
       )}
     </section>
   );

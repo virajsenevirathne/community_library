@@ -40,7 +40,7 @@ Sunday at 15:00 UTC, which is early Monday morning in Australia.
 
 - **The site's secrets.** Keep a copy of `BETTER_AUTH_SECRET` (and the email
   keys) in the same password manager. A restored database needs the same
-  `BETTER_AUTH_SECRET`: without it, kiosk codes and links in old emails stop
+  `BETTER_AUTH_SECRET`: without it, kiosk PINs and links in old emails stop
   working.
 - **An eye on the runs.** GitHub emails the repository owner when a run fails.
   It also turns off scheduled workflows after 60 days without any activity in

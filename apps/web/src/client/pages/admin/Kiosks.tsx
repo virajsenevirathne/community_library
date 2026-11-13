@@ -80,7 +80,7 @@ export function KioskSettings() {
     setError("");
     try {
       await api(`/admin/kiosks/${kiosk.id}/unlock`, { body: {} });
-      setNotice(`${kiosk.name} is unlocked. Families can type their codes again.`);
+      setNotice(`${kiosk.name} is unlocked. Families can type their PINs again.`);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -114,7 +114,7 @@ export function KioskSettings() {
       </h2>
       <p className="muted">
         A tablet by the shelf where families borrow and return without their phone. Each adult types
-        their own 6-digit kiosk code to borrow; returning needs no code.
+        their own 6-digit PIN to borrow; returning needs no PIN.
       </p>
       <Alert>{error}</Alert>
       <Alert kind="success">{notice}</Alert>

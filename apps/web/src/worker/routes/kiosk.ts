@@ -57,8 +57,8 @@ const WRONG_PER_LIBRARY_HOUR = 60;
 const MAX_KIOSKS = 10;
 
 const codeField = z
-  .string({ error: "Type your 6-digit code." })
-  .regex(/^\d{6}$/, "Type your 6-digit code.");
+  .string({ error: "Type your 6-digit PIN." })
+  .regex(/^\d{6}$/, "Type your 6-digit PIN.");
 
 /** On https the cookie gets the __Host- prefix: only this site, only over https. */
 function cookieName(c: Context<AppEnv>) {
@@ -187,13 +187,95 @@ function codeHash(secret: string, libraryId: string, code: string) {
 }
 
 /**
+ * PINs too easy to guess: one digit repeated, a straight run up or down, or a
+ * short pattern repeated (121212, 123123). Someone trying codes at a kiosk
+ * would try these first.
+ */
+export function easyPin(pin: string): boolean {
+  const digits = [...pin].map(Number);
+  const steps = new Set(digits.slice(1).map((d, i) => (d - (digits[i] ?? 0) + 10) % 10));
+  if (steps.size === 1) return true; // 111111, 123456, 987654, 890123
+  if (pin.slice(0, 2).repeat(3) === pin || pin.slice(0, 3).repeat(2) === pin) return true;
+  if ([...pin].reverse().join("") === pin) return true; // 123321, 100001
+  // Doubled or tripled digits: 112233, 111222.
+  if (/^(\d)\1(\d)\2(\d)\3$/.test(pin) || /^(\d)\1\1(\d)\2\2$/.test(pin)) return true;
+  return looksLikeDate(pin);
+}
+
+/** A birthday or other date, as ddmmyy, mmddyy or yymmdd: the likeliest PIN of all. */
+function looksLikeDate(pin: string): boolean {
+  const [a, b, c] = [pin.slice(0, 2), pin.slice(2, 4), pin.slice(4, 6)].map(Number) as [
+    number,
+    number,
+    number,
+  ];
+  const isDay = (n: number) => n >= 1 && n <= 31;
+  const isMonth = (n: number) => n >= 1 && n <= 12;
+  return (isDay(a) && isMonth(b)) || (isMonth(a) && isDay(b)) || (isMonth(b) && isDay(c));
+}
+
+const PIN_UNAVAILABLE =
+  "That PIN can't be used here. Choose a different one, and avoid easy ones like 123456.";
+
+/**
+ * Sets the PIN a person chose. PINs are unique in the library (each kiosk only
+ * looks up its own library's), so one already in use there is turned down,
+ * with the same answer as an easy one. The daily budget on making codes keeps
+ * anyone from trying PINs here to learn another family's.
+ */
+async function setChosenCode(
+  c: AppContext,
+  libraryId: string,
+  userId: string,
+  personId: string,
+  pin: string,
+) {
+  if (easyPin(pin)) fail(422, "pin_unavailable", PIN_UNAVAILABLE);
+  // "Taken" answers are the only ones that say anything about other families,
+  // so they're rationed: 3 a day for a person, 20 a day across the library
+  // (so extra accounts don't help). Once used up, every try waits a day.
+  const DB = c.env.DB;
+  const secret = authSecret(c.env);
+  const lockKeys = [
+    `kiosk-pin-taken-lock:${userId}`,
+    `kiosk-pin-taken-lock-library:${libraryId}`,
+  ] as const;
+  for (const key of lockKeys) {
+    if ((await lockedFor(DB, secret, key, 86_400)) !== null) {
+      fail(429, "too_many_codes", "That's a lot of PIN changes for today. Try again tomorrow.");
+    }
+  }
+  try {
+    const result = await c.env.DB.prepare(
+      "update kiosk_people set code_hash = ?, code_set_at = ? where id = ? and library_id = ?",
+    )
+      .bind(await codeHash(authSecret(c.env), libraryId, pin), Date.now(), personId, libraryId)
+      .run();
+    if (result.meta.changes !== 1) fail(404, "not_found", "That person was not found.");
+  } catch (error) {
+    if (!/UNIQUE.*code_hash/.test(String(error))) throw error;
+    const counters = [
+      [`kiosk-pin-taken:${userId}`, 3, lockKeys[0]],
+      [`kiosk-pin-taken-library:${libraryId}`, 20, lockKeys[1]],
+    ] as const;
+    for (const [key, max, lockKey] of counters) {
+      const used = await consume(DB, secret, key, { window: 86_400, max });
+      if (used.count >= max) await lock(DB, secret, lockKey);
+    }
+    await event(DB, libraryId, userId, "kiosk_pin_taken", {}).run();
+    fail(422, "pin_unavailable", PIN_UNAVAILABLE);
+  }
+}
+
+/**
  * Gives a kiosk person a fresh code and returns it (the only time it can be
  * seen). Codes are unique in the library, so a clash just picks another.
  */
 async function setNewCode(c: AppContext, libraryId: string, personId: string) {
   const secret = authSecret(c.env);
   for (let i = 0; i < 8; i++) {
-    const code = randomCode();
+    let code = randomCode();
+    while (easyPin(code)) code = randomCode();
     try {
       const result = await c.env.DB.prepare(
         "update kiosk_people set code_hash = ?, code_set_at = ? where id = ? and library_id = ?",
@@ -213,7 +295,7 @@ async function setNewCode(c: AppContext, libraryId: string, personId: string) {
 async function assertCodeBudget(c: AppContext, key: string, max: number) {
   const limit = await consume(c.env.DB, authSecret(c.env), key, { window: 86_400, max });
   if (!limit.allowed) {
-    fail(429, "too_many_codes", "That's a lot of new kiosk codes for today. Try again tomorrow.");
+    fail(429, "too_many_codes", "That's a lot of PIN changes for today. Try again tomorrow.");
   }
 }
 
@@ -359,7 +441,7 @@ export const kioskRoutes = new Hono<AppEnv>()
       }>();
     if (!person) {
       if (minuteCount >= WRONG_PER_MINUTE) await lock(DB, secret, lockKey);
-      fail(400, "wrong_code", "That code didn't work. Check it and try again.");
+      fail(400, "wrong_code", "That PIN didn't work. Check it and try again.");
     }
     await Promise.all(counted.map((k) => refund(DB, secret, k)));
 
@@ -737,12 +819,29 @@ export const kioskRoutes = new Hono<AppEnv>()
         .bind(actor.library.id, actor.userId)
         .first<{ setAt: number }>(),
     ]);
-    return c.json({ kioskInUse: inUse, code: mine ? { setAt: mine.setAt } : null });
+    return c.json({
+      kioskInUse: inUse,
+      code: mine ? { setAt: mine.setAt } : null,
+      // Only an approved family's adults can set one (staff without a family can't).
+      canSet: actor.family?.status === "active",
+    });
   })
 
-  /** Make your kiosk code, or a new one in place of the old. Shown this once. */
+  /**
+   * Set your kiosk PIN, or change it: one you choose, or (with none given) a
+   * random one, shown this once. It's for this library's kiosks only.
+   */
   .post("/family/kiosk-code", async (c) => {
     const actor = await requirePermission(c, "loans:own");
+    const body = await readBody(
+      c,
+      z.object({
+        pin: z
+          .string({ error: "Type a 6-digit PIN." })
+          .regex(/^\d{6}$/, "Your PIN is 6 numbers, like 583920.")
+          .optional(),
+      }),
+    );
     if (!actor.family) {
       fail(404, "no_family", "Your sign-in isn't connected to a family, so you can't borrow.");
     }
@@ -753,14 +852,21 @@ export const kioskRoutes = new Hono<AppEnv>()
     if (!user?.name) {
       fail(422, "name_needed", "Add your first name first, so the kiosk can greet you.");
     }
+    if (actor.family.status !== "active") {
+      fail(403, "family_not_active", "You can set a PIN once staff approve your family.");
+    }
     await assertCodeBudget(c, `kiosk-code-user:${actor.userId}`, 10);
+    if (body.pin) await assertCodeBudget(c, `kiosk-pin-library:${actor.library.id}`, 50);
     const personId = await kioskPersonForUser(DB, actor.library.id, actor.family.id, actor.userId);
-    const code = await setNewCode(c, actor.library.id, personId);
+    // A PIN you chose isn't sent back: you know it, and it shouldn't sit in replies.
+    let code: string | null = null;
+    if (body.pin) await setChosenCode(c, actor.library.id, actor.userId, personId, body.pin);
+    else code = await setNewCode(c, actor.library.id, personId);
     await event(DB, actor.library.id, actor.userId, "kiosk_code_set", {
       familyId: actor.family.id,
       kioskPersonId: personId,
     }).run();
-    return c.json({ code }, 201);
+    return c.json(code ? { code } : { ok: true }, 201);
   })
 
   /** Turn your kiosk code off. */
@@ -868,7 +974,7 @@ export const kioskRoutes = new Hono<AppEnv>()
     const actor = await requirePermission(c, "families:manage");
     const person = await kioskPerson(c, actor, c.req.param("id"));
     if (person.userId !== null) {
-      fail(409, "has_sign_in", "This person signs in with email. Turn their code off instead.");
+      fail(409, "has_sign_in", "This person signs in with email. Turn their PIN off instead.");
     }
     await c.env.DB.batch([
       c.env.DB.prepare("delete from kiosk_people where id = ? and library_id = ?").bind(

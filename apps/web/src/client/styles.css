@@ -2636,7 +2636,7 @@ body.kiosk-mode {
   padding-bottom: 0;
 }
 
-/* A kiosk code, shown once on the Account page or to staff. */
+/* A kiosk PIN, shown once on the Account page or to staff. */
 .kiosk-code {
   padding: var(--s-4);
   border-radius: var(--r-lg);

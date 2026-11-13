@@ -92,7 +92,7 @@ export const exportRoutes = new Hono<AppEnv>().get("/admin/export/:kind", async 
         kiosk: number | null;
       }>();
     rows = [
-      ["Family", "Status", "Joined", "Adult", "Email", "Kiosk code"],
+      ["Family", "Status", "Joined", "Adult", "Email", "Kiosk PIN"],
       ...results.map((r) => [
         r.family,
         r.status,
