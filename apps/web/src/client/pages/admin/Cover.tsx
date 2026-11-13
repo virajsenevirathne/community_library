@@ -1,9 +1,10 @@
 import { useState } from "react";
+import { coverLetter } from "../../lib/copies.ts";
 
 /**
  * A book cover, or a plain coloured placeholder with the title's first letter
- * when there is no image (or it fails to load). Decorative: the title is
- * always shown as text nearby.
+ * (skipping "The", "A" and "An") when there is no image, or it fails to load.
+ * Decorative: the title is always shown as text nearby.
  */
 export function Cover({
   url,
@@ -31,7 +32,7 @@ export function Cover({
   }
   return (
     <span className={`cover cover--${size} cover--placeholder`} aria-hidden="true">
-      {title.trim().charAt(0).toUpperCase() || "?"}
+      {coverLetter(title)}
     </span>
   );
 }

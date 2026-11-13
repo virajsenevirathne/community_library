@@ -242,11 +242,11 @@ function MyBooks() {
               <p className="empty__title">Nothing borrowed yet</p>
               <ol className="steps">
                 <li>Pick a book from the library shelf</li>
-                <li>Open your phone camera and point it at the QR sticker inside the cover</li>
-                <li>Tap the link, then tap Borrow</li>
+                <li>Tap Scan a book, and point the camera at the QR sticker inside the cover</li>
+                <li>Tap Borrow</li>
               </ol>
-              <Link href="/c" className="btn btn--secondary">
-                Camera won't scan? Type the code
+              <Link href="/c" className="btn btn--primary">
+                Scan a book
               </Link>
             </div>
           ) : (
@@ -306,10 +306,10 @@ function MyBooks() {
       )}
       {data && data.loans.length > 0 && (
         <div className="hint-card">
-          <p>
-            To borrow or return a book, scan the QR sticker inside its cover with your phone camera.
-          </p>
-          <Link href="/c">Camera won't scan? Type the code instead</Link>
+          <p>To borrow or return a book, scan the QR sticker inside its cover.</p>
+          <Link href="/c" className="btn btn--primary btn--block">
+            Scan a book
+          </Link>
         </div>
       )}
     </>

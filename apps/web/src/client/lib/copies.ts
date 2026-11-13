@@ -59,3 +59,10 @@ export function lateText(days: number): string {
   if (days <= 0) return "";
   return days === 1 ? "1 day late" : `${days} days late`;
 }
+
+/** The letter for a book without a cover: "The Gruffalo" is G, not T. */
+export function coverLetter(title: string): string {
+  const words = title.trim().split(/\s+/);
+  const first = words.length > 1 && /^(the|a|an)$/i.test(words[0] ?? "") ? words[1] : words[0];
+  return first?.charAt(0).toUpperCase() || "?";
+}

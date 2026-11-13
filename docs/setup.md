@@ -131,7 +131,7 @@ the same command whenever you update the code.
 
    ![A library's dashboard](images/dashboard.png)
 
-Families then scan a sticker with their phone camera to borrow:
+Families then scan a sticker to borrow, with their phone camera or the Scan button in the app:
 
 ![A book's page on a phone](images/phone-book.png)
 
