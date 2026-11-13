@@ -223,8 +223,8 @@ export function Layout({
             {showLibraryLinks && (
               <li>
                 <Link href="/c" aria-current={current("/c", true)}>
-                  <Icon name="keyboard" />
-                  Type a code
+                  <Icon name="scan" />
+                  Scan
                 </Link>
               </li>
             )}

@@ -152,12 +152,16 @@ export function Scanner({
         setError(cameraError(new Error("unsupported"), typeWhat));
         return;
       }
+      // Asked for together, so the camera prompt doesn't wait for the reader to load.
+      const opening = navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
       try {
-        const detector = await createDetector(formatKey.split(","));
-        const opened = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
-          audio: false,
-        });
+        const [detector, opened] = await Promise.all([
+          createDetector(formatKey.split(",")),
+          opening,
+        ]);
         // The scanner closed while the camera was starting: turn it straight off.
         if (stopped || !element) {
           stopStream(opened);
@@ -189,7 +193,9 @@ export function Scanner({
         };
         void tick();
       } catch (e) {
-        setError(cameraError(e, typeWhat));
+        // The camera may have opened even though the reader failed to load.
+        opening.then(stopStream, () => {});
+        if (!stopped) setError(cameraError(e, typeWhat));
       }
     };
     void start();
@@ -224,7 +230,9 @@ export function Scanner({
         <div className={`scanner__frame${paused ? " scanner__frame--paused" : ""}`}>
           <video ref={video} muted playsInline aria-label={label} />
           <div className="scanner__guide" aria-hidden="true" />
-          <p className="scanner__status">{ready ? hint : "Starting the camera…"}</p>
+          <p className="scanner__status" role="status">
+            {ready ? hint : "Starting the camera…"}
+          </p>
         </div>
       )}
     </div>

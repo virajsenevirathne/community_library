@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCopyCode } from "./copies.ts";
+import { coverLetter, parseCopyCode } from "./copies.ts";
 
 describe("parseCopyCode", () => {
   it("reads a typed code", () => {
@@ -14,5 +14,17 @@ describe("parseCopyCode", () => {
   });
   it("rejects anything else", () => {
     expect(parseCopyCode("hello world")).toBeNull();
+  });
+});
+
+describe("coverLetter", () => {
+  it("uses the first real word of the title", () => {
+    expect(coverLetter("The Gruffalo")).toBe("G");
+    expect(coverLetter("a squash and a squeeze")).toBe("S");
+    expect(coverLetter("An Egg Is Quiet")).toBe("E");
+    expect(coverLetter("Possum Magic")).toBe("P");
+    // A title that is only the word itself keeps it.
+    expect(coverLetter("The")).toBe("T");
+    expect(coverLetter("  ")).toBe("?");
   });
 });

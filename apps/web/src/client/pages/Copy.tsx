@@ -1,5 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { PushOffer } from "../components/PushReminders.tsx";
+import { Scanner } from "../components/Scanner.tsx";
 import { Alert, Button, Field, Layout, Loading } from "../components.tsx";
 import { ApiError, api, errorMessage } from "../lib/api.ts";
 import { type CopyView, formatDate, lateText, parseCopyCode } from "../lib/copies.ts";
@@ -208,8 +209,10 @@ export function CopyPage({ code }: { code: string }) {
                 confirmation email is on its way.
               </Alert>
               <PushOffer />
-              <p className="lead">Borrowing another? Scan the next sticker with your camera.</p>
               <div className="row">
+                <Link href="/c" className="btn btn--primary">
+                  Scan another book
+                </Link>
                 <Link href="/" className="btn btn--secondary">
                   See your books
                 </Link>
@@ -633,11 +636,65 @@ function CodeForm({ initial = "" }: { initial?: string }) {
   );
 }
 
-/** For when a camera won't scan: type the code printed under the QR sticker. */
+const CAMERA_KEY = "scanCamera";
+
+/** Whether this phone's Scan page starts the camera: on, unless turned off here before. */
+function readCameraChoice(): boolean {
+  if (!navigator.mediaDevices?.getUserMedia) return false;
+  try {
+    return localStorage.getItem(CAMERA_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+function saveCameraChoice(on: boolean) {
+  try {
+    localStorage.setItem(CAMERA_KEY, on ? "on" : "off");
+  } catch {
+    // Private mode: the camera just starts again next time.
+  }
+}
+
+/**
+ * Scan a book's sticker without leaving the app (the camera starts straight
+ * away, unless it was turned off on this phone), or type the code printed
+ * under it when the camera won't scan.
+ */
 export function CodeEntryPage() {
+  const [camera, setCamera] = useState(readCameraChoice);
+  // The first scan wins: the camera keeps reading until the page has moved on.
+  const scanned = useRef(false);
+  const toggle = () => {
+    saveCameraChoice(!camera);
+    setCamera(!camera);
+  };
   return (
-    <Layout title="Type a book code">
-      <CodeForm />
+    <Layout title="Scan a book">
+      <div className="stack">
+        {camera && (
+          <Scanner
+            label="Camera view for scanning a book's sticker"
+            hint="Point the camera at the QR sticker inside the cover"
+            typeWhat="code"
+            formats={["qr_code"]}
+            accept={parseCopyCode}
+            onScan={(code) => {
+              if (scanned.current) return;
+              scanned.current = true;
+              // Replaced, so Back from the book doesn't land on the camera
+              // again, still pointed at the same sticker.
+              navigate(`/c/${code}`, { replace: true });
+            }}
+          />
+        )}
+        {/* One button that stays put, so focus stays on it when it's pressed. */}
+        <Button variant={camera ? "secondary" : "primary"} className="btn--block" onClick={toggle}>
+          {camera ? "Turn the camera off" : "Scan with the camera"}
+        </Button>
+        <h2 className="section-title">Camera won't scan? Type the code</h2>
+        <CodeForm />
+      </div>
     </Layout>
   );
 }
