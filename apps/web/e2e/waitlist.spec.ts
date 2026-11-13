@@ -4,16 +4,31 @@ import { checkA11y, OTHER_PARENT, PARENT } from "./helpers.ts";
 test("a family joins the waiting list for a book another family has, then leaves it", async ({
   browser,
 }) => {
-  // The Lee family borrows the only copy.
   const lee = await browser.newContext({ storageState: PARENT });
   const leePage = await lee.newPage();
+  const okafor = await browser.newContext({ storageState: OTHER_PARENT });
+  const page = await okafor.newPage();
+
+  // A retry starts clean: an earlier attempt may have left the book out, or
+  // the other family on its waiting list.
+  await page.goto("/e2e-owls/");
+  const leave = page.getByRole("button", { name: /Leave/ });
+  if (await leave.count()) await leave.first().click();
   await leePage.goto("/e2e-owls/c/BK4A");
+  const giveBack = leePage.getByRole("button", { name: /^Return/ });
+  if (await giveBack.count()) {
+    await giveBack.click();
+    await expect(
+      leePage.getByRole("heading", { name: "Thanks for bringing it back" }),
+    ).toBeVisible();
+    await leePage.goto("/e2e-owls/c/BK4A");
+  }
+
+  // The Lee family borrows the only copy.
   await leePage.getByRole("button", { name: "Borrow this book" }).click();
   await expect(leePage.getByRole("heading", { name: "Enjoy the book!" })).toBeVisible();
 
   // Another family finds it out, and joins the waiting list.
-  const okafor = await browser.newContext({ storageState: OTHER_PARENT });
-  const page = await okafor.newPage();
   await page.goto("/e2e-owls/c/BK4A");
   await expect(page.getByText("This book shows as borrowed by another family.")).toBeVisible();
   await page.getByRole("button", { name: "Join the waiting list" }).click();
